@@ -1,0 +1,8 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(find d:/juan/warikes/mobil -type f \\\\\\(-name *.json -o -name *.md \\\\\\))",
+      "Bash(find d:/juan/warikes/mobil -type f -name *.dart -o -name pubspec.yaml -o -name *.json)"
+    ]
+  }
+}

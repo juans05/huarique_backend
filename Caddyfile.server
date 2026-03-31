@@ -1,0 +1,30 @@
+{
+    email juans0520@gmail.com
+}
+
+# API Principal (Wuarike)
+api.injoyplan.com {
+    reverse_proxy backend_api:3000
+    encode gzip
+}
+
+# API Food (Lima Food)
+food-api.injoyplan.com {
+    reverse_proxy backend_food:3001
+    encode gzip
+}
+
+# pgAdmin para la Base de Datos PostgreSQL
+db.injoyplan.com {
+    reverse_proxy pgadmin:80
+}
+
+# Portainer (Panel de Control)
+portainer.injoyplan.com {
+    reverse_proxy portainer:9000
+}
+
+# Redirecciones HTTP a HTTPS
+http://api.injoyplan.com, http://food-api.injoyplan.com, http://db.injoyplan.com, http://portainer.injoyplan.com {
+    redir https://{host}{uri} permanent
+}

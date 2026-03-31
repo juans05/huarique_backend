@@ -1,0 +1,126 @@
+version: '3.8'
+
+services:
+  # Base de Datos PostgreSQL + PostGIS
+  postgres:
+    image: postgis/postgis:14-3.3
+    container_name: postgres_db
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${DB_NAME:-wuarike_db}
+      POSTGRES_USER: ${DB_USER:-wuarike_user}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-AVNS_O2eO4GLdZS9tHQMSHvG}
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - web
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -U ${DB_USER:-wuarike_user}" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Backend API 1 (api.injoyplan.com)
+  backend_api:
+    image: injoyplan-backend:latest
+    container_name: backend_api
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      NODE_ENV: production
+      PORT: "3000"
+      DB_HOST: postgres
+      DB_PORT: "5432"
+      DB_USER: ${DB_USER:-wuarike_user}
+      DB_PASSWORD: ${DB_PASSWORD:-AVNS_O2eO4GLdZS9tHQMSHvG}
+      DB_NAME: ${DB_NAME:-wuarike_db}
+      DB_SSL: "false"
+      JWT_SECRET: ${JWT_SECRET:-una_clave_larga_muy_segura_20}
+      CLOUDINARY_CLOUD_NAME: ${CLOUDINARY_CLOUD_NAME}
+      CLOUDINARY_API_KEY: ${CLOUDINARY_API_KEY}
+      CLOUDINARY_API_SECRET: ${CLOUDINARY_API_SECRET}
+    networks:
+      - web
+    expose:
+      - "3000"
+
+  # Backend Food API (food-api.injoyplan.com)
+  backend_food:
+    image: juans0520/lima-food-backend:1.0.12
+    container_name: food_backend
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      NODE_ENV: production
+      PORT: "3001"
+      DB_HOST: postgres
+      DB_PORT: "5432"
+      DB_USER: ${DB_USER:-wuarike_user}
+      DB_PASSWORD: ${DB_PASSWORD:-AVNS_O2eO4GLdZS9tHQMSHvG}
+      DB_NAME: ${DB_NAME:-wuarike_db}
+      DB_SSL: "false"
+      JWT_SECRET: ${JWT_SECRET:-una_clave_larga_muy_segura_20}
+    networks:
+      - web
+    expose:
+      - "3001"
+
+  # pgAdmin (db.injoyplan.com) - Reemplazo de phpMyAdmin
+  pgadmin:
+    image: dpage/pgadmin4:latest
+    container_name: pgadmin
+    restart: unless-stopped
+    environment:
+      PGADMIN_DEFAULT_EMAIL: ${PGADMIN_EMAIL:-admin@wuarike.pe}
+      PGADMIN_DEFAULT_PASSWORD: ${PGADMIN_PASSWORD:-admin123}
+      PGADMIN_CONFIG_SERVER_MODE: 'False'
+    networks:
+      - web
+    expose:
+      - "80"
+
+  # Caddy Reverse Proxy
+  caddy:
+    image: caddy:latest
+    container_name: caddy
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    networks:
+      - web
+
+  # Portainer (portainer.injoyplan.com)
+  portainer:
+    image: portainer/portainer-ce:latest
+    container_name: portainer
+    restart: unless-stopped
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - portainer_data:/data
+    networks:
+      - web
+    expose:
+      - "9000"
+
+networks:
+  web:
+    name: injoyplan_web
+    driver: bridge
+
+volumes:
+  postgres_data:
+  caddy_data:
+  caddy_config:
+  portainer_data:
