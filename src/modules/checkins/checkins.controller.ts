@@ -9,7 +9,7 @@ import {
     UseGuards,
     HttpCode,
 } from '@nestjs/common';
-import { ApiTags, ApiBearerAuth, ApiOperation } from '@nestjs/swagger';
+import { ApiTags, ApiBearerAuth, ApiOperation, ApiResponse, ApiParam, ApiQuery } from '@nestjs/swagger';
 import { CheckinsService } from './checkins.service';
 import { CreateCheckinDto } from './dto/create-checkin.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
@@ -24,12 +24,18 @@ export class CheckinsController {
     @UseGuards(JwtAuthGuard)
     @ApiBearerAuth()
     @ApiOperation({ summary: 'Create a new check-in' })
+    @ApiResponse({ status: 201, description: 'Check-in created. May include unlocked badges.' })
+    @ApiResponse({ status: 401, description: 'Not authenticated.' })
     async create(@CurrentUser() user: any, @Body() dto: CreateCheckinDto) {
         return this.checkinsService.create(user.id, dto);
     }
 
     @Get('feed')
     @ApiOperation({ summary: 'Get global feed of recent check-ins' })
+    @ApiQuery({ name: 'page', required: false, type: Number, example: 1 })
+    @ApiQuery({ name: 'size', required: false, type: Number, example: 20 })
+    @ApiQuery({ name: 'district', required: false, type: String, example: 'Miraflores' })
+    @ApiResponse({ status: 200, description: 'Paginated list of recent check-ins.' })
     async getFeed(
         @Query('page') page?: number,
         @Query('size') size?: number,
@@ -44,6 +50,9 @@ export class CheckinsController {
     @ApiBearerAuth()
     @HttpCode(200)
     @ApiOperation({ summary: 'Like a check-in' })
+    @ApiParam({ name: 'id', description: 'Check-in UUID' })
+    @ApiResponse({ status: 200, description: 'Like added. Returns updated likes count.' })
+    @ApiResponse({ status: 401, description: 'Not authenticated.' })
     async like(@CurrentUser() user: any, @Param('id') id: string) {
         const likesCount = await this.checkinsService.like(user.id, id);
         return { message: 'Like agregado', likesCount };
@@ -54,6 +63,9 @@ export class CheckinsController {
     @ApiBearerAuth()
     @HttpCode(200)
     @ApiOperation({ summary: 'Remove like from a check-in' })
+    @ApiParam({ name: 'id', description: 'Check-in UUID' })
+    @ApiResponse({ status: 200, description: 'Like removed. Returns updated likes count.' })
+    @ApiResponse({ status: 401, description: 'Not authenticated.' })
     async unlike(@CurrentUser() user: any, @Param('id') id: string) {
         const likesCount = await this.checkinsService.unlike(user.id, id);
         return { message: 'Like eliminado', likesCount };

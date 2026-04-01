@@ -9,7 +9,7 @@ import {
     FileTypeValidator,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
-import { ApiTags, ApiBearerAuth, ApiOperation, ApiConsumes, ApiBody } from '@nestjs/swagger';
+import { ApiTags, ApiBearerAuth, ApiOperation, ApiConsumes, ApiBody, ApiResponse } from '@nestjs/swagger';
 import { UploadService } from './upload.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 
@@ -34,6 +34,9 @@ export class UploadController {
             },
         },
     })
+    @ApiResponse({ status: 201, description: 'Returns { url, publicId } from Cloudinary.' })
+    @ApiResponse({ status: 400, description: 'File too large or invalid type.' })
+    @ApiResponse({ status: 401, description: 'Not authenticated.' })
     @UseInterceptors(FileInterceptor('file'))
     async uploadImage(
         @UploadedFile(

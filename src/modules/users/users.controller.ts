@@ -1,5 +1,5 @@
 import { Controller, Get, Patch, Body, Query, UseGuards, ParseIntPipe, Post, UseInterceptors, UploadedFile } from '@nestjs/common';
-import { ApiBearerAuth, ApiTags, ApiOperation, ApiQuery, ApiConsumes } from '@nestjs/swagger';
+import { ApiBearerAuth, ApiTags, ApiOperation, ApiQuery, ApiConsumes, ApiResponse, ApiBody } from '@nestjs/swagger';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
@@ -9,6 +9,8 @@ import { CloudinaryService } from '../../common/services/cloudinary.service';
 
 @ApiTags('users')
 @Controller('users')
+@UseGuards(JwtAuthGuard)
+@ApiBearerAuth()
 export class UsersController {
     constructor(
         private readonly usersService: UsersService,
@@ -16,17 +18,18 @@ export class UsersController {
     ) { }
 
     @Get('me/profile')
-    @UseGuards(JwtAuthGuard)
-    @ApiBearerAuth()
     @ApiOperation({ summary: 'Get current user profile' })
+    @ApiResponse({ status: 200, description: 'Returns full profile: level, xp, stats, badges.' })
+    @ApiResponse({ status: 401, description: 'Not authenticated.' })
     async getMyProfile(@CurrentUser() user: any) {
         return this.usersService.getProfile(user.id);
     }
 
     @Patch('me/profile')
-    @UseGuards(JwtAuthGuard)
-    @ApiBearerAuth()
     @ApiOperation({ summary: 'Update current user profile' })
+    @ApiResponse({ status: 200, description: 'Profile updated.' })
+    @ApiResponse({ status: 400, description: 'Validation error.' })
+    @ApiResponse({ status: 401, description: 'Not authenticated.' })
     async updateMyProfile(
         @CurrentUser() user: any,
         @Body() updateProfileDto: UpdateProfileDto,
@@ -49,10 +52,17 @@ export class UsersController {
     }
 
     @Post('me/avatar')
-    @UseGuards(JwtAuthGuard)
-    @ApiBearerAuth()
-    @ApiOperation({ summary: 'Upload user avatar' })
+    @ApiOperation({ summary: 'Upload user avatar image (max 5 MB, jpg/png/webp)' })
     @ApiConsumes('multipart/form-data')
+    @ApiBody({
+        schema: {
+            type: 'object',
+            properties: { file: { type: 'string', format: 'binary' } },
+        },
+    })
+    @ApiResponse({ status: 201, description: 'Returns { avatarUrl } with the Cloudinary URL.' })
+    @ApiResponse({ status: 400, description: 'No file uploaded or invalid format.' })
+    @ApiResponse({ status: 401, description: 'Not authenticated.' })
     @UseInterceptors(FileInterceptor('file'))
     async uploadAvatar(
         @CurrentUser() user: any,
@@ -93,11 +103,10 @@ export class UsersController {
     }
 
     @Get('me/checkins')
-    @UseGuards(JwtAuthGuard)
-    @ApiBearerAuth()
-    @ApiOperation({ summary: 'Get current user check-ins' })
-    @ApiQuery({ name: 'page', required: false, type: Number })
-    @ApiQuery({ name: 'limit', required: false, type: Number })
+    @ApiOperation({ summary: 'Get current user check-in history' })
+    @ApiQuery({ name: 'page', required: false, type: Number, example: 1 })
+    @ApiQuery({ name: 'limit', required: false, type: Number, example: 20 })
+    @ApiResponse({ status: 200, description: 'Paginated list of user check-ins.' })
     async getMyCheckins(
         @CurrentUser() user: any,
         @Query('page', new ParseIntPipe({ optional: true })) page?: number,
@@ -107,11 +116,10 @@ export class UsersController {
     }
 
     @Get('me/followers')
-    @UseGuards(JwtAuthGuard)
-    @ApiBearerAuth()
-    @ApiOperation({ summary: 'Get current user followers' })
+    @ApiOperation({ summary: 'Get users who follow the current user' })
     @ApiQuery({ name: 'page', required: false, type: Number })
     @ApiQuery({ name: 'limit', required: false, type: Number })
+    @ApiResponse({ status: 200, description: 'Paginated list of followers.' })
     async getMyFollowers(
         @CurrentUser() user: any,
         @Query('page', new ParseIntPipe({ optional: true })) page?: number,
@@ -121,11 +129,10 @@ export class UsersController {
     }
 
     @Get('me/following')
-    @UseGuards(JwtAuthGuard)
-    @ApiBearerAuth()
-    @ApiOperation({ summary: 'Get users that current user is following' })
+    @ApiOperation({ summary: 'Get users that the current user follows' })
     @ApiQuery({ name: 'page', required: false, type: Number })
     @ApiQuery({ name: 'limit', required: false, type: Number })
+    @ApiResponse({ status: 200, description: 'Paginated list of following users.' })
     async getMyFollowing(
         @CurrentUser() user: any,
         @Query('page', new ParseIntPipe({ optional: true })) page?: number,
@@ -135,9 +142,8 @@ export class UsersController {
     }
 
     @Get('me/favorites')
-    @UseGuards(JwtAuthGuard)
-    @ApiBearerAuth()
-    @ApiOperation({ summary: 'Get current user favorite places' })
+    @ApiOperation({ summary: 'Get current user favourite places' })
+    @ApiResponse({ status: 200, description: 'List of favourite places.' })
     async getMyFavorites(@CurrentUser() user: any) {
         return this.usersService.getFavorites(user.id);
     }
