@@ -73,7 +73,7 @@ export class AuthService {
     async resendCode(email: string) {
         const user = await this.usersService.findByEmail(email);
         if (!user) {
-            throw new NotFoundException('Usuario no encontrado');
+            throw new NotFoundException('Usuario no encontrado ');
         }
 
         if (user.isVerified) {
