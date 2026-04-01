@@ -124,10 +124,11 @@ export class AuthService {
 
     async forgotPassword(dto: ForgotPasswordDto) {
         const user = await this.usersService.findByEmail(dto.email);
+        console.log('-----');
         if (!user) {
             // Don't leak user existence?
             // Actually common to say "Check your email" regardless.
-            return { message: 'Si el correo existe, se ha enviado un código' };
+            return { message: 'Si el correo existe, se ha enviado un código   ' };
         }
 
         const resetCode = Math.floor(100000 + Math.random() * 900000).toString();
