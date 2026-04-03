@@ -140,6 +140,13 @@ export class PlacesService {
         });
     }
 
+    async getMySubmissions(userId: string): Promise<PlaceSubmission[]> {
+        return this.submissionsRepository.find({
+            where: { submittedByUserId: userId },
+            order: { createdAt: 'DESC' },
+        });
+    }
+
     async submitPlace(
         userId: string,
         dto: CreatePlaceSubmissionDto,

@@ -149,7 +149,7 @@ async function runTest() {
   console.log('🛡️ Step 5: Verifying in Admin Panel...');
   const adminRes = await request({
     hostname: BASE_URL,
-    path: '/admin/submissions/pending',
+    path: '/admin/submissions',
     method: 'GET',
     headers: { 'Authorization': `Bearer ${token}` }
   });

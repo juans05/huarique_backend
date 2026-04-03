@@ -58,6 +58,16 @@ export class PlacesController {
         return this.placesService.getDiscovery(district, category, limit);
     }
 
+    @Get('my-submissions')
+    @UseGuards(JwtAuthGuard)
+    @ApiBearerAuth()
+    @ApiOperation({ summary: 'Get all place submissions submitted by the authenticated user' })
+    @ApiResponse({ status: 200, description: 'Array of place submissions.' })
+    @ApiResponse({ status: 401, description: 'Not authenticated.' })
+    async getMySubmissions(@CurrentUser() user: any) {
+        return this.placesService.getMySubmissions(user.id);
+    }
+
     @Get(':id')
     @ApiOperation({ summary: 'Get full place details including dishes, photos, and reviews' })
     @ApiParam({ name: 'id', description: 'Place UUID' })
