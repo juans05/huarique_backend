@@ -12,6 +12,9 @@ import { Category } from './entities/category.entity';
 import { PlaceSubmission } from './entities/place-submission.entity';
 import { PlaceClaim } from './entities/place-claim.entity';
 import { FavoritePlace } from './entities/favorite-place.entity';
+import { PlaceVideo } from './entities/place-video.entity';
+import { UploadService } from '../upload/upload.service';
+
 import { CreatePlaceSubmissionDto } from './dto/create-place-submission.dto';
 import { CreatePlaceClaimDto } from './dto/create-place-claim.dto';
 import { GetPlacesDto } from './dto/get-places.dto';
@@ -31,7 +34,11 @@ export class PlacesService {
         private claimsRepository: Repository<PlaceClaim>,
         @InjectRepository(FavoritePlace)
         private favoritesRepository: Repository<FavoritePlace>,
+        @InjectRepository(PlaceVideo)
+        private videosRepository: Repository<PlaceVideo>,
+        private uploadService: UploadService,
     ) { }
+
 
     async findAll(query: GetPlacesDto): Promise<PaginatedResponse<PlaceResponseDto>> {
         const { page, size, category, district, search } = query;
@@ -289,4 +296,44 @@ export class PlacesService {
 
         await this.favoritesRepository.remove(favorite);
     }
+
+    // --- Videos ---
+
+    async findAllVideos(placeId: string, page: number = 1, limit: number = 10) {
+        const [data, total] = await this.videosRepository.findAndCount({
+            where: { placeId },
+            relations: ['user'],
+            order: { createdAt: 'DESC' },
+            skip: (page - 1) * limit,
+            take: limit,
+        });
+
+        return {
+            data,
+            total,
+            page,
+            limit,
+            totalPages: Math.ceil(total / limit),
+        };
+    }
+
+    async addVideo(userId: string, placeId: string, file: Express.Multer.File) {
+        // Verify place exists
+        await this.findOne(placeId);
+
+        // Upload to Cloudinary
+        const result = await this.uploadService.uploadVideo(file);
+
+        // Save to DB
+        const video = this.videosRepository.create({
+            url: result.secure_url,
+            thumbnailUrl: result.secure_url.replace(/\.[^/.]+$/, ".jpg"), // Cloudinary auto-thumb trick
+            duration: Math.round(result.duration || 0),
+            placeId,
+            userId,
+        });
+
+        return this.videosRepository.save(video);
+    }
 }
+

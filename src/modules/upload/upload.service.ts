@@ -20,4 +20,21 @@ export class UploadService {
             streamifier.createReadStream(file.buffer).pipe(uploadStream);
         });
     }
+
+    async uploadVideo(file: Express.Multer.File): Promise<CloudinaryResponse> {
+        return new Promise((resolve, reject) => {
+            const uploadStream = cloudinary.uploader.upload_stream(
+                {
+                    resource_type: 'video',
+                    folder: 'injoyplan-place-videos',
+                },
+                (error, result) => {
+                    if (error) return reject(error);
+                    resolve(result as CloudinaryResponse);
+                },
+            );
+
+            streamifier.createReadStream(file.buffer).pipe(uploadStream);
+        });
+    }
 }

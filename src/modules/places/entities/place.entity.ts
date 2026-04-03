@@ -18,6 +18,8 @@ import { Amenity } from './amenity.entity';
 import { Ubigeo } from '../../ubigeo/entities/ubigeo.entity';
 import { Category } from './category.entity';
 import { Dish } from './dish.entity';
+import { PlaceVideo } from './place-video.entity';
+
 
 @Entity('places')
 export class Place {
@@ -155,7 +157,11 @@ export class Place {
     @OneToMany(() => Dish, (dish) => dish.place)
     dishes: Dish[];
 
+    @OneToMany(() => PlaceVideo, (video) => video.place)
+    videos: PlaceVideo[];
+
     // Virtual fields (not in DB)
+
     totalCheckins?: number;
     uniqueVisitors?: number;
     distance?: number;

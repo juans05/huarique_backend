@@ -8,7 +8,14 @@ import {
     Query,
     UseGuards,
     HttpCode,
+    UseInterceptors,
+    UploadedFile,
+    ParseFilePipe,
+    MaxFileSizeValidator,
+    FileTypeValidator,
 } from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
+
 import { ApiTags, ApiBearerAuth, ApiOperation, ApiResponse, ApiParam, ApiQuery } from '@nestjs/swagger';
 import { PlacesService } from './places.service';
 import { CreatePlaceSubmissionDto } from './dto/create-place-submission.dto';
@@ -147,4 +154,42 @@ export class PlacesController {
         await this.placesService.removeFavorite(user.id, id);
         return { message: 'Lugar eliminado de favoritos' };
     }
+
+    // --- Videos ---
+
+    @Get(':id/videos')
+    @ApiOperation({ summary: 'List videos for a place' })
+    @ApiParam({ name: 'id', description: 'Place UUID' })
+    @ApiQuery({ name: 'page', required: false, type: Number })
+    @ApiQuery({ name: 'limit', required: false, type: Number })
+    async getVideos(
+        @Param('id') id: string,
+        @Query('page') page: number = 1,
+        @Query('limit') limit: number = 10,
+    ) {
+        return this.placesService.findAllVideos(id, Number(page), Number(limit));
+    }
+
+    @Post(':id/videos')
+    @UseGuards(JwtAuthGuard)
+    @ApiBearerAuth()
+    @ApiOperation({ summary: 'Upload a video for a place' })
+    @ApiParam({ name: 'id', description: 'Place UUID' })
+    @UseInterceptors(FileInterceptor('video'))
+    async uploadVideo(
+        @CurrentUser() user: any,
+        @Param('id') id: string,
+        @UploadedFile(
+            new ParseFilePipe({
+                validators: [
+                    new MaxFileSizeValidator({ maxSize: 1024 * 1024 * 20 }), // 20MB
+                    new FileTypeValidator({ fileType: '.(mp4|mov|avi|wmv)' }),
+                ],
+            }),
+        )
+        file: Express.Multer.File,
+    ) {
+        return this.placesService.addVideo(user.id, id, file);
+    }
 }
+
