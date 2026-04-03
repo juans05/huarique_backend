@@ -17,6 +17,18 @@ export class PaginationDto {
     @Min(1)
     @Max(100)
     size?: number = 20;
+
+    @ApiPropertyOptional({ default: 20, minimum: 1, maximum: 100 })
+    @IsOptional()
+    @Type(() => Number)
+    @IsInt()
+    @Min(1)
+    @Max(100)
+    limit?: number;
+
+    get limitOrSize(): number {
+        return this.limit || this.size || 20;
+    }
 }
 
 export interface PaginatedResponse<T> {

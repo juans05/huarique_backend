@@ -118,6 +118,10 @@ export class AdminService {
             address: submission.address,
             latitude: submission.latitude,
             longitude: submission.longitude,
+            location: {
+                type: 'Point',
+                coordinates: [Number(submission.longitude), Number(submission.latitude)],
+            },
             phone: submission.phone,
             website: submission.website,
             coverImageUrl: submission.coverImageUrl,

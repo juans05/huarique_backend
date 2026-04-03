@@ -41,7 +41,8 @@ export class PlacesService {
 
 
     async findAll(query: GetPlacesDto): Promise<PaginatedResponse<PlaceResponseDto>> {
-        const { page, size, category, district, search } = query;
+        const { page, category, district, search } = query;
+        const size = query.limitOrSize;
         const skip = (page - 1) * size;
 
         const queryBuilder = this.placesRepository.createQueryBuilder('place')
