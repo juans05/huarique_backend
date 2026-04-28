@@ -127,7 +127,7 @@ export class Place {
 
     @ManyToOne(() => User, { nullable: true })
     @JoinColumn({ name: 'claimed_by_user_id' })
-    claimedByUser: User;
+    claimedBy: User;
 
     @Column({ type: 'jsonb', nullable: true })
     metadata: any;
