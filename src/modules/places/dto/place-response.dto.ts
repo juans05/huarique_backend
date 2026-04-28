@@ -55,6 +55,17 @@ class DishDto {
     imageUrl: string | null;
 }
 
+class OwnerDto {
+    @Expose()
+    id: string;
+
+    @Expose()
+    fullName: string;
+
+    @Expose()
+    email: string;
+}
+
 export class PlaceResponseDto {
     @ApiProperty()
     @Expose()
@@ -141,6 +152,11 @@ export class PlaceResponseDto {
     @ApiPropertyOptional()
     @Expose()
     googleRating: number | null;
+
+    @ApiPropertyOptional()
+    @Expose()
+    @Type(() => OwnerDto)
+    claimedBy: OwnerDto | null;
 
     @ApiPropertyOptional()
     @Expose()

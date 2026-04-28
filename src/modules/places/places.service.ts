@@ -120,7 +120,7 @@ export class PlacesService {
     async findOne(id: string): Promise<PlaceResponseDto> {
         const place = await this.placesRepository.findOne({
             where: { id, status: 'active' },
-            relations: ['category', 'district', 'tags', 'amenities', 'dishes']
+            relations: ['category', 'district', 'tags', 'amenities', 'dishes', 'claimedBy'],
         });
         if (!place) {
             throw new NotFoundException('Lugar no encontrado');
