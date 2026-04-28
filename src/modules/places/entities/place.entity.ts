@@ -104,6 +104,12 @@ export class Place {
     @Column({ name: 'total_reviews', type: 'int', default: 0 })
     totalReviews: number;
 
+    @Column({ name: 'google_place_id', nullable: true })
+    googlePlaceId: string | null;
+
+    @Column({ name: 'google_rating', type: 'decimal', precision: 3, scale: 2, nullable: true })
+    googleRating: number | null;
+
     @Column({ name: 'claimed_by_user_id', nullable: true })
     claimedByUserId: string | null;
 

@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
+import { ScheduleModule } from '@nestjs/schedule';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { ThrottlerModule } from '@nestjs/throttler';
 import { DatabaseConfig } from './config/database.config';
@@ -12,6 +13,7 @@ import { MissionsModule } from './modules/missions/missions.module';
 import { AdminModule } from './modules/admin/admin.module';
 import { UploadModule } from './modules/upload/upload.module';
 import { UbigeoModule } from './modules/ubigeo/ubigeo.module';
+import { SocialModule } from './modules/social/social.module';
 import { CommonModule } from './common/common.module';
 
 @Module({
@@ -21,6 +23,7 @@ import { CommonModule } from './common/common.module';
             isGlobal: true,
             envFilePath: '.env',
         }),
+        ScheduleModule.forRoot(),
 
         // Database
         TypeOrmModule.forRootAsync({
@@ -48,6 +51,7 @@ import { CommonModule } from './common/common.module';
         AdminModule,
         UploadModule,
         UbigeoModule,
+        SocialModule,
     ],
 })
 export class AppModule { }

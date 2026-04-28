@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { PlacesService } from './places.service';
 import { PlacesController } from './places.controller';
+import { BusinessPlacesController } from './business-places.controller';
 import { Place } from './entities/place.entity';
 import { Category } from './entities/category.entity';
 import { FavoritePlace } from './entities/favorite-place.entity';
@@ -16,6 +17,9 @@ import { UploadModule } from '../upload/upload.module';
 import { PlaceReport } from './entities/place-report.entity';
 import { GeolocationService } from './services/geolocation.service';
 import { RarityCalculatorService } from './services/rarity-calculator.service';
+import { GoogleMapsService } from './services/google-maps.service';
+import { WeeklyReportService } from './services/weekly-report.service';
+import { User } from '../users/entities/user.entity';
 
 
 @Module({
@@ -31,12 +35,13 @@ import { RarityCalculatorService } from './services/rarity-calculator.service';
             FavoritePlace, 
             Dish,
             PlaceVideo,
+            User,
         ]),
         UploadModule,
     ],
 
-    controllers: [PlacesController],
-    providers: [PlacesService, GeolocationService, RarityCalculatorService],
-    exports: [PlacesService, GeolocationService],
+    controllers: [PlacesController, BusinessPlacesController],
+    providers: [PlacesService, GeolocationService, RarityCalculatorService, GoogleMapsService, WeeklyReportService],
+    exports: [PlacesService, GeolocationService, GoogleMapsService],
 })
 export class PlacesModule { }
