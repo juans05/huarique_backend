@@ -29,7 +29,7 @@ export class WeeklyReportService {
     });
 
     for (const place of places) {
-      if (place.claimedByUserId && place.claimedByUser?.email) {
+      if (place.claimedByUserId && place.claimedBy?.email) {
         try {
           // Aquí calcularíamos las estadísticas reales de la última semana
           // Por ahora simulamos los datos según el pedido del usuario
@@ -39,14 +39,14 @@ export class WeeklyReportService {
           };
 
           await this.mailService.sendWeeklyReport(
-            place.claimedByUser.email,
-            place.claimedByUser.fullName || 'Chef',
+            place.claimedBy.email,
+            place.claimedBy.fullName || 'Chef',
             stats
           );
           
-          this.logger.log(`Reporte enviado a ${place.claimedByUser.email} para ${place.name}`);
+          this.logger.log(`Reporte enviado a ${place.claimedBy.email} para ${place.name}`);
         } catch (error) {
-          this.logger.error(`Error enviando reporte a ${place.claimedByUser.email}: ${error.message}`);
+          this.logger.error(`Error enviando reporte a ${place.claimedBy.email}: ${error.message}`);
         }
       }
     }
@@ -58,13 +58,13 @@ export class WeeklyReportService {
   async triggerManualReport(placeId: string) {
     const place = await this.placesRepo.findOne({
       where: { id: placeId },
-      relations: ['claimedByUser'],
+      relations: ['claimedBy'],
     });
 
-    if (place?.claimedByUser?.email) {
+    if (place?.claimedBy?.email) {
       await this.mailService.sendWeeklyReport(
-        place.claimedByUser.email,
-        place.claimedByUser.fullName || 'Chef',
+        place.claimedBy.email,
+        place.claimedBy.fullName || 'Chef',
         { reviews: 5, visibilityChange: 12 }
       );
       return { message: 'Reporte enviado manualmente' };
