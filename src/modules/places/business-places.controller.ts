@@ -34,7 +34,7 @@ export class BusinessPlacesController {
     async getMyPlaces(@CurrentUser() user: any) {
         return this.placesRepo.find({
             where: { claimedByUserId: user.id },
-            relations: ['category'],
+            relations: ['category', 'claimedBy'],
         });
     }
 
