@@ -174,6 +174,10 @@ export class PlaceResponseDto {
     @Expose()
     openHoursText: string | null;
 
+    @ApiPropertyOptional()
+    @Expose()
+    claimedByUserId: string | null;
+
     @ApiProperty()
     @Expose()
     createdAt: Date;
