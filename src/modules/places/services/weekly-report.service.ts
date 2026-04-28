@@ -25,7 +25,7 @@ export class WeeklyReportService {
 
     const places = await this.placesRepo.find({
       where: { status: 'active' },
-      relations: ['claimedByUser'],
+      relations: ['claimedBy'],
     });
 
     for (const place of places) {
