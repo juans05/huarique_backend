@@ -19,7 +19,7 @@ export class WeeklyReportService {
   ) {}
 
   // Se ejecuta todos los lunes a las 8:00 AM
-  @Cron(CronExpression.EVERY_MONDAY_AT_8AM)
+  @Cron('0 0 8 * * 1')
   async handleWeeklyReports() {
     this.logger.log('Iniciando envío de reportes semanales...');
 
