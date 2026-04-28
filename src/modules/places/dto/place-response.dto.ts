@@ -143,10 +143,6 @@ export class PlaceResponseDto {
 
     @ApiPropertyOptional()
     @Expose()
-    claimedByUserId: string | null;
-
-    @ApiPropertyOptional()
-    @Expose()
     googlePlaceId: string | null;
 
     @ApiPropertyOptional()
