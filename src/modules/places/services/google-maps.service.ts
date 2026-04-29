@@ -38,6 +38,64 @@ export class GoogleMapsService {
   }
 
   /**
+   * Busca lugares en Google Maps (Autocomplete)
+   */
+  async searchPlaces(query: string) {
+    if (!this.apiKey) return [];
+
+    try {
+      const url = `https://maps.googleapis.com/maps/api/place/autocomplete/json?input=${encodeURIComponent(query)}&types=establishment&key=${this.apiKey}&language=es`;
+      const response = await fetch(url);
+      const data = await response.json();
+
+      if (data.status === 'OK') {
+        return data.predictions.map(p => ({
+          googlePlaceId: p.place_id,
+          name: p.structured_formatting.main_text,
+          address: p.structured_formatting.secondary_text,
+          source: 'google'
+        }));
+      }
+      return [];
+    } catch (error) {
+      this.logger.error(`Error in Google Autocomplete: ${error.message}`);
+      return [];
+    }
+  }
+
+  /**
+   * Obtiene detalles completos de un lugar por su Place ID
+   */
+  async getPlaceDetails(googlePlaceId: string) {
+    if (!this.apiKey) return null;
+
+    try {
+      const url = `https://maps.googleapis.com/maps/api/place/details/json?place_id=${googlePlaceId}&fields=name,formatted_address,geometry,formatted_phone_number,website,rating,user_ratings_total,types,photos&key=${this.apiKey}&language=es`;
+      const response = await fetch(url);
+      const data = await response.json();
+
+      if (data.status === 'OK') {
+        const res = data.result;
+        return {
+          name: res.name,
+          address: res.formatted_address,
+          latitude: res.geometry.location.lat,
+          longitude: res.geometry.location.lng,
+          phone: res.formatted_phone_number,
+          website: res.website,
+          googleRating: res.rating,
+          totalReviews: res.user_ratings_total,
+          googlePlaceId: googlePlaceId
+        };
+      }
+      return null;
+    } catch (error) {
+      this.logger.error(`Error in Google Place Details: ${error.message}`);
+      return null;
+    }
+  }
+
+  /**
    * Intenta encontrar el Place ID a partir de un nombre y dirección
    */
   async findPlaceId(name: string, address: string) {
