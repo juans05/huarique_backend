@@ -15,7 +15,7 @@ import { PlacesService } from './places.service';
 import { GoogleMapsService } from './services/google-maps.service';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Place } from './entities/place.entity';
-import { Repository, Like } from 'typeorm';
+import { Repository, Like, ILike } from 'typeorm';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 
 @ApiTags('business-places')
@@ -37,8 +37,8 @@ export class BusinessPlacesController {
 
         // 1. Search in Wuarike (already registered by users)
         const wuarikePlaces = await this.placesRepo.find({
-            where: { name: Like(`%${query}%`) },
-            take: 5
+            where: { name: ILike(`%${query}%`) },
+            take: 10
         });
 
         // 2. Search in Google Maps
@@ -94,6 +94,29 @@ export class BusinessPlacesController {
 
         const saved = await this.placesRepo.save(newPlace);
         return { message: 'Local importado y reclamado', placeId: saved.id };
+    }
+
+    @Post('onboarding/create')
+    @ApiOperation({ summary: 'Create a new place manually' })
+    async createPlace(@Body() data: { name: string, address?: string }, @CurrentUser() user: any) {
+        // Final check for similar names to prevent duplicates
+        const existing = await this.placesRepo.findOne({ 
+            where: { name: ILike(data.name) } 
+        });
+        
+        if (existing) {
+            throw new Error('Ya existe un restaurante con un nombre similar en Wuarike.');
+        }
+
+        const newPlace = this.placesRepo.create({
+            name: data.name,
+            address: data.address || '',
+            claimedByUserId: user.id,
+            status: 'pending'
+        });
+
+        const saved = await this.placesRepo.save(newPlace);
+        return { message: 'Local creado con éxito', placeId: saved.id };
     }
 
     @Get('my-places')

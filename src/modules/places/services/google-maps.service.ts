@@ -44,7 +44,7 @@ export class GoogleMapsService {
     if (!this.apiKey) return [];
 
     try {
-      const url = `https://maps.googleapis.com/maps/api/place/autocomplete/json?input=${encodeURIComponent(query)}&types=establishment&key=${this.apiKey}&language=es`;
+      const url = `https://maps.googleapis.com/maps/api/place/autocomplete/json?input=${encodeURIComponent(query)}&types=establishment&components=country:pe&key=${this.apiKey}&language=es`;
       const response = await fetch(url);
       const data = await response.json();
 
