@@ -107,6 +107,10 @@ export class Place {
     @Column({ name: 'google_place_id', nullable: true })
     googlePlaceId: string | null;
 
+    @Column({ unique: true, nullable: true })
+    @Index()
+    slug: string | null;
+
     @Column({ name: 'google_rating', type: 'decimal', precision: 3, scale: 2, nullable: true })
     googleRating: number | null;
 

@@ -79,6 +79,10 @@ export class PlaceResponseDto {
     @Expose()
     description: string | null;
 
+    @ApiProperty()
+    @Expose()
+    slug: string | null;
+
     @ApiPropertyOptional({ description: 'Category object' })
     @Expose()
     @Type(() => CategoryDto)
