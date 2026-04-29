@@ -7,6 +7,7 @@ import {
     UseGuards,
     Post,
     ForbiddenException,
+    Query,
 } from '@nestjs/common';
 import { ApiTags, ApiBearerAuth, ApiOperation, ApiParam } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
@@ -14,7 +15,7 @@ import { PlacesService } from './places.service';
 import { GoogleMapsService } from './services/google-maps.service';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Place } from './entities/place.entity';
-import { Repository } from 'typeorm';
+import { Repository, Like } from 'typeorm';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 
 @ApiTags('business-places')
@@ -28,6 +29,72 @@ export class BusinessPlacesController {
         @InjectRepository(Place)
         private placesRepo: Repository<Place>,
     ) {}
+
+    @Get('onboarding/search')
+    @ApiOperation({ summary: 'Search for places in Wuarike and Google for onboarding' })
+    async searchOnboarding(@Query('q') query: string) {
+        if (!query || query.length < 3) return { wuarike: [], google: [] };
+
+        // 1. Search in Wuarike (already registered by users)
+        const wuarikePlaces = await this.placesRepo.find({
+            where: { name: Like(`%${query}%`) },
+            take: 5
+        });
+
+        // 2. Search in Google Maps
+        const googleResults = await this.googleMapsService.searchPlaces(query);
+
+        return {
+            wuarike: wuarikePlaces.map(p => ({
+                id: p.id,
+                name: p.name,
+                address: p.address,
+                googlePlaceId: p.googlePlaceId,
+                isClaimed: !!p.claimedByUserId,
+                source: 'wuarike'
+            })),
+            google: googleResults
+        };
+    }
+
+    @Post('onboarding/claim/:id')
+    @ApiOperation({ summary: 'Claim an existing Wuarike place' })
+    async claimPlace(@Param('id') id: string, @CurrentUser() user: any) {
+        const place = await this.placesRepo.findOne({ where: { id } });
+        if (!place) throw new Error('Place not found');
+        if (place.claimedByUserId) throw new Error('Place already claimed');
+
+        await this.placesRepo.update(id, {
+            claimedByUserId: user.id,
+            status: 'pending' // Needs verification
+        });
+
+        return { message: 'Reclamación iniciada con éxito', placeId: id };
+    }
+
+    @Post('onboarding/import')
+    @ApiOperation({ summary: 'Import a place from Google and claim it' })
+    async importPlace(@Body('googlePlaceId') googlePlaceId: string, @CurrentUser() user: any) {
+        // Check if already in Wuarike
+        const existing = await this.placesRepo.findOne({ where: { googlePlaceId } });
+        if (existing) {
+            return this.claimPlace(existing.id, user);
+        }
+
+        // Get details from Google
+        const details = await this.googleMapsService.getPlaceDetails(googlePlaceId);
+        if (!details) throw new Error('Could not fetch details from Google');
+
+        // Create in Wuarike and assign to user
+        const newPlace = this.placesRepo.create({
+            ...details,
+            claimedByUserId: user.id,
+            status: 'pending'
+        });
+
+        const saved = await this.placesRepo.save(newPlace);
+        return { message: 'Local importado y reclamado', placeId: saved.id };
+    }
 
     @Get('my-places')
     @ApiOperation({ summary: 'List places owned by the authenticated business user' })
