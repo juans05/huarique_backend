@@ -12,6 +12,7 @@ import { Tag } from './entities/tag.entity';
 import { Amenity } from './entities/amenity.entity';
 import { Dish } from './entities/dish.entity';
 import { PlaceVideo } from './entities/place-video.entity';
+import { GoogleReview } from './entities/google-review.entity';
 
 import { UploadModule } from '../upload/upload.module';
 import { PlaceReport } from './entities/place-report.entity';
@@ -25,16 +26,17 @@ import { User } from '../users/entities/user.entity';
 @Module({
     imports: [
         TypeOrmModule.forFeature([
-            Place, 
-            PlaceSubmission, 
-            PlaceClaim, 
-            PlaceReport, 
-            Tag, 
-            Amenity, 
-            Category, 
-            FavoritePlace, 
+            Place,
+            PlaceSubmission,
+            PlaceClaim,
+            PlaceReport,
+            Tag,
+            Amenity,
+            Category,
+            FavoritePlace,
             Dish,
             PlaceVideo,
+            GoogleReview,
             User,
         ]),
         UploadModule,
