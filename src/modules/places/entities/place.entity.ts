@@ -114,6 +114,9 @@ export class Place {
     @Column({ name: 'google_rating', type: 'decimal', precision: 3, scale: 2, nullable: true })
     googleRating: number | null;
 
+    @Column({ name: 'google_total_reviews', type: 'int', default: 0 })
+    googleTotalReviews: number;
+
     @Column({ name: 'claimed_by_user_id', nullable: true })
     claimedByUserId: string | null;
 

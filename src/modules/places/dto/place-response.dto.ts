@@ -153,6 +153,10 @@ export class PlaceResponseDto {
     @Expose()
     googleRating: number | null;
 
+    @ApiProperty()
+    @Expose()
+    googleTotalReviews: number;
+
     @ApiPropertyOptional()
     @Expose()
     @Type(() => OwnerDto)

@@ -18,6 +18,8 @@ import { Place } from './entities/place.entity';
 import { Repository, Like, ILike } from 'typeorm';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 
+import { GoogleReview } from './entities/google-review.entity';
+
 @ApiTags('business-places')
 @Controller('business')
 @UseGuards(JwtAuthGuard)
@@ -28,7 +30,9 @@ export class BusinessPlacesController {
         private readonly googleMapsService: GoogleMapsService,
         @InjectRepository(Place)
         private placesRepo: Repository<Place>,
-    ) {}
+        @InjectRepository(GoogleReview)
+        private googleReviewsRepo: Repository<GoogleReview>,
+    ) { }
 
     @Get('onboarding/search')
     @ApiOperation({ summary: 'Search for places in Wuarike and Google for onboarding' })
@@ -100,10 +104,10 @@ export class BusinessPlacesController {
     @ApiOperation({ summary: 'Create a new place manually' })
     async createPlace(@Body() data: { name: string, address?: string }, @CurrentUser() user: any) {
         // Final check for similar names to prevent duplicates
-        const existing = await this.placesRepo.findOne({ 
-            where: { name: ILike(data.name) } 
+        const existing = await this.placesRepo.findOne({
+            where: { name: ILike(data.name) }
         });
-        
+
         if (existing) {
             throw new Error('Ya existe un restaurante con un nombre similar en Wuarike.');
         }
@@ -174,13 +178,62 @@ export class BusinessPlacesController {
         }
 
         const googleData = await this.googleMapsService.getPlaceReviews(place.googlePlaceId);
-        
+
         if (googleData) {
+            // 1. Update Rating and Total Count
             await this.placesRepo.update(id, {
                 googleRating: googleData.rating,
+                googleTotalReviews: googleData.totalReviews,
             });
+
+            // 2. Persist new reviews
+            if (googleData.reviews && googleData.reviews.length > 0) {
+                for (const rev of googleData.reviews) {
+                    try {
+                        // Check if exists (composite key: placeId + authorName + time)
+                        const existing = await this.googleReviewsRepo.findOne({
+                            where: {
+                                placeId: id,
+                                authorName: rev.author_name,
+                                time: rev.time
+                            }
+                        });
+
+                        if (!existing) {
+                            const newReview = this.googleReviewsRepo.create({
+                                placeId: id,
+                                authorName: rev.author_name,
+                                authorPhotoUrl: rev.profile_photo_url,
+                                rating: rev.rating,
+                                text: rev.text,
+                                relativeTimeDescription: rev.relative_time_description,
+                                time: rev.time
+                            });
+                            await this.googleReviewsRepo.save(newReview);
+                        }
+                    } catch (e) {
+                        // Ignore duplicates or errors for individual reviews
+                        console.error('Error saving google review', e);
+                    }
+                }
+            }
         }
 
         return googleData;
+    }
+
+    @Get('places/:id/google-reviews')
+    @ApiOperation({ summary: 'Get persisted Google reviews from DB' })
+    @ApiParam({ name: 'id', description: 'Place UUID' })
+    async getPersistedReviews(@Param('id') id: string, @CurrentUser() user: any) {
+        const place = await this.placesRepo.findOne({ where: { id } });
+        if (!place || place.claimedByUserId !== user.id) {
+            throw new ForbiddenException('No tienes permiso para ver estas reseñas');
+        }
+
+        return this.googleReviewsRepo.find({
+            where: { placeId: id },
+            order: { time: 'DESC' }
+        });
     }
 }
