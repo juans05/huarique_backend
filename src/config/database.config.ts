@@ -13,6 +13,7 @@ export class DatabaseConfig implements TypeOrmOptionsFactory {
             return {
                 type: 'postgres',
                 url: url,
+                schema: this.configService.get('DB_SCHEMA') || 'wuarike_db',
                 entities: [__dirname + '/../**/*.entity{.ts,.js}'],
                 synchronize: true,
                 logging: this.configService.get('NODE_ENV') === 'development',
