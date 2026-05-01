@@ -15,6 +15,7 @@ import { UploadModule } from './modules/upload/upload.module';
 import { UbigeoModule } from './modules/ubigeo/ubigeo.module';
 import { SocialModule } from './modules/social/social.module';
 import { CommonModule } from './common/common.module';
+import { AiModule } from './modules/ai/ai.module';
 
 @Module({
     imports: [
@@ -52,6 +53,7 @@ import { CommonModule } from './common/common.module';
         UploadModule,
         UbigeoModule,
         SocialModule,
+        AiModule,
     ],
 })
 export class AppModule { }
