@@ -157,23 +157,32 @@ export class AuthService {
     }
 
     async login(loginDto: LoginDto) {
+        console.log(`[AUTH] Attempting login for email: ${loginDto.email}`);
         const user = await this.usersService.findByEmail(loginDto.email);
+        
         if (!user) {
+            console.warn(`[AUTH] Login failed: User not found for email ${loginDto.email}`);
             throw new UnauthorizedException('Credenciales inválidas');
         }
+
+        console.log(`[AUTH] User found: ${user.email} (Role: ${user.role}, Verified: ${user.isVerified})`);
 
         const isPasswordValid = await this.usersService.validatePassword(
             user,
             loginDto.password,
         );
+        
         if (!isPasswordValid) {
+            console.warn(`[AUTH] Login failed: Invalid password for user ${user.email}`);
             throw new UnauthorizedException('Credenciales inválidas');
         }
 
         if (!user.isVerified) {
+            console.warn(`[AUTH] Login failed: User ${user.email} is not verified`);
             throw new UnauthorizedException('Debes verificar tu correo electrónico antes de ingresar');
         }
 
+        console.log(`[AUTH] Login successful for user: ${user.email}`);
         await this.usersService.updateLastLogin(user.id);
 
         const tokens = await this.generateTokens(user.id, user.email, user.role);
