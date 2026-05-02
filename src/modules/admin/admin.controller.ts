@@ -170,4 +170,24 @@ export class AdminController {
     async activateUser(@Param('id') id: string) {
         return this.adminService.activateUser(id);
     }
+
+    // --- Places ---
+
+    @Get('places')
+    @ApiOperation({ summary: 'List places for administration' })
+    @ApiQuery({ name: 'page', required: false, type: Number })
+    @ApiQuery({ name: 'search', required: false, type: String })
+    async getPlaces(
+        @Query('page') page: number = 1,
+        @Query('search') search?: string,
+    ) {
+        return this.adminService.getPlaces(page, 10, search);
+    }
+
+    @Patch('places/:id')
+    @ApiOperation({ summary: 'Update a place (status, verification, etc.)' })
+    @ApiParam({ name: 'id', description: 'Place UUID' })
+    async updatePlace(@Param('id') id: string, @Body() updateData: any) {
+        return this.adminService.updatePlace(id, updateData);
+    }
 }

@@ -253,4 +253,42 @@ export class AdminService {
         }
         return user;
     }
+
+    // --- Place Management ---
+
+    async getPlaces(page: number = 1, limit: number = 10, search?: string) {
+        const query = this.placesRepository.createQueryBuilder('place')
+            .leftJoinAndSelect('place.category', 'category')
+            .leftJoinAndSelect('place.district', 'district')
+            .orderBy('place.createdAt', 'DESC')
+            .skip((page - 1) * limit)
+            .take(limit);
+
+        if (search) {
+            query.where('place.name ILIKE :search', { search: `%${search}%` });
+        }
+
+        const [places, total] = await query.getManyAndCount();
+
+        return {
+            data: places,
+            meta: {
+                total,
+                page,
+                limit,
+                totalPages: Math.ceil(total / limit),
+            }
+        };
+    }
+
+    async updatePlace(id: string, updateData: any) {
+        const place = await this.placesRepository.findOne({ where: { id } });
+        if (!place) {
+            throw new NotFoundException('Lugar no encontrado');
+        }
+
+        // Apply updates
+        Object.assign(place, updateData);
+        return this.placesRepository.save(place);
+    }
 }
