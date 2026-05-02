@@ -1,4 +1,4 @@
-import { Injectable, UnauthorizedException, ConflictException, NotFoundException } from '@nestjs/common';
+import { Injectable, UnauthorizedException, ConflictException, NotFoundException, Logger } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, LessThan } from 'typeorm';
@@ -14,6 +14,8 @@ import * as bcrypt from 'bcryptjs';
 
 @Injectable()
 export class AuthService {
+    private readonly logger = new Logger(AuthService.name);
+
     constructor(
         private usersService: UsersService,
         private jwtService: JwtService,
@@ -40,7 +42,7 @@ export class AuthService {
         );
 
         await this.mailService.sendVerificationCode(registerDto.email, verificationCode);
-        console.log(`[EMAIL] Verification code for ${registerDto.email}: ${verificationCode}`);
+        this.logger.log(`[EMAIL] Verification code for ${registerDto.email}: ${verificationCode}`);
 
         return {
             message: 'Código de verificación enviado al correo',
@@ -84,7 +86,7 @@ export class AuthService {
         await this.usersService.setVerificationCode(user.id, verificationCode);
 
         await this.mailService.sendVerificationCode(email, verificationCode);
-        console.log(`[EMAIL] Resent verification code for ${email}: ${verificationCode}`);
+        this.logger.log(`[EMAIL] Resent verification code for ${email}: ${verificationCode}`);
 
         return { message: 'Nuevo código enviado' };
     }
@@ -124,7 +126,7 @@ export class AuthService {
 
     async forgotPassword(dto: ForgotPasswordDto) {
         const user = await this.usersService.findByEmail(dto.email);
-        console.log('-----');
+        
         if (!user) {
             // Don't leak user existence?
             // Actually common to say "Check your email" regardless.
@@ -135,7 +137,7 @@ export class AuthService {
         await this.usersService.setVerificationCode(user.id, resetCode);
 
         await this.mailService.sendVerificationCode(user.email, resetCode);
-        console.log(`[EMAIL] Password Reset code for ${user.email}: ${resetCode}`);
+        this.logger.log(`[EMAIL] Password Reset code for ${user.email}: ${resetCode}`);
 
         return { message: 'Código de recuperación enviado' };
     }
@@ -157,15 +159,15 @@ export class AuthService {
     }
 
     async login(loginDto: LoginDto) {
-        console.log(`[AUTH] Attempting login for email: ${loginDto.email}`);
+        this.logger.log(`[AUTH] Attempting login for email: ${loginDto.email}`);
         const user = await this.usersService.findByEmail(loginDto.email);
         
         if (!user) {
-            console.warn(`[AUTH] Login failed: User not found for email ${loginDto.email}`);
+            this.logger.warn(`[AUTH] Login failed: User not found for email ${loginDto.email}`);
             throw new UnauthorizedException('Credenciales inválidas');
         }
 
-        console.log(`[AUTH] User found: ${user.email} (Role: ${user.role}, Verified: ${user.isVerified})`);
+        this.logger.log(`[AUTH] User found: ${user.email} (Role: ${user.role}, Verified: ${user.isVerified})`);
 
         const isPasswordValid = await this.usersService.validatePassword(
             user,
@@ -173,16 +175,16 @@ export class AuthService {
         );
         
         if (!isPasswordValid) {
-            console.warn(`[AUTH] Login failed: Invalid password for user ${user.email}`);
+            this.logger.warn(`[AUTH] Login failed: Invalid password for user ${user.email}`);
             throw new UnauthorizedException('Credenciales inválidas');
         }
 
         if (!user.isVerified) {
-            console.warn(`[AUTH] Login failed: User ${user.email} is not verified`);
+            this.logger.warn(`[AUTH] Login failed: User ${user.email} is not verified`);
             throw new UnauthorizedException('Debes verificar tu correo electrónico antes de ingresar');
         }
 
-        console.log(`[AUTH] Login successful for user: ${user.email}`);
+        this.logger.log(`[AUTH] Login successful for user: ${user.email}`);
         await this.usersService.updateLastLogin(user.id);
 
         const tokens = await this.generateTokens(user.id, user.email, user.role);

@@ -186,35 +186,28 @@ export class BusinessPlacesController {
                 googleTotalReviews: googleData.totalReviews,
             });
 
-            // 2. Persist new reviews
+            // 2. Persist new reviews (Optimized using batch insert)
             if (googleData.reviews && googleData.reviews.length > 0) {
-                for (const rev of googleData.reviews) {
-                    try {
-                        // Check if exists (composite key: placeId + authorName + time)
-                        const existing = await this.googleReviewsRepo.findOne({
-                            where: {
-                                placeId: id,
-                                authorName: rev.author_name,
-                                time: rev.time
-                            }
-                        });
+                try {
+                    const values = googleData.reviews.map(rev => ({
+                        placeId: id,
+                        authorName: rev.author_name,
+                        authorPhotoUrl: rev.profile_photo_url,
+                        rating: rev.rating,
+                        text: rev.text,
+                        relativeTimeDescription: rev.relative_time_description,
+                        time: rev.time
+                    }));
 
-                        if (!existing) {
-                            const newReview = this.googleReviewsRepo.create({
-                                placeId: id,
-                                authorName: rev.author_name,
-                                authorPhotoUrl: rev.profile_photo_url,
-                                rating: rev.rating,
-                                text: rev.text,
-                                relativeTimeDescription: rev.relative_time_description,
-                                time: rev.time
-                            });
-                            await this.googleReviewsRepo.save(newReview);
-                        }
-                    } catch (e) {
-                        // Ignore duplicates or errors for individual reviews
-                        console.error('Error saving google review', e);
-                    }
+                    await this.googleReviewsRepo
+                        .createQueryBuilder()
+                        .insert()
+                        .into(GoogleReview)
+                        .values(values)
+                        .orIgnore() // Ignore duplicates based on unique index
+                        .execute();
+                } catch (e) {
+                    console.error('Error batch saving google reviews', e);
                 }
             }
         }

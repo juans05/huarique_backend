@@ -54,6 +54,19 @@ export class UsersService {
     }
 
     async validatePassword(user: User, password: string): Promise<boolean> {
+        if (!user.passwordHash) return false;
+
+        // Migración automática de contraseñas legacy en texto plano
+        if (!user.passwordHash.startsWith('$2a$') && !user.passwordHash.startsWith('$2b$')) {
+            if (user.passwordHash === password) {
+                const newHash = await bcrypt.hash(password, 10);
+                await this.usersRepository.update(user.id, { passwordHash: newHash });
+                user.passwordHash = newHash;
+                return true;
+            }
+            return false;
+        }
+
         return bcrypt.compare(password, user.passwordHash);
     }
 
