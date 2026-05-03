@@ -10,7 +10,7 @@ import {
 } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth, ApiParam, ApiQuery } from '@nestjs/swagger';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, LessThanOrEqual } from 'typeorm';
+import { Repository, LessThanOrEqual, MoreThanOrEqual } from 'typeorm';
 import { PublicFeedback } from './entities/public-feedback.entity';
 import { CreatePublicFeedbackDto } from './dto/create-public-feedback.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
@@ -51,15 +51,17 @@ export class PublicFeedbackController {
     @Get('business/places/:id/complaints')
     @UseGuards(JwtAuthGuard)
     @ApiBearerAuth()
-    @ApiOperation({ summary: 'Get private complaints intercepted by the smart filter' })
+    @ApiOperation({ summary: 'Get feedback: complaints (rating<=3) or reviews (rating>=4)' })
     @ApiParam({ name: 'id', description: 'Place UUID' })
     @ApiQuery({ name: 'page', required: false, type: Number })
     @ApiQuery({ name: 'status', required: false, enum: ['pending', 'resolved', 'contacted'] })
-    @ApiResponse({ status: 200, description: 'Paginated list of private feedback/complaints.' })
+    @ApiQuery({ name: 'type', required: false, enum: ['complaint', 'review'] })
+    @ApiResponse({ status: 200, description: 'Paginated list of feedback.' })
     async getComplaints(
         @Param('id') placeId: string,
         @Query('page') page = 1,
         @Query('status') status?: string,
+        @Query('type') type?: string,
     ): Promise<PaginatedResponse<PublicFeedback>> {
         const size = 20;
         const skip = (page - 1) * size;
@@ -67,6 +69,11 @@ export class PublicFeedbackController {
         const where: any = { placeId };
         if (status) {
             where.status = status;
+        }
+        if (type === 'complaint') {
+            where.rating = LessThanOrEqual(3);
+        } else if (type === 'review') {
+            where.rating = MoreThanOrEqual(4);
         }
 
         const [data, total] = await this.feedbackRepository.findAndCount({
