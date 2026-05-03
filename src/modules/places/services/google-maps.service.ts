@@ -43,7 +43,8 @@ export class GoogleMapsService {
     if (!this.apiKey) return [];
 
     try {
-      const url = `https://maps.googleapis.com/maps/api/place/autocomplete/json?input=${encodeURIComponent(query)}&types=establishment&components=country:pe&key=${this.apiKey}&language=es`;
+      // location bias: Lima, Peru (-12.0464, -77.0428), radius 50km
+      const url = `https://maps.googleapis.com/maps/api/place/autocomplete/json?input=${encodeURIComponent(query)}&types=establishment&components=country:pe&location=-12.0464,-77.0428&radius=50000&key=${this.apiKey}&language=es`;
       const response = await fetch(url);
       const data = await response.json();
 
