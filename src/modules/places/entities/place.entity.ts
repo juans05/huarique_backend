@@ -107,6 +107,15 @@ export class Place {
     @Column({ name: 'google_place_id', nullable: true })
     googlePlaceId: string | null;
 
+    @Column({ name: 'google_access_token', type: 'text', nullable: true })
+    googleAccessToken: string | null;
+
+    @Column({ name: 'google_refresh_token', type: 'text', nullable: true })
+    googleRefreshToken: string | null;
+
+    @Column({ name: 'google_location_name', nullable: true })
+    googleLocationName: string | null;
+
     @Column({ unique: true, nullable: true })
     @Index()
     slug: string | null;
