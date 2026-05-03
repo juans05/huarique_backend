@@ -7,6 +7,7 @@ import {
     UseGuards,
     Post,
     ForbiddenException,
+    BadRequestException,
     Query,
 } from '@nestjs/common';
 import { ApiTags, ApiBearerAuth, ApiOperation, ApiParam } from '@nestjs/swagger';
@@ -177,45 +178,51 @@ export class BusinessPlacesController {
         }
 
         if (!place.googlePlaceId) {
-            throw new Error('No Google Place ID configured');
+            throw new BadRequestException('Este local no tiene un Google Place ID configurado. Agrégalo en el perfil del negocio.');
         }
 
         const googleData = await this.googleMapsService.getPlaceReviews(place.googlePlaceId);
 
-        if (googleData) {
-            // 1. Update Rating and Total Count
-            await this.placesRepo.update(id, {
-                googleRating: googleData.rating,
-                googleTotalReviews: googleData.totalReviews,
-            });
+        if (!googleData) {
+            throw new BadRequestException('No se pudo conectar con Google Maps. Verifica que GOOGLE_MAPS_API_KEY esté configurada en el servidor.');
+        }
 
-            // 2. Persist new reviews (Optimized using batch insert)
-            if (googleData.reviews && googleData.reviews.length > 0) {
-                try {
-                    const values = googleData.reviews.map(rev => ({
-                        placeId: id,
-                        authorName: rev.author_name,
-                        authorPhotoUrl: rev.profile_photo_url,
-                        rating: rev.rating,
-                        text: rev.text,
-                        relativeTimeDescription: rev.relative_time_description,
-                        time: rev.time
-                    }));
+        // 1. Update Rating and Total Count
+        await this.placesRepo.update(id, {
+            googleRating: googleData.rating,
+            googleTotalReviews: googleData.totalReviews,
+        });
 
-                    await this.googleReviewsRepo
-                        .createQueryBuilder()
-                        .insert()
-                        .into(GoogleReview)
-                        .values(values)
-                        .orIgnore() // Ignore duplicates based on unique index
-                        .execute();
-                } catch (e) {
-                    console.error('Error batch saving google reviews', e);
-                }
+        // 2. Persist new reviews
+        if (googleData.reviews && googleData.reviews.length > 0) {
+            try {
+                const values = googleData.reviews.map(rev => ({
+                    placeId: id,
+                    authorName: rev.author_name,
+                    authorPhotoUrl: rev.profile_photo_url,
+                    rating: rev.rating,
+                    text: rev.text,
+                    relativeTimeDescription: rev.relative_time_description,
+                    time: rev.time
+                }));
+
+                await this.googleReviewsRepo
+                    .createQueryBuilder()
+                    .insert()
+                    .into(GoogleReview)
+                    .values(values)
+                    .orIgnore()
+                    .execute();
+            } catch (e) {
+                console.error('Error batch saving google reviews', e);
             }
         }
 
-        return googleData;
+        return {
+            rating: googleData.rating,
+            totalReviews: googleData.totalReviews,
+            synced: googleData.reviews?.length || 0,
+        };
     }
 
     @Get('places/:id/google-reviews')
