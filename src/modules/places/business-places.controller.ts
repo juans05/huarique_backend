@@ -225,6 +225,23 @@ export class BusinessPlacesController {
         };
     }
 
+    @Get('places/:id/google-debug')
+    @ApiOperation({ summary: 'Debug: raw Google API response for a place' })
+    @ApiParam({ name: 'id', description: 'Place UUID' })
+    async debugGoogle(@Param('id') id: string, @CurrentUser() user: any) {
+        const place = await this.placesRepo.findOne({ where: { id } });
+        if (!place || place.claimedByUserId !== user.id) {
+            throw new ForbiddenException('No tienes permiso');
+        }
+        return {
+            googlePlaceId: place.googlePlaceId || null,
+            hasApiKey: !!process.env.GOOGLE_MAPS_API_KEY,
+            data: place.googlePlaceId
+                ? await this.googleMapsService.getPlaceReviews(place.googlePlaceId).catch(e => ({ error: e.message }))
+                : null,
+        };
+    }
+
     @Get('places/:id/google-reviews')
     @ApiOperation({ summary: 'Get persisted Google reviews from DB' })
     @ApiParam({ name: 'id', description: 'Place UUID' })
