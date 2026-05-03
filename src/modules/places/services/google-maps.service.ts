@@ -16,25 +16,24 @@ export class GoogleMapsService {
       return null;
     }
 
-    try {
-      const url = `https://maps.googleapis.com/maps/api/place/details/json?place_id=${googlePlaceId}&fields=reviews,rating,user_ratings_total&key=${this.apiKey}&language=es`;
-      
-      const response = await fetch(url);
-      const data = await response.json();
+    const url = `https://maps.googleapis.com/maps/api/place/details/json?place_id=${googlePlaceId}&fields=reviews,rating,user_ratings_total&key=${this.apiKey}&language=es`;
 
-      if (data.status !== 'OK') {
-        throw new Error(`Google API Error: ${data.status} - ${data.error_message || ''}`);
-      }
+    const response = await fetch(url);
+    const data = await response.json();
 
-      return {
-        rating: data.result.rating,
-        totalReviews: data.result.user_ratings_total,
-        reviews: data.result.reviews || [],
-      };
-    } catch (error) {
-      this.logger.error(`Error fetching Google Reviews: ${error.message}`);
-      throw error;
+    this.logger.log(`Google API status: ${data.status} | placeId: ${googlePlaceId} | reviews: ${data.result?.reviews?.length ?? 0}`);
+
+    if (data.status !== 'OK') {
+      const msg = `Google API Error: ${data.status} - ${data.error_message || 'sin detalle'}`;
+      this.logger.error(msg);
+      throw new Error(msg);
     }
+
+    return {
+      rating: data.result.rating,
+      totalReviews: data.result.user_ratings_total,
+      reviews: data.result.reviews || [],
+    };
   }
 
   /**
