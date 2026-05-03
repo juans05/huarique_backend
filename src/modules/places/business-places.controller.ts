@@ -226,15 +226,23 @@ export class BusinessPlacesController {
     }
 
     @Get('places/:id/find-google-place-id')
-    @ApiOperation({ summary: 'Auto-find Google Place ID by business name' })
+    @ApiOperation({ summary: 'Auto-find Google Place ID by business name and address' })
     @ApiParam({ name: 'id', description: 'Place UUID' })
     async findGooglePlaceId(@Param('id') id: string, @CurrentUser() user: any) {
-        const place = await this.placesRepo.findOne({ where: { id } });
+        const place = await this.placesRepo.findOne({
+            where: { id },
+            relations: ['district'],
+        });
         if (!place || place.claimedByUserId !== user.id) {
             throw new ForbiddenException('No tienes permiso');
         }
 
-        const results = await this.googleMapsService.searchPlaces(place.name);
+        // Search with name + district/address for more precise results
+        const query = place.address
+            ? `${place.name} ${place.address}`
+            : place.name;
+
+        const results = await this.googleMapsService.searchPlaces(query);
         return { candidates: results.slice(0, 5) };
     }
 
