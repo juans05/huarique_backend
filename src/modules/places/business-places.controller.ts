@@ -152,15 +152,18 @@ export class BusinessPlacesController {
             throw new ForbiddenException('No tienes permiso para editar este local');
         }
 
-        await this.placesRepo.update(id, {
-            name: data.name,
-            address: data.address,
-            categoryId: data.categoryId,
-            openHoursText: data.openHoursText,
-            priceMin: data.priceMin,
-            coverImageUrl: data.coverImageUrl,
-            googlePlaceId: data.googlePlaceId,
-        });
+        const patch: Record<string, any> = {};
+        if (data.name !== undefined) patch.name = data.name;
+        if (data.address !== undefined) patch.address = data.address;
+        if (data.categoryId !== undefined) patch.categoryId = data.categoryId;
+        if (data.openHoursText !== undefined) patch.openHoursText = data.openHoursText;
+        if (data.priceMin !== undefined) patch.priceMin = data.priceMin;
+        if (data.coverImageUrl !== undefined) patch.coverImageUrl = data.coverImageUrl;
+        if (data.googlePlaceId !== undefined) patch.googlePlaceId = data.googlePlaceId;
+
+        if (Object.keys(patch).length > 0) {
+            await this.placesRepo.update(id, patch);
+        }
         return { message: 'Perfil actualizado' };
     }
 
