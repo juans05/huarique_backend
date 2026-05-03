@@ -43,22 +43,22 @@ export class GoogleMapsService {
     if (!this.apiKey) return [];
 
     try {
-      // location bias: Lima, Peru (-12.0464, -77.0428), radius 50km
-      const url = `https://maps.googleapis.com/maps/api/place/autocomplete/json?input=${encodeURIComponent(query)}&types=establishment&components=country:pe&location=-12.0464,-77.0428&radius=50000&key=${this.apiKey}&language=es`;
+      // Text Search with type=restaurant, biased to Lima Peru
+      const url = `https://maps.googleapis.com/maps/api/place/textsearch/json?query=${encodeURIComponent(query)}&type=restaurant&location=-12.0464,-77.0428&radius=50000&key=${this.apiKey}&language=es`;
       const response = await fetch(url);
       const data = await response.json();
 
-      if (data.status === 'OK') {
-        return data.predictions.map(p => ({
+      if (data.status === 'OK' || data.status === 'ZERO_RESULTS') {
+        return (data.results || []).map((p: any) => ({
           googlePlaceId: p.place_id,
-          name: p.structured_formatting.main_text,
-          address: p.structured_formatting.secondary_text,
+          name: p.name,
+          address: p.formatted_address,
           source: 'google'
         }));
       }
       return [];
     } catch (error) {
-      this.logger.error(`Error in Google Autocomplete: ${error.message}`);
+      this.logger.error(`Error in Google Text Search: ${error.message}`);
       return [];
     }
   }
