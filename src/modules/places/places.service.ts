@@ -5,7 +5,7 @@ import {
     ConflictException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, Like, Raw } from 'typeorm';
+import { Repository, Like, Raw, In } from 'typeorm';
 import { plainToInstance } from 'class-transformer';
 import { Place } from './entities/place.entity';
 import { Category } from './entities/category.entity';
@@ -119,7 +119,7 @@ export class PlacesService {
 
     async findOne(id: string): Promise<PlaceResponseDto> {
         const place = await this.placesRepository.findOne({
-            where: { id, status: 'active' },
+            where: { id, status: In(['active', 'pending']) },
             relations: ['category', 'district', 'tags', 'amenities', 'dishes', 'claimedBy'],
         });
         if (!place) {
