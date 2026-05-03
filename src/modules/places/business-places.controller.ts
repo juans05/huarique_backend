@@ -225,6 +225,19 @@ export class BusinessPlacesController {
         };
     }
 
+    @Get('places/:id/find-google-place-id')
+    @ApiOperation({ summary: 'Auto-find Google Place ID by business name' })
+    @ApiParam({ name: 'id', description: 'Place UUID' })
+    async findGooglePlaceId(@Param('id') id: string, @CurrentUser() user: any) {
+        const place = await this.placesRepo.findOne({ where: { id } });
+        if (!place || place.claimedByUserId !== user.id) {
+            throw new ForbiddenException('No tienes permiso');
+        }
+
+        const results = await this.googleMapsService.searchPlaces(place.name);
+        return { candidates: results.slice(0, 5) };
+    }
+
     @Get('places/:id/google-debug')
     @ApiOperation({ summary: 'Debug: raw Google API response for a place' })
     @ApiParam({ name: 'id', description: 'Place UUID' })
