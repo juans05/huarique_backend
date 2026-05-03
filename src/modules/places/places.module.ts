@@ -19,7 +19,9 @@ import { PlaceReport } from './entities/place-report.entity';
 import { GeolocationService } from './services/geolocation.service';
 import { RarityCalculatorService } from './services/rarity-calculator.service';
 import { GoogleMapsService } from './services/google-maps.service';
+import { GoogleBusinessService } from './services/google-business.service';
 import { WeeklyReportService } from './services/weekly-report.service';
+import { GoogleCallbackController } from './google-callback.controller';
 import { User } from '../users/entities/user.entity';
 
 
@@ -42,8 +44,8 @@ import { User } from '../users/entities/user.entity';
         UploadModule,
     ],
 
-    controllers: [PlacesController, BusinessPlacesController],
-    providers: [PlacesService, GeolocationService, RarityCalculatorService, GoogleMapsService, WeeklyReportService],
+    controllers: [PlacesController, BusinessPlacesController, GoogleCallbackController],
+    providers: [PlacesService, GeolocationService, RarityCalculatorService, GoogleMapsService, GoogleBusinessService, WeeklyReportService],
     exports: [PlacesService, GeolocationService, GoogleMapsService],
 })
 export class PlacesModule { }

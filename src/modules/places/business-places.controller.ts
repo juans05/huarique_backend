@@ -14,9 +14,10 @@ import { ApiTags, ApiBearerAuth, ApiOperation, ApiParam } from '@nestjs/swagger'
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { PlacesService } from './places.service';
 import { GoogleMapsService } from './services/google-maps.service';
+import { GoogleBusinessService } from './services/google-business.service';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Place } from './entities/place.entity';
-import { Repository, Like, ILike } from 'typeorm';
+import { Repository, ILike } from 'typeorm';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 
 import { GoogleReview } from './entities/google-review.entity';
@@ -29,6 +30,7 @@ export class BusinessPlacesController {
     constructor(
         private readonly placesService: PlacesService,
         private readonly googleMapsService: GoogleMapsService,
+        private readonly googleBusinessService: GoogleBusinessService,
         @InjectRepository(Place)
         private placesRepo: Repository<Place>,
         @InjectRepository(GoogleReview)
@@ -276,5 +278,57 @@ export class BusinessPlacesController {
             where: { placeId: id },
             order: { time: 'DESC' }
         });
+    }
+
+    // ── Google Business Profile OAuth ───────────────────────────────────────
+
+    @Get('google/auth-url')
+    @ApiOperation({ summary: 'Get Google OAuth URL to connect Business Profile' })
+    async getGoogleAuthUrl(@Query('placeId') placeId: string, @CurrentUser() user: any) {
+        const place = await this.placesRepo.findOne({ where: { id: placeId } });
+        if (!place || place.claimedByUserId !== user.id) {
+            throw new ForbiddenException('No tienes permiso');
+        }
+        const url = this.googleBusinessService.getAuthUrl(placeId, user.id);
+        return { url };
+    }
+
+    @Get('places/:id/google-locations')
+    @ApiOperation({ summary: 'List Google Business locations available after OAuth' })
+    @ApiParam({ name: 'id', description: 'Place UUID' })
+    async getGoogleLocations(@Param('id') id: string, @CurrentUser() user: any) {
+        const place = await this.placesRepo.findOne({ where: { id } });
+        if (!place || place.claimedByUserId !== user.id) {
+            throw new ForbiddenException('No tienes permiso');
+        }
+        const locations = await this.googleBusinessService.getLocations(id);
+        return { locations };
+    }
+
+    @Post('places/:id/google-location')
+    @ApiOperation({ summary: 'Save selected Google Business location for this place' })
+    @ApiParam({ name: 'id', description: 'Place UUID' })
+    async setGoogleLocation(
+        @Param('id') id: string,
+        @Body('locationName') locationName: string,
+        @CurrentUser() user: any,
+    ) {
+        const place = await this.placesRepo.findOne({ where: { id } });
+        if (!place || place.claimedByUserId !== user.id) {
+            throw new ForbiddenException('No tienes permiso');
+        }
+        await this.placesRepo.update(id, { googleLocationName: locationName });
+        return { message: 'Ubicación de Google guardada' };
+    }
+
+    @Get('places/:id/all-google-reviews')
+    @ApiOperation({ summary: 'Fetch ALL reviews from Google Business Profile API' })
+    @ApiParam({ name: 'id', description: 'Place UUID' })
+    async getAllGoogleReviews(@Param('id') id: string, @CurrentUser() user: any) {
+        const place = await this.placesRepo.findOne({ where: { id } });
+        if (!place || place.claimedByUserId !== user.id) {
+            throw new ForbiddenException('No tienes permiso');
+        }
+        return this.googleBusinessService.getAllReviews(id);
     }
 }
