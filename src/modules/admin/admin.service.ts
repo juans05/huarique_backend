@@ -209,12 +209,13 @@ export class AdminService {
 
     async getUsers(page: number = 1, limit: number = 10, search?: string) {
         const query = this.usersRepository.createQueryBuilder('user')
+            .where('user.role != :adminRole', { adminRole: 'admin' })
             .orderBy('user.createdAt', 'DESC')
             .skip((page - 1) * limit)
             .take(limit);
 
         if (search) {
-            query.where('user.fullName ILIKE :search OR user.email ILIKE :search', { search: `%${search}%` });
+            query.andWhere('user.fullName ILIKE :search OR user.email ILIKE :search', { search: `%${search}%` });
         }
 
         const [users, total] = await query.getManyAndCount();
