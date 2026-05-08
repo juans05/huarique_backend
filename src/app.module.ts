@@ -17,6 +17,7 @@ import { SocialModule } from './modules/social/social.module';
 import { CommonModule } from './common/common.module';
 import { AiModule } from './modules/ai/ai.module';
 import { SubscriptionsModule } from './modules/subscriptions/subscriptions.module';
+import { LoyaltyModule } from './modules/loyalty/loyalty.module';
 
 @Module({
     imports: [
@@ -56,6 +57,7 @@ import { SubscriptionsModule } from './modules/subscriptions/subscriptions.modul
         SocialModule,
         AiModule,
         SubscriptionsModule,
+        LoyaltyModule,
     ],
 })
 export class AppModule { }
