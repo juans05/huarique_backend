@@ -182,6 +182,15 @@ export class PlaceResponseDto {
     @Expose()
     claimedByUserId: string | null;
 
+    @ApiPropertyOptional()
+    @Expose()
+    googleLocationName: string | null;
+
+    @ApiPropertyOptional()
+    @Expose()
+    @Transform(({ obj }) => !!obj.googleAccessToken)
+    googleConnected: boolean;
+
     @ApiProperty()
     @Expose()
     createdAt: Date;
