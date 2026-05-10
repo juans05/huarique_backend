@@ -270,4 +270,19 @@ export class AuthService {
             refreshToken,
         };
     }
+
+    async resetDemoPassword(newPassword: string) {
+        const user = await this.usersService.findByEmail('demo@warike.com') 
+            || await this.usersService.findByEmail('demo@wuarike.com');
+        
+        if (!user) {
+            throw new NotFoundException('Usuario demo no encontrado');
+        }
+
+        const passwordHash = await bcrypt.hash(newPassword, 10);
+        await this.usersService.updatePassword(user.id, passwordHash);
+        
+        this.logger.log(`[ADMIN] Password reset for demo user: ${user.email}`);
+        return { success: true, message: 'Contraseña actualizada' };
+    }
 }
