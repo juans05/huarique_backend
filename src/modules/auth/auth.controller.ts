@@ -104,4 +104,12 @@ export class AuthController {
     async logout(@CurrentUser() user: any) {
         await this.authService.logout(user.id);
     }
+
+    @Post('admin/reset-demo')
+    @IsPublic()
+    @ApiOperation({ summary: 'Reset demo user password (admin only)' })
+    @ApiResponse({ status: 200, description: 'Password reset successfully.' })
+    async resetDemoPassword(@Body() body: { password: string }) {
+        return this.authService.resetDemoPassword(body.password);
+    }
 }
