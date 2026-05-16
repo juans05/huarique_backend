@@ -1,17 +1,17 @@
 import { Controller, Get, Query } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiQuery, ApiResponse } from '@nestjs/swagger';
-import { UbigeoService } from './ubigeo.service';
+import { UbigeoRawService } from './ubigeo-raw.service';
 
 @ApiTags('ubigeo')
 @Controller('ubigeo')
 export class UbigeoController {
-    constructor(private readonly ubigeoService: UbigeoService) { }
+    constructor(private readonly ubigeoRawService: UbigeoRawService) { }
 
     @Get('departments')
     @ApiOperation({ summary: 'List all departments' })
     @ApiResponse({ status: 200, description: 'Array of department names.' })
     async getDepartments() {
-        return this.ubigeoService.getDepartments();
+        return this.ubigeoRawService.getDepartments();
     }
 
     @Get('provinces')
@@ -19,7 +19,7 @@ export class UbigeoController {
     @ApiQuery({ name: 'department', required: true })
     @ApiResponse({ status: 200, description: 'Array of province names.' })
     async getProvinces(@Query('department') department: string) {
-        return this.ubigeoService.getProvinces(department);
+        return this.ubigeoRawService.getProvinces(department);
     }
 
     @Get('districts')
@@ -31,6 +31,6 @@ export class UbigeoController {
         @Query('department') department: string,
         @Query('province') province: string
     ) {
-        return this.ubigeoService.getDistricts(department, province);
+        return this.ubigeoRawService.getDistricts(department, province);
     }
 }

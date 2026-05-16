@@ -8,9 +8,9 @@
   "scripts": {
     "build": "nest build",
     "format": "prettier --write \"src/**/*.ts\" \"test/**/*.ts\"",
-    "start": "nest start",
-    "start:dev": "nest start --watch",
-    "start:debug": "nest start --debug --watch",
+    "start": "nest start --",
+    "start:dev": "nest start --watch --",
+    "start:debug": "nest start --debug --watch --",
     "start:prod": "node dist/main",
     "lint": "eslint \"{src,apps,libs,test}/**/*.ts\" --fix",
     "test": "jest",
@@ -23,7 +23,9 @@
     "migration:run": "npm run typeorm -- migration:run -d src/config/database.config.ts",
     "migration:revert": "npm run typeorm -- migration:revert -d src/config/database.config.ts",
     "migrate": "ts-node src/scripts/migrate.ts",
-    "seed": "ts-node src/scripts/seed.ts"
+    "migrate:device": "node migrations/run-device-migration.js",
+    "seed": "ts-node src/scripts/seed.ts",
+    "seed:ubigeo": "ts-node src/scripts/seed-ubigeo.ts"
   },
   "dependencies": {
     "@nestjs/common": "^10.3.0",

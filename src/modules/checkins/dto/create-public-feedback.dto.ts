@@ -26,4 +26,9 @@ export class CreatePublicFeedbackDto {
     @IsOptional()
     @IsString()
     customerContact?: string;
+
+    @ApiPropertyOptional({ example: 'uuid', description: 'ID del dispositivo (zona) desde donde se envía el feedback' })
+    @IsOptional()
+    @IsString()
+    deviceId?: string;
 }

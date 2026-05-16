@@ -38,6 +38,7 @@ export class PublicFeedbackController {
             comment: dto.comment || null,
             customerName: dto.customerName || null,
             customerContact: dto.customerContact || null,
+            deviceId: dto.deviceId || null,
             status: 'pending',
         });
 
