@@ -32,6 +32,9 @@ export class PublicFeedback {
     @Column({ name: 'customer_contact', nullable: true })
     customerContact: string;
 
+    @Column({ name: 'device_id', nullable: true })
+    deviceId?: string;
+
     @Column({ default: 'pending' })
     status: 'pending' | 'resolved' | 'contacted';
 

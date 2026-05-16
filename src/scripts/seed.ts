@@ -16,6 +16,7 @@ import { PlaceReport } from '../modules/places/entities/place-report.entity';
 import { Tag } from '../modules/places/entities/tag.entity';
 import { Amenity } from '../modules/places/entities/amenity.entity';
 import { Category } from '../modules/places/entities/category.entity';
+import { Dish } from '../modules/places/entities/dish.entity';
 
 // Checkins
 import { Checkin } from '../modules/checkins/entities/checkin.entity';
@@ -42,7 +43,7 @@ const AppDataSource = new DataSource({
     type: 'postgres',
     host: process.env.DB_HOST || 'localhost',
     port: parseInt(process.env.DB_PORT || '5432'),
-    username: process.env.DB_USER || 'doadmin',
+    username: process.env.DB_USERNAME || process.env.DB_USER || 'doadmin',
     password: process.env.DB_PASSWORD,
     database: process.env.DB_NAME || 'wuarike_db',
     schema: process.env.DB_SCHEMA || 'wuarike_db',
@@ -55,6 +56,7 @@ const AppDataSource = new DataSource({
         PlaceReport,
         Tag,
         Amenity,
+        Dish,
         Checkin,
         CheckinLike,
         CheckinPhoto,
