@@ -8,6 +8,7 @@ import {
     Post,
     ForbiddenException,
     BadRequestException,
+    NotFoundException,
     Query,
 } from '@nestjs/common';
 import { ApiTags, ApiBearerAuth, ApiOperation, ApiParam } from '@nestjs/swagger';
@@ -17,8 +18,10 @@ import { GoogleMapsService } from './services/google-maps.service';
 import { GoogleBusinessService } from './services/google-business.service';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Place } from './entities/place.entity';
-import { Repository, ILike } from 'typeorm';
+import { Amenity } from './entities/amenity.entity';
+import { Repository, ILike, IsNull, In } from 'typeorm';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
+import { CreateOnboardingPlaceDto } from './dto/create-onboarding-place.dto';
 
 import { GoogleReview } from './entities/google-review.entity';
 
@@ -33,6 +36,8 @@ export class BusinessPlacesController {
         private readonly googleBusinessService: GoogleBusinessService,
         @InjectRepository(Place)
         private placesRepo: Repository<Place>,
+        @InjectRepository(Amenity)
+        private amenityRepo: Repository<Amenity>,
         @InjectRepository(GoogleReview)
         private googleReviewsRepo: Repository<GoogleReview>,
     ) { }
@@ -45,7 +50,18 @@ export class BusinessPlacesController {
         // 1. Search in Wuarike (already registered by users)
         const wuarikePlaces = await this.placesRepo.find({
             where: { name: ILike(`%${query}%`) },
+            order: { name: 'ASC' },
             take: 10
+        });
+
+        // Sort: exact match first, then starts with, then contains
+        const queryLower = query.toLowerCase();
+        wuarikePlaces.sort((a, b) => {
+            const aName = (a.name || '').toLowerCase();
+            const bName = (b.name || '').toLowerCase();
+            const aExact = aName === queryLower ? 0 : aName.startsWith(queryLower) ? 1 : 2;
+            const bExact = bName === queryLower ? 0 : bName.startsWith(queryLower) ? 1 : 2;
+            return aExact - bExact;
         });
 
         // 2. Search in Google Maps
@@ -67,14 +83,16 @@ export class BusinessPlacesController {
     @Post('onboarding/claim/:id')
     @ApiOperation({ summary: 'Claim an existing Wuarike place' })
     async claimPlace(@Param('id') id: string, @CurrentUser() user: any) {
-        const place = await this.placesRepo.findOne({ where: { id } });
-        if (!place) throw new Error('Place not found');
-        if (place.claimedByUserId) throw new Error('Place already claimed');
+        const result = await this.placesRepo.update(
+            { id, claimedByUserId: IsNull() },
+            { claimedByUserId: user.id, status: 'pending' }
+        );
 
-        await this.placesRepo.update(id, {
-            claimedByUserId: user.id,
-            status: 'pending' // Needs verification
-        });
+        if (result.affected === 0) {
+            const place = await this.placesRepo.findOne({ where: { id } });
+            if (!place) throw new NotFoundException('Lugar no encontrado');
+            throw new BadRequestException('Este lugar ya ha sido reclamado');
+        }
 
         return { message: 'Reclamación iniciada con éxito', placeId: id };
     }
@@ -105,19 +123,20 @@ export class BusinessPlacesController {
 
     @Post('onboarding/create')
     @ApiOperation({ summary: 'Create a new place manually' })
-    async createPlace(@Body() data: { name: string, address?: string }, @CurrentUser() user: any) {
-        // Final check for similar names to prevent duplicates
+    async createPlace(@Body() dto: CreateOnboardingPlaceDto, @CurrentUser() user: any) {
+        const name = dto.name.trim();
+
         const existing = await this.placesRepo.findOne({
-            where: { name: ILike(data.name) }
+            where: { name: ILike(name) }
         });
 
         if (existing) {
-            throw new Error('Ya existe un restaurante con un nombre similar en Wuarike.');
+            throw new BadRequestException('Ya existe un local con un nombre similar en Wuarike.');
         }
 
         const newPlace = this.placesRepo.create({
-            name: data.name,
-            address: data.address || '',
+            name,
+            address: dto.address?.trim() || '',
             claimedByUserId: user.id,
             status: 'pending'
         });
@@ -129,16 +148,24 @@ export class BusinessPlacesController {
     @Get('my-places')
     @ApiOperation({ summary: 'List places owned by the authenticated business user' })
     async getMyPlaces(@CurrentUser() user: any) {
-        return this.placesRepo.find({
+        const places = await this.placesRepo.find({
             where: { claimedByUserId: user.id },
             relations: ['category', 'claimedBy'],
         });
+        return places.map(p => ({
+            id: p.id,
+            name: p.name,
+            coverImageUrl: p.coverImageUrl,
+            category: p.category,
+        }));
     }
 
     @Get('places/:id/profile')
     @ApiOperation({ summary: 'Get business profile for owner' })
     @ApiParam({ name: 'id', description: 'Place UUID' })
     async getProfile(@Param('id') id: string, @CurrentUser() user: any) {
+        console.log('----------------------------------------------------------');
+        console.log('id', id);
         const place = await this.placesService.findOne(id);
         if (place.claimedByUserId !== user.id) {
             throw new ForbiddenException('No tienes permiso para ver este local');
@@ -155,18 +182,43 @@ export class BusinessPlacesController {
             throw new ForbiddenException('No tienes permiso para editar este local');
         }
 
-        const patch: Record<string, any> = {};
-        if (data.name !== undefined) patch.name = data.name;
-        if (data.address !== undefined) patch.address = data.address;
-        if (data.categoryId !== undefined) patch.categoryId = data.categoryId;
-        if (data.openHoursText !== undefined) patch.openHoursText = data.openHoursText;
-        if (data.priceMin !== undefined) patch.priceMin = data.priceMin;
-        if (data.coverImageUrl !== undefined) patch.coverImageUrl = data.coverImageUrl;
-        if (data.googlePlaceId !== undefined) patch.googlePlaceId = data.googlePlaceId;
+        if (data.name !== undefined) place.name = data.name;
+        if (data.address !== undefined) place.address = data.address;
+        if (data.categoryId !== undefined) place.categoryId = data.categoryId;
+        if (data.districtId !== undefined) place.districtId = data.districtId;
+        if (data.openHoursText !== undefined) place.openHoursText = data.openHoursText;
+        if (data.priceMin !== undefined) place.priceMin = data.priceMin;
+        if (data.coverImageUrl !== undefined) place.coverImageUrl = data.coverImageUrl;
+        if (data.googlePlaceId !== undefined) place.googlePlaceId = data.googlePlaceId;
 
-        if (Object.keys(patch).length > 0) {
-            await this.placesRepo.update(id, patch);
+        await this.placesRepo.save(place);
+
+        if (data.amenityIds !== undefined && Array.isArray(data.amenityIds)) {
+            const currentPlace = await this.placesRepo.findOne({
+                where: { id },
+                relations: ['amenities']
+            });
+            const currentAmenityIds = currentPlace?.amenities.map(a => a.id) || [];
+            const toRemove = currentAmenityIds.filter(id => !data.amenityIds.includes(id));
+            const toAdd = data.amenityIds.filter(id => !currentAmenityIds.includes(id));
+
+            if (toRemove.length > 0) {
+                await this.placesRepo
+                    .createQueryBuilder()
+                    .relation(Place, 'amenities')
+                    .of(id)
+                    .remove(toRemove);
+            }
+
+            if (toAdd.length > 0) {
+                await this.placesRepo
+                    .createQueryBuilder()
+                    .relation(Place, 'amenities')
+                    .of(id)
+                    .add(toAdd);
+            }
         }
+
         return { message: 'Perfil actualizado' };
     }
 

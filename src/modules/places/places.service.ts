@@ -9,6 +9,7 @@ import { Repository, Like, Raw, In } from 'typeorm';
 import { plainToInstance } from 'class-transformer';
 import { Place } from './entities/place.entity';
 import { Category } from './entities/category.entity';
+import { Amenity } from './entities/amenity.entity';
 import { PlaceSubmission } from './entities/place-submission.entity';
 import { PlaceClaim } from './entities/place-claim.entity';
 import { FavoritePlace } from './entities/favorite-place.entity';
@@ -28,6 +29,8 @@ export class PlacesService {
         private placesRepository: Repository<Place>,
         @InjectRepository(Category)
         private categoriesRepository: Repository<Category>,
+        @InjectRepository(Amenity)
+        private amenitiesRepository: Repository<Amenity>,
         @InjectRepository(PlaceSubmission)
         private submissionsRepository: Repository<PlaceSubmission>,
         @InjectRepository(PlaceClaim)
@@ -113,6 +116,12 @@ export class PlacesService {
 
     async getCategories() {
         return this.categoriesRepository.find({
+            order: { name: 'ASC' },
+        });
+    }
+
+    async getAmenities() {
+        return this.amenitiesRepository.find({
             order: { name: 'ASC' },
         });
     }

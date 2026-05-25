@@ -2,7 +2,7 @@ import { Controller, Get, Query, Injectable, OnModuleInit, OnModuleDestroy } fro
 import { Pool, Client } from 'pg';
 import { ConfigService } from '@nestjs/config';
 
-@Controller('api/ubigeo')
+@Controller('ubigeo')
 export class UbigeoRawController implements OnModuleInit, OnModuleDestroy {
     private pool: Pool;
 

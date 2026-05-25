@@ -222,6 +222,11 @@ export class PlaceResponseDto {
     @Transform(({ obj }) => obj.amenities?.map((amenity: any) => amenity.name) || [])
     amenities?: string[];
 
+    @ApiPropertyOptional({ type: [String] })
+    @Expose()
+    @Transform(({ obj }) => obj.amenities?.map((amenity: any) => amenity.id) || [])
+    amenityIds?: string[];
+
     @ApiPropertyOptional({ type: [DishDto], isArray: true })
     @Expose()
     @Type(() => DishDto)
