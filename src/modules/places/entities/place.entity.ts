@@ -165,7 +165,7 @@ export class Place {
     })
     tags: Tag[];
 
-    @ManyToMany(() => Amenity, (amenity) => amenity.places)
+    @ManyToMany(() => Amenity, (amenity) => amenity.places, { cascade: true })
     @JoinTable({
         name: 'place_amenities',
         joinColumn: { name: 'place_id', referencedColumnName: 'id' },

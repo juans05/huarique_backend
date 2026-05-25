@@ -44,6 +44,13 @@ export class PlacesController {
         return this.placesService.getCategories();
     }
 
+    @Get('amenities')
+    @ApiOperation({ summary: 'Get all place amenities' })
+    @ApiResponse({ status: 200, description: 'Array of amenities with id, name, slug and icon.' })
+    async getAmenities() {
+        return this.placesService.getAmenities();
+    }
+
     @Get('discovery/different')
     @ApiOperation({ summary: 'Algo diferente — Trending / discovery places' })
     @ApiQuery({ name: 'district', required: false, type: String })
