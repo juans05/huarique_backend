@@ -3,6 +3,8 @@ import { ConfigModule } from '@nestjs/config';
 import { ScheduleModule } from '@nestjs/schedule';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { ThrottlerModule } from '@nestjs/throttler';
+import { BullModule } from '@nestjs/bullmq';
+import { EventEmitterModule } from '@nestjs/event-emitter';
 import { DatabaseConfig } from './config/database.config';
 import { AuthModule } from './modules/auth/auth.module';
 import { UsersModule } from './modules/users/users.module';
@@ -19,6 +21,9 @@ import { AiModule } from './modules/ai/ai.module';
 import { SubscriptionsModule } from './modules/subscriptions/subscriptions.module';
 import { LoyaltyModule } from './modules/loyalty/loyalty.module';
 import { DevicesModule } from './modules/devices/devices.module';
+import { WhatsAppModule } from './modules/whatsapp/whatsapp.module';
+import { BroadcastModule } from './modules/broadcast/broadcast.module';
+import { AiAgentModule } from './modules/ai-agent/ai-agent.module';
 
 @Module({
     imports: [
@@ -28,6 +33,12 @@ import { DevicesModule } from './modules/devices/devices.module';
             envFilePath: '.env',
         }),
         ScheduleModule.forRoot(),
+        BullModule.forRoot({
+            connection: {
+                url: process.env.REDIS_URL || 'redis://localhost:6379',
+            },
+        }),
+        EventEmitterModule.forRoot(),
 
         // Database
         TypeOrmModule.forRootAsync({
@@ -60,6 +71,9 @@ import { DevicesModule } from './modules/devices/devices.module';
         SubscriptionsModule,
         LoyaltyModule,
         DevicesModule,
+        WhatsAppModule,
+        BroadcastModule,
+        AiAgentModule,
     ],
 })
 export class AppModule { }
