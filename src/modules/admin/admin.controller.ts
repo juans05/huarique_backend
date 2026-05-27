@@ -8,6 +8,8 @@ import {
     HttpCode,
     Query,
     Patch,
+    ParseIntPipe,
+    BadRequestException,
 } from '@nestjs/common';
 import { ApiTags, ApiBearerAuth, ApiOperation, ApiResponse, ApiParam, ApiQuery, ApiBody } from '@nestjs/swagger';
 import { AdminService } from './admin.service';
@@ -132,11 +134,11 @@ export class AdminController {
     @ApiResponse({ status: 401, description: 'Not authenticated.' })
     @ApiResponse({ status: 403, description: 'Forbidden — admin role required.' })
     async getUsers(
-        @Query('page') page: number = 1,
-        @Query('limit') limit: number = 10,
+        @Query('page', new ParseIntPipe({ errorHttpStatusCode: 400, optional: true, exceptionFactory: () => new BadRequestException('page debe ser un número') })) page?: number,
+        @Query('limit', new ParseIntPipe({ errorHttpStatusCode: 400, optional: true, exceptionFactory: () => new BadRequestException('limit debe ser un número') })) limit?: number,
         @Query('search') search?: string,
     ) {
-        return this.adminService.getUsers(Number(page), Number(limit), search);
+        return this.adminService.getUsers(page || 1, limit || 10, search);
     }
 
     @Post('users')
