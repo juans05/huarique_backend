@@ -44,6 +44,12 @@ export class PublicFeedback {
     @Column({ name: 'admin_notes', type: 'text', nullable: true })
     adminNotes: string;
 
+    @Column({ name: 'marketing_consent', default: false })
+    marketingConsent: boolean;
+
+    @Column({ name: 'consent_timestamp', type: 'timestamp', nullable: true })
+    consentTimestamp: Date;
+
     @CreateDateColumn({ name: 'created_at' })
     createdAt: Date;
 }

@@ -32,6 +32,8 @@ export class PublicFeedbackController {
     @ApiOperation({ summary: 'Submit public feedback (from NFC scan, no auth required)' })
     @ApiResponse({ status: 201, description: 'Feedback saved privately.' })
     async submitFeedback(@Body() dto: CreatePublicFeedbackDto) {
+        const now = new Date();
+
         const feedback = this.feedbackRepository.create({
             placeId: dto.placeId,
             rating: dto.rating,
@@ -39,6 +41,8 @@ export class PublicFeedbackController {
             customerName: dto.customerName || null,
             customerContact: dto.customerContact || null,
             deviceId: dto.deviceId || null,
+            marketingConsent: dto.marketingConsent || false,
+            consentTimestamp: dto.marketingConsent ? now : null,
             status: 'pending',
         });
 

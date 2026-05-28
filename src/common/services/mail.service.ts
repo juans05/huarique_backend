@@ -60,6 +60,23 @@ export class MailService {
         }
     }
 
+    async sendMarketingEmail(to: string[], subject: string, htmlContent: string) {
+        try {
+            const { data, error } = await this.resend.emails.send({
+                from: 'Wuarike Promociones <promociones@resend.dev>',
+                to,
+                subject,
+                html: htmlContent,
+            });
+
+            if (error) throw error;
+            return data;
+        } catch (error) {
+            console.error('Error sending marketing email:', error);
+            throw new InternalServerErrorException('Error al enviar correo promocional');
+        }
+    }
+
     async sendVerificationCode(email: string, code: string) {
         try {
             const { data, error } = await this.resend.emails.send({

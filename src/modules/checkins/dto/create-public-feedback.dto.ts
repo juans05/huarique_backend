@@ -1,4 +1,4 @@
-import { IsString, IsOptional, IsInt, Min, Max, IsEmail } from 'class-validator';
+import { IsString, IsOptional, IsInt, Min, Max, IsBoolean, IsEmail } from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 
 export class CreatePublicFeedbackDto {
@@ -31,4 +31,9 @@ export class CreatePublicFeedbackDto {
     @IsOptional()
     @IsString()
     deviceId?: string;
+
+    @ApiPropertyOptional({ example: true, description: 'Consentimiento para marketing y publicidad personalizada' })
+    @IsOptional()
+    @IsBoolean()
+    marketingConsent?: boolean;
 }
