@@ -1,0 +1,20 @@
+{
+    "moduleFileExtensions": ["js", "json", "ts"],
+    "rootDir": ".",
+    "testEnvironment": "node",
+    "testRegex": ".e2e-spec.ts$",
+    "transform": {
+        "^.+\\.(t|j)s$": "ts-jest"
+    },
+    "transformIgnorePatterns": [
+        "/node_modules/.pnpm/(?!typeorm|pg|reflect-metadata)"
+    ],
+    "moduleNameMapper": {
+        "^src/(.*)$": "<rootDir>/../src/$1"
+    },
+    "moduleDirectories": [
+        "node_modules",
+        "node_modules/.pnpm"
+    ],
+    "testTimeout": 180000
+}

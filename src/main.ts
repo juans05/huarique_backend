@@ -6,10 +6,8 @@ import { AppModule } from './app.module';
 async function bootstrap() {
     const app = await NestFactory.create(AppModule);
 
-    // Global API prefix
     app.setGlobalPrefix('api');
 
-    // Global validation pipe
     app.useGlobalPipes(
         new ValidationPipe({
             whitelist: true,
@@ -20,22 +18,28 @@ async function bootstrap() {
             },
         }),
     );
-    console.log('CORS', process.env.CORS_ORIGIN);
-    // CORS
+
+    const corsOrigin = process.env.CORS_ORIGIN;
+    if (!corsOrigin && process.env.NODE_ENV === 'production') {
+        throw new Error('CORS_ORIGIN must be set in production');
+    }
+
     app.enableCors({
-        origin: process.env.CORS_ORIGIN?.split(',') || '*',
+        origin: corsOrigin ? corsOrigin.split(',') : 'http://localhost:3000',
         credentials: true,
     });
 
-    // Swagger documentation
-    const config = new DocumentBuilder()
-        .setTitle('Lima Food Discovery API')
-        .setDescription('API for discovering food places in Lima')
-        .setVersion('1.0')
-        .addBearerAuth()
-        .build();
-    const document = SwaggerModule.createDocument(app, config);
-    SwaggerModule.setup('api/docs', app, document);
+    if (process.env.NODE_ENV !== 'production') {
+        const config = new DocumentBuilder()
+            .setTitle('Lima Food Discovery API')
+            .setDescription('API for discovering food places in Lima')
+            .setVersion('1.0')
+            .addBearerAuth()
+            .build();
+        const document = SwaggerModule.createDocument(app, config);
+        SwaggerModule.setup('api/docs', app, document);
+        console.log(`📚 API Documentation: http://localhost:${process.env.PORT || 3001}/api/docs`);
+    }
 
     let port = process.env.PORT || 3001;
     const portIndex = process.argv.indexOf('--port');
@@ -47,8 +51,6 @@ async function bootstrap() {
     }
     await app.listen(port);
     console.log(`🚀 Application is running on: http://localhost:${port}`);
-    console.log(`📚 API Documentation: http://localhost:${port}/api/docs`);
-
 }
 
 bootstrap();

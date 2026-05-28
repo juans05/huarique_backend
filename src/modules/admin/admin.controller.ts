@@ -16,6 +16,7 @@ import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../../common/guards/roles.guard';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
+import { AdminUpdatePlaceDto } from './dto/update-place.dto';
 
 @ApiTags('admin')
 @Controller('admin')
@@ -192,7 +193,7 @@ export class AdminController {
     @Patch('places/:id')
     @ApiOperation({ summary: 'Update a place (status, verification, etc.)' })
     @ApiParam({ name: 'id', description: 'Place UUID' })
-    async updatePlace(@Param('id') id: string, @Body() updateData: any) {
+    async updatePlace(@Param('id') id: string, @Body() updateData: AdminUpdatePlaceDto) {
         return this.adminService.updatePlace(id, updateData);
     }
 }

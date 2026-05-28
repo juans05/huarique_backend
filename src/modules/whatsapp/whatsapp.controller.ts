@@ -16,7 +16,10 @@ export class WhatsappController {
         @Query('hub.verify_token') token: string,
         @Query('hub.challenge') challenge: string
     ) {
-        const secretToken = this.configService.get<string>('WHATSAPP_WEBHOOK_TOKEN') || 'wuarike_webhook_verification_token_2026';
+        const secretToken = this.configService.get<string>('WHATSAPP_WEBHOOK_TOKEN');
+        if (!secretToken) {
+            return 'Forbidden';
+        }
         if (mode === 'subscribe' && token === secretToken) {
             return challenge;
         }
