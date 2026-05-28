@@ -42,7 +42,6 @@ export class AuthService {
         );
 
         await this.mailService.sendVerificationCode(registerDto.email, verificationCode);
-        this.logger.log(`[EMAIL] Verification code for ${registerDto.email}: ${verificationCode}`);
 
         return {
             message: 'Código de verificación enviado al correo',
@@ -86,42 +85,14 @@ export class AuthService {
         await this.usersService.setVerificationCode(user.id, verificationCode);
 
         await this.mailService.sendVerificationCode(email, verificationCode);
-        this.logger.log(`[EMAIL] Resent verification code for ${email}: ${verificationCode}`);
 
         return { message: 'Nuevo código enviado' };
     }
 
     async socialLogin(provider: string, token: string, email: string, name?: string, photoUrl?: string) {
-        // Verify token with Firebase Admin SDK?
-        // For now, trusting the frontend sent valid data or just simple check.
-        // Ideally verify `token` against provider.
-
-        let user = await this.usersService.findByEmail(email);
-
-        if (user) {
-            // Update social info
-            await this.usersService.updateFromSocial(user.id, provider, email, photoUrl); // using email as socialId mostly valid for firebase
-        } else {
-            // Create verified user
-            user = await this.usersService.create(
-                email,
-                Math.random().toString(36), // Random password
-                name || 'Usuario',
-                true, // isVerified
-                undefined,
-                provider,
-                email // socialId
-            );
-            if (photoUrl) {
-                await this.usersService.updateFromSocial(user.id, provider, email, photoUrl);
-            }
-        }
-
-        const tokens = await this.generateTokens(user.id, user.email, user.role);
-        return {
-            user: { ...user, isVerified: true },
-            ...tokens,
-        };
+        throw new UnauthorizedException(
+            'Social login requiere verificación de token con el proveedor. Contactar al equipo de desarrollo.'
+        );
     }
 
     async forgotPassword(dto: ForgotPasswordDto) {
@@ -137,7 +108,6 @@ export class AuthService {
         await this.usersService.setVerificationCode(user.id, resetCode);
 
         await this.mailService.sendVerificationCode(user.email, resetCode);
-        this.logger.log(`[EMAIL] Password Reset code for ${user.email}: ${resetCode}`);
 
         return { message: 'Código de recuperación enviado' };
     }
@@ -271,18 +241,4 @@ export class AuthService {
         };
     }
 
-    async resetDemoPassword(newPassword: string) {
-        const user = await this.usersService.findByEmail('demo@warike.com') 
-            || await this.usersService.findByEmail('demo@wuarike.com');
-        
-        if (!user) {
-            throw new NotFoundException('Usuario demo no encontrado');
-        }
-
-        const passwordHash = await bcrypt.hash(newPassword, 10);
-        await this.usersService.updatePassword(user.id, passwordHash);
-        
-        this.logger.log(`[ADMIN] Password reset for demo user: ${user.email}`);
-        return { success: true, message: 'Contraseña actualizada' };
-    }
 }

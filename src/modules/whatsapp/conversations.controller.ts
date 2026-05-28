@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Patch, Param, Body, UseGuards, Query, Sse, Req, BadRequestException, NotFoundException } from '@nestjs/common';
+import { Controller, Get, Post, Patch, Param, Body, UseGuards, Query, Sse, Req, BadRequestException, NotFoundException, ForbiddenException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Observable, Subject } from 'rxjs';
@@ -6,7 +6,9 @@ import { EventEmitter2 } from '@nestjs/event-emitter';
 import { Conversation } from './entities/conversation.entity';
 import { Message } from './entities/message.entity';
 import { WhatsAppNumber } from './entities/whatsapp-number.entity';
+import { Place } from '../places/entities/place.entity';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { WhatsappService } from './whatsapp.service';
 import { JwtService } from '@nestjs/jwt';
 
@@ -20,18 +22,29 @@ export class ConversationsController {
         private messageRepo: Repository<Message>,
         @InjectRepository(WhatsAppNumber)
         private whatsappNumberRepo: Repository<WhatsAppNumber>,
+        @InjectRepository(Place)
+        private placesRepository: Repository<Place>,
         private whatsappService: WhatsappService,
         private eventEmitter: EventEmitter2,
         private jwtService: JwtService
     ) {}
+
+    private async assertOwner(placeId: string, userId: string) {
+        const place = await this.placesRepository.findOne({ where: { id: placeId } });
+        if (!place) throw new NotFoundException('Local no encontrado');
+        if (place.claimedByUserId !== userId) throw new ForbiddenException('No tienes permiso para gestionar este local');
+        return place;
+    }
 
     // List conversations for a place (paginated)
     @Get(':placeId')
     async getConversations(
         @Param('placeId') placeId: string,
         @Query('page') page: string = '1',
-        @Query('limit') limit: string = '20'
+        @Query('limit') limit: string = '20',
+        @CurrentUser() user: any,
     ) {
+        await this.assertOwner(placeId, user.id);
         const pageNum = parseInt(page) || 1;
         const limitNum = parseInt(limit) || 20;
         const skip = (pageNum - 1) * limitNum;

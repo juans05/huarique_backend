@@ -5,11 +5,12 @@ import { BroadcastController } from './broadcast.controller';
 import { BroadcastService } from './broadcast.service';
 import { BroadcastProcessor } from './broadcast.processor';
 import { Broadcast } from './entities/broadcast.entity';
+import { Place } from '../places/entities/place.entity';
 import { WhatsAppModule } from '../whatsapp/whatsapp.module';
 
 @Module({
     imports: [
-        TypeOrmModule.forFeature([Broadcast]),
+        TypeOrmModule.forFeature([Broadcast, Place]),
         BullModule.registerQueue({
             name: 'whatsapp-broadcast'
         }),
