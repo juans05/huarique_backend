@@ -23,7 +23,9 @@ import { LoyaltyModule } from './modules/loyalty/loyalty.module';
 import { DevicesModule } from './modules/devices/devices.module';
 import { WhatsAppModule } from './modules/whatsapp/whatsapp.module';
 import { BroadcastModule } from './modules/broadcast/broadcast.module';
+import { EmailCampaignModule } from './modules/email-campaign/email-campaign.module';
 import { AiAgentModule } from './modules/ai-agent/ai-agent.module';
+import { MetaAdsModule } from './modules/meta-ads/meta-ads.module';
 
 @Module({
     imports: [
@@ -73,7 +75,9 @@ import { AiAgentModule } from './modules/ai-agent/ai-agent.module';
         DevicesModule,
         WhatsAppModule,
         BroadcastModule,
+        EmailCampaignModule,
         AiAgentModule,
+        MetaAdsModule,
     ],
 })
 export class AppModule { }
