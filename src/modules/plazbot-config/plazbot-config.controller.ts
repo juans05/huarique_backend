@@ -11,6 +11,7 @@ export class PlazbotConfigController {
       apiKey: string;
       workspaceId: string;
       agentId: string;
+      placeId?: string;
       systemPrompt?: string;
       tone?: 'professional' | 'casual' | 'friendly';
     },
@@ -23,6 +24,7 @@ export class PlazbotConfigController {
       plazBotApiKey: dto.apiKey,
       plazBotWorkspaceId: dto.workspaceId,
       agentId: dto.agentId,
+      placeId: dto.placeId,
       systemPrompt: dto.systemPrompt,
       tone: dto.tone || 'professional',
     });

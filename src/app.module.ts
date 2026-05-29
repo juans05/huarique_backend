@@ -1,5 +1,5 @@
 import { Module } from '@nestjs/common';
-import { ConfigModule } from '@nestjs/config';
+import { ConfigModule, ConfigService } from '@nestjs/config';
 import { ScheduleModule } from '@nestjs/schedule';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { ThrottlerModule } from '@nestjs/throttler';
@@ -39,10 +39,14 @@ import { PlazBotModule } from './modules/plazbot/plazbot.module';
             envFilePath: '.env',
         }),
         ScheduleModule.forRoot(),
-        BullModule.forRoot({
-            connection: {
-                url: process.env.REDIS_URL || 'redis://localhost:6379',
-            },
+        BullModule.forRootAsync({
+            imports: [ConfigModule],
+            useFactory: (config: ConfigService) => ({
+                connection: {
+                    url: config.get<string>('REDIS_URL') || 'redis://localhost:6379',
+                },
+            }),
+            inject: [ConfigService],
         }),
         EventEmitterModule.forRoot(),
 

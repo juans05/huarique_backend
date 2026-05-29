@@ -30,6 +30,7 @@ export class TenantPlazbotConfigService {
       plazBotApiKey: string;
       plazBotWorkspaceId: string;
       agentId: string;
+      placeId?: string;
       systemPrompt?: string;
       tone?: 'professional' | 'casual' | 'friendly';
     }
