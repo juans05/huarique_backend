@@ -13,13 +13,16 @@ export class TenantPlazbotConfig {
   userId: string;
 
   @Column()
-  plazBotApiKey: string; // Encriptado
+  plazBotApiKey: string;
 
   @Column()
   plazBotWorkspaceId: string;
 
   @Column()
   agentId: string;
+
+  @Column({ nullable: true })
+  placeId: string;
 
   @Column({ nullable: true })
   plazBotContactGroupId: string;
