@@ -14,6 +14,7 @@ import { Checkin } from '../checkins/entities/checkin.entity';
 import { User } from '../users/entities/user.entity';
 import { UsersService } from '../users/users.service';
 import { GamificationService } from '../gamification/gamification.service';
+import { AdminUpdatePlaceDto } from './dto/update-place.dto';
 
 @Injectable()
 export class AdminService {
@@ -282,7 +283,7 @@ export class AdminService {
         };
     }
 
-    async updatePlace(id: string, updateData: any) {
+    async updatePlace(id: string, updateData: AdminUpdatePlaceDto) {
         const place = await this.placesRepository.findOne({ where: { id } });
         if (!place) {
             throw new NotFoundException('Lugar no encontrado');
