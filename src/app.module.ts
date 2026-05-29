@@ -26,6 +26,10 @@ import { BroadcastModule } from './modules/broadcast/broadcast.module';
 import { EmailCampaignModule } from './modules/email-campaign/email-campaign.module';
 import { AiAgentModule } from './modules/ai-agent/ai-agent.module';
 import { MetaAdsModule } from './modules/meta-ads/meta-ads.module';
+import { DocumentsModule } from './modules/documents/documents.module';
+import { ChatModule } from './modules/chat/chat.module';
+import { PlazbotConfigModule } from './modules/plazbot-config/plazbot-config.module';
+import { PlazBotModule } from './modules/plazbot/plazbot.module';
 
 @Module({
     imports: [
@@ -78,6 +82,10 @@ import { MetaAdsModule } from './modules/meta-ads/meta-ads.module';
         EmailCampaignModule,
         AiAgentModule,
         MetaAdsModule,
+        DocumentsModule,
+        PlazbotConfigModule,
+        PlazBotModule,
+        ChatModule,
     ],
 })
 export class AppModule { }

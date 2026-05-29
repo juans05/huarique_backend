@@ -29,6 +29,7 @@
     "seed:ubigeo": "ts-node src/scripts/seed-ubigeo.ts"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.100.0",
     "@nestjs/bull-shared": "^11.0.4",
     "@nestjs/bullmq": "^11.0.4",
     "@nestjs/common": "^10.3.0",
