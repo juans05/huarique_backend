@@ -55,15 +55,17 @@ export class PlazBotService {
   async sendMessage(
     apiKey: string,
     workspaceId: string,
-    contactId: string,
+    recipientPhone: string,
     message: string
   ) {
     try {
       const response = await axios.post(
-        `${this.baseUrl}/api/agent/send-message`,
+        `${this.baseUrl}/api/message`,
         {
-          contact_id: contactId,
-          message: message,
+          content: message,
+          recipientPhone,
+          workspaceId,
+          conversationId: null,
         },
         {
           headers: {
@@ -73,7 +75,7 @@ export class PlazBotService {
         }
       );
 
-      this.logger.log(`Message sent to ${contactId}`);
+      this.logger.log(`Message sent to ${recipientPhone}`);
       return response.data;
     } catch (error) {
       this.logger.error('Error sending message', error);
@@ -86,16 +88,17 @@ export class PlazBotService {
     workspaceId: string,
     contactId: string,
     updateData: {
-      tags?: string[];
-      stage?: string;
-      customFields?: Record<string, any>;
+      tags?: string[];   // IDs de tags en PlazBot, no nombres
+      stageId?: string;
+      customFields?: { code: string; value: string }[];
     }
   ) {
     try {
-      const response = await axios.patch(
-        `${this.baseUrl}/api/contact/${contactId}`,
+      const response = await axios.put(
+        `${this.baseUrl}/api/contact`,
         updateData,
         {
+          params: { id: contactId, workspaceId },
           headers: {
             'Authorization': `Bearer ${apiKey}`,
             'x-workspace-id': workspaceId,
@@ -112,6 +115,7 @@ export class PlazBotService {
   async getConversationHistory(
     apiKey: string,
     workspaceId: string,
+    agentId: string,
     contactId: string
   ) {
     try {
@@ -119,7 +123,8 @@ export class PlazBotService {
         `${this.baseUrl}/api/agent/logs`,
         {
           params: {
-            contact_id: contactId,
+            agentId,
+            contactId,
             limit: 20,
           },
           headers: {
@@ -132,6 +137,24 @@ export class PlazBotService {
     } catch (error) {
       this.logger.warn('Could not fetch conversation history', error);
       return [];
+    }
+  }
+
+  async validateCredentials(apiKey: string, workspaceId: string): Promise<boolean> {
+    try {
+      await axios.get(
+        `${this.baseUrl}/api/template/actives`,
+        {
+          params: { workspaceId },
+          headers: {
+            'Authorization': `Bearer ${apiKey}`,
+            'x-workspace-id': workspaceId,
+          },
+        }
+      );
+      return true;
+    } catch {
+      return false;
     }
   }
 }

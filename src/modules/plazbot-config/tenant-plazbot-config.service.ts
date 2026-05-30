@@ -33,6 +33,8 @@ export class TenantPlazbotConfigService {
       placeId?: string;
       systemPrompt?: string;
       tone?: 'professional' | 'casual' | 'friendly';
+      reservationTagId?: string;
+      fallbackTemplateId?: string;
     }
   ) {
     let config = await this.configRepo.findOne({
@@ -40,7 +42,9 @@ export class TenantPlazbotConfigService {
     });
 
     if (config) {
-      Object.assign(config, data);
+      // Si apiKey viene vacío en edición, conservar el existente
+      const update = data.plazBotApiKey ? data : { ...data, plazBotApiKey: config.plazBotApiKey };
+      Object.assign(config, update);
       return this.configRepo.save(config);
     }
 

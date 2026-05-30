@@ -1,13 +1,14 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
-import { TenantPlazbotConfig } from './entities/tenant-plazbot-config.entity';
-import { TenantPlazbotConfigService } from './tenant-plazbot-config.service';
+import { PlaceBotConfig } from './entities/place-bot-config.entity';
+import { PlaceBotConfigService } from './place-bot-config.service';
 import { PlazbotConfigController } from './plazbot-config.controller';
+import { PlazBotModule } from '../plazbot/plazbot.module';
 
 @Module({
-  imports: [TypeOrmModule.forFeature([TenantPlazbotConfig])],
-  providers: [TenantPlazbotConfigService],
+  imports: [TypeOrmModule.forFeature([PlaceBotConfig]), PlazBotModule],
+  providers: [PlaceBotConfigService],
   controllers: [PlazbotConfigController],
-  exports: [TenantPlazbotConfigService],
+  exports: [PlaceBotConfigService],
 })
 export class PlazbotConfigModule {}

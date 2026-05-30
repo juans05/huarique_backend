@@ -33,6 +33,12 @@ export class TenantPlazbotConfig {
   @Column({ default: 'professional' })
   tone: string;
 
+  @Column({ nullable: true })
+  reservationTagId: string;
+
+  @Column({ nullable: true })
+  fallbackTemplateId: string;
+
   @Column({ default: true })
   isActive: boolean;
 

@@ -10,12 +10,14 @@ import { Message } from './entities/message.entity';
 import { Place } from '../places/entities/place.entity';
 import { AiModule } from '../ai/ai.module';
 import { AuthModule } from '../auth/auth.module';
+import { PlazBotModule } from '../plazbot/plazbot.module';
 
 @Module({
     imports: [
         TypeOrmModule.forFeature([WhatsAppNumber, Conversation, Message, Place]),
         AiModule,
-        AuthModule
+        AuthModule,
+        PlazBotModule,
     ],
     controllers: [WhatsappController, ConversationsController, WhatsAppNumbersController],
     providers: [WhatsappService],
