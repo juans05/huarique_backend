@@ -1,7 +1,7 @@
 import { Controller, Get, Post, Patch, Param, Body, UseGuards, Query, Sse, Req, BadRequestException, NotFoundException, ForbiddenException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
-import { Observable, Subject } from 'rxjs';
+import { Observable } from 'rxjs';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { Conversation } from './entities/conversation.entity';
 import { Message } from './entities/message.entity';
@@ -10,6 +10,7 @@ import { Place } from '../places/entities/place.entity';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { WhatsappService } from './whatsapp.service';
+import { PlazBotService } from '../plazbot/plazbot.service';
 import { JwtService } from '@nestjs/jwt';
 
 @UseGuards(JwtAuthGuard)
@@ -25,6 +26,7 @@ export class ConversationsController {
         @InjectRepository(Place)
         private placesRepository: Repository<Place>,
         private whatsappService: WhatsappService,
+        private plazbotService: PlazBotService,
         private eventEmitter: EventEmitter2,
         private jwtService: JwtService
     ) {}
@@ -157,23 +159,10 @@ export class ConversationsController {
         });
         await this.messageRepo.save(message);
 
-        // Get active WhatsApp number for this place
-        const waNumber = await this.whatsappNumberRepo.findOne({
-            where: { placeId: conversation.placeId, isActive: true },
-            relations: ['place']
-        });
-
-        if (!waNumber) {
-            throw new BadRequestException('No active WhatsApp number configured for this place');
-        }
-
-        // Send the message via WhatsApp API
-        await this.whatsappService.sendWhatsAppMessage(
-            waNumber.phoneNumberId,
-            waNumber.whatsappApiToken,
-            conversation.customerPhone,
-            body.text
-        );
+        // Enviar via PlazBot (canal WhatsApp de wuarikes)
+        const apiKey = process.env.PLAZBOT_API_KEY || '';
+        const workspaceId = process.env.PLAZBOT_WORKSPACE_ID || '';
+        await this.plazbotService.sendMessage(apiKey, workspaceId, conversation.customerPhone, body.text);
 
         return {
             data: message,

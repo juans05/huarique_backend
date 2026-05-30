@@ -1,10 +1,9 @@
 import { Module } from '@nestjs/common';
 import { PlazBotService } from './plazbot.service';
-import { PlazbotConfigModule } from '../plazbot-config/plazbot-config.module';
+import { PlazBotAdvancedService } from './plazbot-advanced.service';
 
 @Module({
-  imports: [PlazbotConfigModule],
-  providers: [PlazBotService],
-  exports: [PlazBotService],
+  providers: [PlazBotService, PlazBotAdvancedService],
+  exports: [PlazBotService, PlazBotAdvancedService],
 })
 export class PlazBotModule {}

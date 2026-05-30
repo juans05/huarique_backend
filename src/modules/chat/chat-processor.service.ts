@@ -1,149 +1,146 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { PlazBotService } from '../plazbot/plazbot.service';
-import { TenantPlazbotConfigService } from '../plazbot-config/tenant-plazbot-config.service';
-import { VectorService } from '../ai/vector.service';
+import { InjectRepository } from '@nestjs/typeorm';
+import { Repository } from 'typeorm';
 import { Anthropic } from '@anthropic-ai/sdk';
+import { EventEmitter2 } from '@nestjs/event-emitter';
+import { PlazBotService } from '../plazbot/plazbot.service';
+import { VectorService } from '../ai/vector.service';
+import { PlaceBotConfigService } from '../plazbot-config/place-bot-config.service';
+import { Conversation } from '../whatsapp/entities/conversation.entity';
+import { Message } from '../whatsapp/entities/message.entity';
 
 @Injectable()
 export class ChatProcessorService {
   private readonly logger = new Logger(ChatProcessorService.name);
-  private anthropic = new Anthropic({
-    apiKey: process.env.ANTHROPIC_API_KEY,
-  });
+  private anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
   constructor(
     private plazbot: PlazBotService,
-    private tenantConfig: TenantPlazbotConfigService,
     private vectorService: VectorService,
+    private botConfigService: PlaceBotConfigService,
+    private eventEmitter: EventEmitter2,
+    @InjectRepository(Conversation)
+    private conversationRepo: Repository<Conversation>,
+    @InjectRepository(Message)
+    private messageRepo: Repository<Message>,
   ) {}
 
   async processIncomingMessage(
-    userId: string,
-    plazBotPayload: {
-      contact: { id: string; name: string; phone: string };
-      message: { id: string; body: string };
-    }
+    placeId: string,
+    contact: { name: string; phone: string },
+    messageBody: string,
   ) {
-    try {
-      const { contact, message } = plazBotPayload;
+    this.logger.log(`[${placeId}] ${contact.name}: "${messageBody}"`);
 
-      this.logger.log(`Processing: ${contact.name} - "${message.body}"`);
+    // Credenciales globales de PlazBot — son de wuarikes, no del restaurante
+    const apiKey = process.env.PLAZBOT_API_KEY!;
+    const workspaceId = process.env.PLAZBOT_WORKSPACE_ID!;
 
-      // 1. OBTENER CONFIG PLAZBOT
-      const tenantConfig = await this.tenantConfig.findByUserId(userId);
-      if (!tenantConfig) throw new Error('Plazbot not configured');
-
-      const apiKey = this.decryptSecret(tenantConfig.plazBotApiKey);
-      const workspaceId = tenantConfig.plazBotWorkspaceId;
-
-      // 2. SINCRONIZAR CONTACTO
-      let plazContact = await this.plazbot.getContact(apiKey, workspaceId, contact.phone);
-      if (!plazContact) {
-        plazContact = await this.plazbot.createContact(apiKey, workspaceId, {
-          name: contact.name,
-          phone: contact.phone,
-        });
-      }
-
-      // 3. RAG: buscar chunks relevantes de la knowledge base del local
-      let ragContext = '';
-      if (tenantConfig.placeId) {
-        try {
-          const chunks = await this.vectorService.searchSimilarity(
-            tenantConfig.placeId,
-            message.body,
-            5,
-          );
-          if (chunks.length > 0) {
-            ragContext = chunks.join('\n\n');
-            this.logger.log(`RAG: ${chunks.length} chunks encontrados para placeId ${tenantConfig.placeId}`);
-          } else {
-            this.logger.warn(`RAG: sin chunks para placeId ${tenantConfig.placeId}`);
-          }
-        } catch (err) {
-          this.logger.error('RAG search failed, continuando sin contexto:', err);
-        }
-      } else {
-        this.logger.warn(`PlazBot config sin placeId para userId ${userId} — RAG deshabilitado`);
-      }
-
-      // 4. OBTENER HISTORIAL DE CONVERSACIÓN
-      const rawHistory = await this.plazbot.getConversationHistory(
-        apiKey,
-        workspaceId,
-        plazContact.id,
-      );
-
-      // Mapear historial al formato de mensajes de Claude (últimos 10 turnos)
-      // Claude requiere que los roles alternen estrictamente — deduplicamos consecutivos
-      const historyMessages: Anthropic.MessageParam[] = rawHistory
-        .slice(-10)
-        .map((entry: any) => ({
-          role: (entry.role === 'agent' ? 'assistant' : 'user') as 'user' | 'assistant',
-          content: entry.message || entry.body || entry.content || '',
-        }))
-        .filter((m: { role: string; content: string }) => m.content.length > 0)
-        .reduce((acc: Anthropic.MessageParam[], curr: { role: 'user' | 'assistant'; content: string }) => {
-          if (acc.length > 0 && acc[acc.length - 1].role === curr.role) {
-            return acc;
-          }
-          acc.push(curr);
-          return acc;
-        }, []);
-
-      // 5. CONSTRUIR SYSTEM PROMPT
-      const systemPrompt = ragContext
-        ? `Eres un asistente inteligente para un restaurante.
-
-INFORMACIÓN RELEVANTE DEL RESTAURANTE:
-${ragContext}
-
-Responde siempre en español, de manera amable y profesional.
-Usa únicamente la información anterior para responder. Si no encuentras la respuesta, ofrece conectar con el equipo del restaurante.`
-        : `Eres un asistente inteligente para un restaurante.
-Responde siempre en español, de manera amable y profesional.
-Si no sabes algo, ofrece conectar con el staff del restaurante.`;
-
-      // 6. LLAMAR CLAUDE con historial + mensaje actual
-      const response = await this.anthropic.messages.create({
-        model: 'claude-3-5-sonnet-20241022',
-        max_tokens: 512,
-        system: systemPrompt,
-        messages: [
-          ...historyMessages,
-          { role: 'user', content: message.body },
-        ],
+    // 1. Buscar o crear conversación en wuarikes DB
+    let conversation = await this.conversationRepo.findOne({
+      where: { placeId, customerPhone: contact.phone },
+    });
+    if (!conversation) {
+      conversation = this.conversationRepo.create({
+        placeId,
+        customerPhone: contact.phone,
+        customerName: contact.name,
+        mode: 'bot',
       });
-
-      const botResponse =
-        response.content[0].type === 'text' ? response.content[0].text : '';
-
-      this.logger.log(`Response generada: ${botResponse}`);
-
-      // 7. ENVIAR A PLAZBOT
-      await this.plazbot.sendMessage(apiKey, workspaceId, plazContact.id, botResponse);
-
-      // 8. TAG SI ES CONSULTA DE RESERVA
-      if (this.isReservationQuery(message.body)) {
-        await this.plazbot.updateContact(apiKey, workspaceId, plazContact.id, {
-          tags: ['interested-in-reservation'],
-          stage: 'interested',
-        });
-      }
-
-      return { success: true };
-    } catch (error) {
-      this.logger.error('Error processing message:', error);
-      throw error;
+      await this.conversationRepo.save(conversation);
     }
-  }
 
-  private isReservationQuery(message: string): boolean {
-    const keywords = ['reserva', 'mesa', 'horario', 'disponible'];
-    return keywords.some((kw) => message.toLowerCase().includes(kw));
-  }
+    // 2. Registrar mensaje entrante
+    await this.messageRepo.save(
+      this.messageRepo.create({
+        conversationId: conversation.id,
+        messageType: 'INCOMING',
+        messageBody,
+      }),
+    );
 
-  private decryptSecret(encrypted: string): string {
-    return encrypted;
+    // Emitir evento SSE para actualizar el frontend en tiempo real
+    this.eventEmitter.emit('whatsapp.message.received', {
+      placeId,
+      conversationId: conversation.id,
+      customerName: conversation.customerName,
+      customerPhone: conversation.customerPhone,
+      messageBody,
+    });
+
+    // 3. Si está en modo humano, el agente responde manualmente — no procesar
+    if (conversation.mode === 'human') {
+      this.logger.log(`Conversación ${conversation.id} en modo humano, ignorando`);
+      return { success: true };
+    }
+
+    // 4. Configuración del bot para este restaurante
+    const botConfig = await this.botConfigService.findByPlaceId(placeId);
+
+    // 5. RAG: buscar contexto relevante de la knowledge base
+    let ragContext = '';
+    try {
+      const chunks = await this.vectorService.searchSimilarity(placeId, messageBody, 5);
+      if (chunks.length > 0) ragContext = chunks.join('\n\n');
+    } catch (err) {
+      this.logger.warn('RAG search falló, continuando sin contexto:', err);
+    }
+
+    // 6. Construir system prompt
+    const basePrompt =
+      botConfig?.systemPrompt ||
+      'Eres un asistente inteligente para un restaurante. Responde siempre en español, de manera amable y profesional.';
+
+    const systemPrompt = ragContext
+      ? `${basePrompt}\n\nINFORMACIÓN DEL RESTAURANTE:\n${ragContext}\n\nUsa únicamente la información anterior para responder. Si no encuentras la respuesta, ofrece conectar con el staff del restaurante.`
+      : `${basePrompt}\n\nSi no sabes algo, ofrece conectar con el staff del restaurante.`;
+
+    // 7. Historial de conversación desde wuarikes DB (últimos 20 mensajes)
+    const recentMessages = await this.messageRepo.find({
+      where: { conversationId: conversation.id },
+      order: { createdAt: 'DESC' },
+      take: 21, // 21 para poder excluir el que acabamos de guardar
+    });
+
+    const historyMessages: Anthropic.MessageParam[] = recentMessages
+      .reverse()
+      .slice(0, -1) // excluir el mensaje entrante recién guardado
+      .map((m) => ({
+        role: (m.messageType === 'INCOMING' ? 'user' : 'assistant') as 'user' | 'assistant',
+        content: m.messageBody,
+      }))
+      .reduce((acc: Anthropic.MessageParam[], curr) => {
+        if (acc.length > 0 && acc[acc.length - 1].role === curr.role) return acc;
+        acc.push(curr);
+        return acc;
+      }, []);
+
+    // 8. Llamar a Claude con historial + mensaje actual
+    const claudeResponse = await this.anthropic.messages.create({
+      model: 'claude-3-5-sonnet-20241022',
+      max_tokens: 512,
+      system: systemPrompt,
+      messages: [...historyMessages, { role: 'user', content: messageBody }],
+    });
+
+    const botResponse =
+      claudeResponse.content[0].type === 'text' ? claudeResponse.content[0].text : '';
+
+    this.logger.log(`Respuesta generada: ${botResponse}`);
+
+    // 9. Registrar respuesta del bot en wuarikes DB
+    await this.messageRepo.save(
+      this.messageRepo.create({
+        conversationId: conversation.id,
+        messageType: 'OUTGOING',
+        messageBody: botResponse,
+        isFromAi: true,
+      }),
+    );
+
+    // 10. Enviar respuesta via PlazBot
+    await this.plazbot.sendMessage(apiKey, workspaceId, contact.phone, botResponse);
+
+    return { success: true };
   }
 }
