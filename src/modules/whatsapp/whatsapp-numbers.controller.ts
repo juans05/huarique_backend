@@ -72,6 +72,25 @@ export class WhatsAppNumbersController {
         };
     }
 
+    @Post(':numberId/register-webhook')
+    async registerWebhook(@Param('numberId') numberId: string) {
+        const number = await this.whatsappNumberRepo.findOne({ where: { id: numberId } });
+
+        if (!number) {
+            return { error: 'Número no encontrado' };
+        }
+
+        const apiKey = process.env.PLAZBOT_API_KEY;
+        const workspaceId = process.env.PLAZBOT_WORKSPACE_ID;
+
+        if (!apiKey || !workspaceId) {
+            return { error: 'PLAZBOT_API_KEY o PLAZBOT_WORKSPACE_ID no configurados' };
+        }
+
+        await this.plazbotService.registerWebhook(apiKey, workspaceId, number.phoneNumber);
+        return { message: `Webhook re-registrado para ${number.phoneNumber}` };
+    }
+
     @Delete(':numberId')
     async deleteWhatsAppNumber(@Param('numberId') numberId: string) {
         await this.whatsappNumberRepo.delete({ id: numberId });
