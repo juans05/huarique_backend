@@ -170,6 +170,55 @@ export class ConversationsController {
         };
     }
 
+    // Sync existing PlazBot conversations into wuarikes DB
+    @Post('sync-plazbot/:placeId')
+    async syncFromPlazbot(@Param('placeId') placeId: string) {
+        const apiKey = process.env.PLAZBOT_API_KEY || '';
+        const workspaceId = process.env.PLAZBOT_WORKSPACE_ID || '';
+
+        const waNumbers = await this.whatsappNumberRepo.find({ where: { placeId, isActive: true } });
+        const restaurantPhones = new Set(waNumbers.map(n => n.phoneNumber));
+
+        const plazbotConvs = await this.plazbotService.listConversations(apiKey, workspaceId);
+
+        let synced = 0;
+        for (const pc of plazbotConvs) {
+            const customerPhone: string = pc.platformSenderPhone || '';
+            const restaurantPhone: string = pc.internalWhatsappNumber || '';
+            if (!customerPhone || !restaurantPhones.has(restaurantPhone)) continue;
+
+            // Find or create conversation in wuarikes DB
+            let conv = await this.conversationRepo.findOne({ where: { placeId, customerPhone } });
+            if (!conv) {
+                conv = this.conversationRepo.create({
+                    placeId,
+                    customerPhone,
+                    customerName: pc.platformSenderName || customerPhone,
+                    mode: 'bot',
+                });
+                await this.conversationRepo.save(conv);
+            }
+
+            // Import messages
+            const plazbotMessages = await this.plazbotService.getMessages(apiKey, workspaceId, pc.id);
+            for (const pm of plazbotMessages) {
+                const alreadySaved = await this.messageRepo.findOne({ where: { whatsappMessageId: pm.id } });
+                if (alreadySaved) continue;
+
+                await this.messageRepo.save(this.messageRepo.create({
+                    conversationId: conv.id,
+                    messageType: pm.answerAgentId ? 'OUTGOING' : 'INCOMING',
+                    messageBody: pm.content || '',
+                    isFromAi: !!pm.answerAgentId,
+                    whatsappMessageId: pm.id,
+                }));
+            }
+            synced++;
+        }
+
+        return { synced, total: plazbotConvs.length };
+    }
+
     // SSE stream for real-time message notifications
     @Sse('stream/:placeId')
     stream(

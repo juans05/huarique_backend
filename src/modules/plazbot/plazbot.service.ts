@@ -140,6 +140,22 @@ export class PlazBotService {
     }
   }
 
+  async listConversations(apiKey: string, workspaceId: string): Promise<any[]> {
+    const response = await axios.get(`${this.baseUrl}/api/conversation`, {
+      params: { workspaceId },
+      headers: { 'Authorization': `Bearer ${apiKey}`, 'x-workspace-id': workspaceId },
+    });
+    return response.data?.data?.data || [];
+  }
+
+  async getMessages(apiKey: string, workspaceId: string, conversationId: string): Promise<any[]> {
+    const response = await axios.get(`${this.baseUrl}/api/message/get-all`, {
+      params: { conversationId, workspaceId },
+      headers: { 'Authorization': `Bearer ${apiKey}`, 'x-workspace-id': workspaceId },
+    });
+    return response.data?.data || [];
+  }
+
   async registerWebhook(apiKey: string, workspaceId: string, phoneNumber: string): Promise<void> {
     const webhookUrl = `${process.env.BACKEND_URL || 'https://backendwarike-production.up.railway.app'}/webhooks/plazbot`;
     await axios.post(
