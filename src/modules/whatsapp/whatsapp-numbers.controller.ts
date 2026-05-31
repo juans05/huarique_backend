@@ -14,7 +14,7 @@ export class WhatsAppNumbersController {
         @InjectRepository(WhatsAppNumber)
         private whatsappNumberRepo: Repository<WhatsAppNumber>,
         private plazbotService: PlazBotService,
-    ) {}
+    ) { }
 
     @Post()
     async createWhatsAppNumber(@Body() data: any) {
@@ -54,6 +54,7 @@ export class WhatsAppNumbersController {
 
     @Get(':placeId')
     async getWhatsAppNumbers(@Param('placeId') placeId: string) {
+        console.log('----------------------->', placeId);
         const numbers = await this.whatsappNumberRepo.find({
             where: { placeId },
             order: { createdAt: 'DESC' },
