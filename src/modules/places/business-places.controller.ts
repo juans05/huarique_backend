@@ -16,6 +16,7 @@ import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { PlacesService } from './places.service';
 import { GoogleMapsService } from './services/google-maps.service';
 import { GoogleBusinessService } from './services/google-business.service';
+import { AiService } from '../ai/ai.service';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Place } from './entities/place.entity';
 import { Amenity } from './entities/amenity.entity';
@@ -34,6 +35,7 @@ export class BusinessPlacesController {
         private readonly placesService: PlacesService,
         private readonly googleMapsService: GoogleMapsService,
         private readonly googleBusinessService: GoogleBusinessService,
+        private readonly aiService: AiService,
         @InjectRepository(Place)
         private placesRepo: Repository<Place>,
         @InjectRepository(Amenity)
@@ -382,5 +384,40 @@ export class BusinessPlacesController {
             throw new ForbiddenException('No tienes permiso');
         }
         return this.googleBusinessService.getAllReviews(id);
+    }
+
+    @Post('places/:id/suggest-bot-prompt')
+    @ApiOperation({ summary: 'Generate AI-suggested system prompt for the bot based on restaurant profile' })
+    async suggestBotPrompt(@Param('id') id: string, @CurrentUser() user: any) {
+        const place = await this.placesRepo.findOne({ where: { id }, relations: ['category'] });
+        if (!place || place.claimedByUserId !== user.id) {
+            throw new ForbiddenException('No tienes permiso');
+        }
+
+        const name = place.name || 'el restaurante';
+        const description = place.description ? `\nDescripción: ${place.description}` : '';
+        const category = place.category?.name ? `\nTipo: ${place.category.name}` : '';
+        const address = place.address ? `\nUbicación: ${place.address}` : '';
+
+        const prompt = await this.aiService.chat([
+            {
+                role: 'system',
+                content: 'Eres un experto en configuración de chatbots para restaurantes peruanos. Responde SOLO con el texto del system prompt, sin explicaciones adicionales ni comillas.',
+            },
+            {
+                role: 'user',
+                content: `Crea un system prompt en español para un bot de WhatsApp de un restaurante con estos datos:
+Nombre: ${name}${category}${description}${address}
+
+El prompt debe:
+- Presentar al bot como asistente de ${name}
+- Ser amable y en tono profesional
+- Mencionar que puede ayudar con el menú, reservas, horarios y consultas generales
+- Invitar a preguntar sobre los platos disponibles
+- Tener máximo 4 oraciones cortas`,
+            },
+        ]);
+
+        return { systemPrompt: prompt.trim() };
     }
 }
