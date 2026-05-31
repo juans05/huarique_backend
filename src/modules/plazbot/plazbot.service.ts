@@ -141,6 +141,7 @@ export class PlazBotService {
   }
 
   async listConversations(apiKey: string, workspaceId: string): Promise<any[]> {
+    console.log(`${this.baseUrl}/api/conversation`);
     const response = await axios.get(`${this.baseUrl}/api/conversation`, {
       params: { workspaceId },
       headers: { 'Authorization': `Bearer ${apiKey}`, 'x-workspace-id': workspaceId },
