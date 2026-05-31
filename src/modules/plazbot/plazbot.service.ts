@@ -140,6 +140,21 @@ export class PlazBotService {
     }
   }
 
+  async registerWebhook(apiKey: string, workspaceId: string, phoneNumber: string): Promise<void> {
+    const webhookUrl = `${process.env.BACKEND_URL || 'https://backendwarike-production.up.railway.app'}/webhooks/plazbot`;
+    await axios.post(
+      `${this.baseUrl}/api/workspace/${workspaceId}/whatsapp/numbers/${phoneNumber}/webhook`,
+      { webhook: webhookUrl },
+      {
+        headers: {
+          'Authorization': `Bearer ${apiKey}`,
+          'x-workspace-id': workspaceId,
+        },
+      }
+    );
+    this.logger.log(`Webhook registrado para número ${phoneNumber}: ${webhookUrl}`);
+  }
+
   async validateCredentials(apiKey: string, workspaceId: string): Promise<boolean> {
     try {
       await axios.get(
