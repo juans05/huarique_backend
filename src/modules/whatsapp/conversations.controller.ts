@@ -30,7 +30,7 @@ export class ConversationsController {
         private plazbotService: PlazBotService,
         private eventEmitter: EventEmitter2,
         private jwtService: JwtService
-    ) {}
+    ) { }
 
     private async assertOwner(placeId: string, userId: string) {
         const place = await this.placesRepository.findOne({ where: { id: placeId } });
@@ -252,5 +252,5 @@ export class ConversationsController {
                 this.eventEmitter.off('whatsapp.message.received', handler);
             };
         });
-    }
+    } l
 }
