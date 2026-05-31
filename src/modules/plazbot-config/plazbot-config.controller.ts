@@ -83,6 +83,24 @@ export class PlazbotConfigController {
     return this.plazBotAdvanced.sendTemplateMessage(apiKey, workspaceId, dto);
   }
 
+  // Crear plantilla en PlazBot (requiere aprobación Meta)
+  @Post('template')
+  async createTemplate(
+    @Body() dto: {
+      elementName: string;
+      category: string;
+      languageCode: string;
+      headerText?: string;
+      body: string;
+      footer?: string;
+      quickReplies?: { text: string }[];
+      ctaButtons?: { text: string; type: string; value: string }[];
+    },
+  ) {
+    const { apiKey, workspaceId } = this.getGlobalCreds();
+    return this.plazBotAdvanced.createTemplate(apiKey, workspaceId, dto);
+  }
+
   // Crear campaña masiva
   @Post('campaign')
   async createCampaign(
