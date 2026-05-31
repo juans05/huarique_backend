@@ -100,6 +100,50 @@ export class PlazBotAdvancedService {
     }
   }
 
+  async createTemplate(
+    apiKey: string,
+    workspaceId: string,
+    data: {
+      elementName: string;
+      category: string;
+      languageCode: string;
+      headerText?: string;
+      body: string;
+      footer?: string;
+      quickReplies?: { text: string }[];
+      ctaButtons?: { text: string; type: string; value: string }[];
+    }
+  ) {
+    const buttons: any[] = [];
+    (data.quickReplies || []).filter(q => q.text).forEach(q => {
+      buttons.push({ type: 'QUICK_REPLY', text: q.text });
+    });
+    (data.ctaButtons || []).filter(c => c.text).forEach(c => {
+      buttons.push({ type: c.type === 'PHONE' ? 'PHONE_NUMBER' : 'URL', text: c.text, ...(c.type === 'URL' ? { url: c.value } : { phoneNumber: c.value }) });
+    });
+
+    const response = await axios.post(
+      `${this.baseUrl}/api/template`,
+      {
+        workspaceId,
+        name: data.elementName,
+        category: data.category,
+        language: data.languageCode,
+        header: data.headerText ? { type: 'TEXT', text: data.headerText } : undefined,
+        body: { text: data.body },
+        footer: data.footer ? { text: data.footer } : undefined,
+        buttons: buttons.length ? buttons : undefined,
+      },
+      {
+        headers: {
+          'Authorization': `Bearer ${apiKey}`,
+          'x-workspace-id': workspaceId,
+        },
+      }
+    );
+    return response.data.data;
+  }
+
   async listActiveTemplates(apiKey: string, workspaceId: string) {
     try {
       const response = await axios.get(
