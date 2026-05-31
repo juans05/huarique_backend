@@ -9,13 +9,15 @@ export class DatabaseConfig implements TypeOrmOptionsFactory {
     createTypeOrmOptions(): TypeOrmModuleOptions {
         const url = this.configService.get('DATABASE_URL');
 
+        const synchronize = this.configService.get('DB_SYNC') === 'true';
+
         if (url) {
             return {
                 type: 'postgres',
                 url: url,
                 schema: this.configService.get('DB_SCHEMA') || 'wuarike_db',
                 entities: [__dirname + '/../**/*.entity{.ts,.js}'],
-                synchronize: true,
+                synchronize,
                 logging: this.configService.get('NODE_ENV') === 'development',
                 migrations: [__dirname + '/../database/migrations/*{.ts,.js}'],
                 migrationsRun: false,
@@ -34,7 +36,7 @@ export class DatabaseConfig implements TypeOrmOptionsFactory {
             database: this.configService.get('DB_NAME'),
             schema: this.configService.get('DB_SCHEMA') || 'wuarike_db',
             entities: [__dirname + '/../**/*.entity{.ts,.js}'],
-            synchronize: true,
+            synchronize,
             logging: this.configService.get('NODE_ENV') === 'development',
             migrations: [__dirname + '/../database/migrations/*{.ts,.js}'],
             migrationsRun: false,
