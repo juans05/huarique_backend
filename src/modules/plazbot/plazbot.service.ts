@@ -175,7 +175,7 @@ export class PlazBotService {
   }
 
   async registerWebhook(apiKey: string, workspaceId: string, phoneNumber: string): Promise<void> {
-    const webhookUrl = `${process.env.BACKEND_URL || 'https://backendwarike-production.up.railway.app'}/webhooks/plazbot`;
+    const webhookUrl = `${process.env.BACKEND_URL || 'https://backendwarike-production.up.railway.app'}/api/webhooks/plazbot`;
     this.logger.log(`[registerWebhook] Registrando webhook phone=${phoneNumber} workspace=${workspaceId} url=${webhookUrl}`);
     try {
       const response = await axios.post(
