@@ -2,6 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Anthropic } from '@anthropic-ai/sdk';
+import OpenAI from 'openai';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { PlazBotService } from '../plazbot/plazbot.service';
 import { VectorService } from '../ai/vector.service';
@@ -12,7 +13,12 @@ import { Message } from '../whatsapp/entities/message.entity';
 @Injectable()
 export class ChatProcessorService {
   private readonly logger = new Logger(ChatProcessorService.name);
-  private anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+  private anthropic = process.env.ANTHROPIC_API_KEY
+    ? new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
+    : null;
+  private grok = process.env.XAI_API_KEY
+    ? new OpenAI({ apiKey: process.env.XAI_API_KEY, baseURL: 'https://api.x.ai/v1' })
+    : null;
 
   constructor(
     private plazbot: PlazBotService,
@@ -115,16 +121,35 @@ export class ChatProcessorService {
         return acc;
       }, []);
 
-    // 8. Llamar a Claude con historial + mensaje actual
-    const claudeResponse = await this.anthropic.messages.create({
-      model: 'claude-3-5-sonnet-20241022',
-      max_tokens: 512,
-      system: systemPrompt,
-      messages: [...historyMessages, { role: 'user', content: messageBody }],
-    });
+    // 8. Llamar a Claude o Grok según disponibilidad
+    let botResponse = '';
 
-    const botResponse =
-      claudeResponse.content[0].type === 'text' ? claudeResponse.content[0].text : '';
+    if (this.anthropic) {
+      this.logger.log(`[${placeId}] Usando Claude`);
+      const claudeResponse = await this.anthropic.messages.create({
+        model: 'claude-3-5-sonnet-20241022',
+        max_tokens: 512,
+        system: systemPrompt,
+        messages: [...historyMessages, { role: 'user', content: messageBody }],
+      });
+      botResponse = claudeResponse.content[0].type === 'text' ? claudeResponse.content[0].text : '';
+    } else if (this.grok) {
+      this.logger.log(`[${placeId}] Claude no disponible, usando Grok`);
+      const grokMessages: OpenAI.Chat.ChatCompletionMessageParam[] = [
+        { role: 'system', content: systemPrompt },
+        ...historyMessages.map(m => ({ role: m.role as 'user' | 'assistant', content: m.content as string })),
+        { role: 'user', content: messageBody },
+      ];
+      const grokResponse = await this.grok.chat.completions.create({
+        model: 'grok-3',
+        max_tokens: 512,
+        messages: grokMessages,
+      });
+      botResponse = grokResponse.choices[0]?.message?.content || '';
+    } else {
+      this.logger.error(`[${placeId}] No hay API key configurada para ningún proveedor de IA (ANTHROPIC_API_KEY o XAI_API_KEY)`);
+      return { success: false };
+    }
 
     this.logger.log(`Respuesta generada: ${botResponse}`);
 
