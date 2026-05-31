@@ -18,39 +18,71 @@ export class PlazBotWebhookController {
   async handleWebhook(@Body() payload: any) {
     this.logger.log(`[webhook] Payload recibido: ${JSON.stringify(payload)}`);
 
+    // Formato WhatsApp Business API (enviado por PlazBot)
+    const entry = payload?.reference?.entry?.[0];
+    const change = entry?.changes?.[0]?.value;
+
+    if (change) {
+      const destinationPhone: string = change.metadata?.display_phone_number || '';
+      const senderPhone: string = change.messages?.[0]?.from || payload.recipientPhone || '';
+      const senderName: string = change.contacts?.[0]?.profile?.name || 'Cliente';
+      const messageBody: string = change.messages?.[0]?.text?.body || payload.content || '';
+
+      this.logger.log(`[webhook] Formato WhatsApp Business — destino="${destinationPhone}" remitente="${senderPhone}" nombre="${senderName}" mensaje="${messageBody}"`);
+
+      if (!destinationPhone) {
+        this.logger.warn(`[webhook] Sin número destino en metadata. Payload: ${JSON.stringify(payload)}`);
+        return { status: 'ok' };
+      }
+
+      const waNumber = await this.whatsappNumberRepo.findOne({
+        where: { phoneNumber: destinationPhone, isActive: true },
+      });
+
+      this.logger.log(`[webhook] Búsqueda en DB para "${destinationPhone}": ${waNumber ? `encontrado placeId=${waNumber.placeId}` : 'NO ENCONTRADO'}`);
+
+      if (!waNumber) {
+        this.logger.warn(`[webhook] Número "${destinationPhone}" no registrado o inactivo en DB`);
+        return { status: 'ok' };
+      }
+
+      try {
+        await this.chatProcessor.processIncomingMessage(
+          waNumber.placeId,
+          { name: senderName, phone: senderPhone },
+          messageBody,
+        );
+        this.logger.log(`[webhook] Mensaje procesado para placeId=${waNumber.placeId}`);
+      } catch (error) {
+        this.logger.error(`[webhook] Error procesando mensaje: ${error?.message}`, error?.stack);
+      }
+
+      return { status: 'ok' };
+    }
+
+    // Formato legacy PlazBot { event, contact, message, channel }
     const { event, contact, message, channel, to, phone_number } = payload;
 
-    this.logger.log(`[webhook] event="${event}" contact=${JSON.stringify(contact)} message=${JSON.stringify(message)} channel=${JSON.stringify(channel)} to="${to}" phone_number="${phone_number}"`);
-
     if (event !== 'message_received') {
-      this.logger.log(`[webhook] Evento ignorado: "${event}" (se esperaba "message_received")`);
+      this.logger.log(`[webhook] Evento ignorado: "${event}"`);
       return { status: 'ok' };
     }
 
-    // PlazBot puede enviar el número destino en distintos campos según versión de API
-    const destinationPhone: string =
-      channel?.phone || channel?.number || to || phone_number || '';
-
-    this.logger.log(`[webhook] Número destino resuelto: "${destinationPhone}" (channel.phone="${channel?.phone}" channel.number="${channel?.number}" to="${to}" phone_number="${phone_number}")`);
+    const destinationPhone: string = channel?.phone || channel?.number || to || phone_number || '';
 
     if (!destinationPhone) {
-      this.logger.warn(`[webhook] Sin número destino. Payload completo: ${JSON.stringify(payload)}`);
+      this.logger.warn(`[webhook] Sin número destino. Payload: ${JSON.stringify(payload)}`);
       return { status: 'ok' };
     }
 
-    // Rutear al restaurante por número de WhatsApp registrado en wuarikes
     const waNumber = await this.whatsappNumberRepo.findOne({
       where: { phoneNumber: destinationPhone, isActive: true },
     });
 
-    this.logger.log(`[webhook] Búsqueda en DB para "${destinationPhone}": ${waNumber ? `encontrado placeId=${waNumber.placeId}` : 'NO ENCONTRADO'}`);
-
     if (!waNumber) {
-      this.logger.warn(`[webhook] Número "${destinationPhone}" no está registrado o no está activo en la DB`);
+      this.logger.warn(`[webhook] Número "${destinationPhone}" no registrado o inactivo en DB`);
       return { status: 'ok' };
     }
-
-    this.logger.log(`[webhook] Procesando mensaje para placeId=${waNumber.placeId} de ${contact?.name} (${contact?.phone}): "${message?.body}"`);
 
     try {
       await this.chatProcessor.processIncomingMessage(
@@ -58,9 +90,9 @@ export class PlazBotWebhookController {
         { name: contact?.name || 'Cliente', phone: contact?.phone || '' },
         message?.body || '',
       );
-      this.logger.log(`[webhook] Mensaje procesado correctamente para placeId=${waNumber.placeId}`);
+      this.logger.log(`[webhook] Mensaje procesado para placeId=${waNumber.placeId}`);
     } catch (error) {
-      this.logger.error(`[webhook] Error procesando mensaje para placeId=${waNumber.placeId}: ${error?.message}`, error?.stack);
+      this.logger.error(`[webhook] Error procesando mensaje: ${error?.message}`, error?.stack);
     }
 
     return { status: 'ok' };
