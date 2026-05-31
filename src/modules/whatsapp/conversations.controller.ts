@@ -9,6 +9,7 @@ import { WhatsAppNumber } from './entities/whatsapp-number.entity';
 import { Place } from '../places/entities/place.entity';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
+import { IsPublic } from '../../common/decorators/is-public.decorator';
 import { WhatsappService } from './whatsapp.service';
 import { PlazBotService } from '../plazbot/plazbot.service';
 import { JwtService } from '@nestjs/jwt';
@@ -220,6 +221,7 @@ export class ConversationsController {
     }
 
     // SSE stream for real-time message notifications
+    @IsPublic()
     @Sse('stream/:placeId')
     stream(
         @Param('placeId') placeId: string,
