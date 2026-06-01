@@ -1,5 +1,5 @@
-import { Controller, Get, Query, Injectable, OnModuleInit, OnModuleDestroy } from '@nestjs/common';
-import { Pool, Client } from 'pg';
+import { Controller, Get, Query, OnModuleInit, OnModuleDestroy } from '@nestjs/common';
+import { Pool } from 'pg';
 import { ConfigService } from '@nestjs/config';
 
 @Controller('ubigeo')
@@ -84,6 +84,53 @@ export class UbigeoRawController implements OnModuleInit, OnModuleDestroy {
             return result.rows;
         } catch (error) {
             console.error('Error getDistricts:', error);
+            throw error;
+        }
+    }
+
+    @Get('spain/communities')
+    async getSpainCommunities() {
+        try {
+            const schema = this.configService.get('DB_SCHEMA') || 'wuarike_db';
+            const result = await this.pool.query(
+                `SELECT DISTINCT community FROM ${schema}.spain_locations ORDER BY community`
+            );
+            return result.rows.map((r: any) => r.community);
+        } catch (error) {
+            console.error('Error getSpainCommunities:', error);
+            throw error;
+        }
+    }
+
+    @Get('spain/provinces')
+    async getSpainProvinces(@Query('community') community: string) {
+        try {
+            const schema = this.configService.get('DB_SCHEMA') || 'wuarike_db';
+            const result = await this.pool.query(
+                `SELECT DISTINCT province FROM ${schema}.spain_locations WHERE community = $1 ORDER BY province`,
+                [community]
+            );
+            return result.rows.map((r: any) => r.province);
+        } catch (error) {
+            console.error('Error getSpainProvinces:', error);
+            throw error;
+        }
+    }
+
+    @Get('spain/municipalities')
+    async getSpainMunicipalities(
+        @Query('community') community: string,
+        @Query('province') province: string
+    ) {
+        try {
+            const schema = this.configService.get('DB_SCHEMA') || 'wuarike_db';
+            const result = await this.pool.query(
+                `SELECT DISTINCT municipality FROM ${schema}.spain_locations WHERE community = $1 AND province = $2 ORDER BY municipality`,
+                [community, province]
+            );
+            return result.rows.map((r: any) => r.municipality);
+        } catch (error) {
+            console.error('Error getSpainMunicipalities:', error);
             throw error;
         }
     }

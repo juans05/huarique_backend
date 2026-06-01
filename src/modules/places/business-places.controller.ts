@@ -2,6 +2,7 @@ import {
     Controller,
     Get,
     Patch,
+    Delete,
     Param,
     Body,
     UseGuards,
@@ -17,6 +18,7 @@ import { PlacesService } from './places.service';
 import { GoogleMapsService } from './services/google-maps.service';
 import { GoogleBusinessService } from './services/google-business.service';
 import { AiService } from '../ai/ai.service';
+import { MenuService } from './menu.service';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Place } from './entities/place.entity';
 import { Amenity } from './entities/amenity.entity';
@@ -36,6 +38,7 @@ export class BusinessPlacesController {
         private readonly googleMapsService: GoogleMapsService,
         private readonly googleBusinessService: GoogleBusinessService,
         private readonly aiService: AiService,
+        private readonly menuService: MenuService,
         @InjectRepository(Place)
         private placesRepo: Repository<Place>,
         @InjectRepository(Amenity)
@@ -192,6 +195,10 @@ export class BusinessPlacesController {
         if (data.priceMin !== undefined) place.priceMin = data.priceMin;
         if (data.coverImageUrl !== undefined) place.coverImageUrl = data.coverImageUrl;
         if (data.googlePlaceId !== undefined) place.googlePlaceId = data.googlePlaceId;
+        if (data.countryCode !== undefined) place.countryCode = data.countryCode;
+        if (data.spainCommunity !== undefined) place.spainCommunity = data.spainCommunity;
+        if (data.spainProvince !== undefined) place.spainProvince = data.spainProvince;
+        if (data.spainMunicipality !== undefined) place.spainMunicipality = data.spainMunicipality;
 
         await this.placesRepo.save(place);
 
@@ -419,5 +426,44 @@ El prompt debe:
         ]);
 
         return { systemPrompt: prompt.trim() };
+    }
+
+    // ── Menu ─────────────────────────────────────────────────────────────────
+
+    @Get('places/:id/menu')
+    async getMenu(@Param('id') id: string) {
+        return this.menuService.getMenu(id);
+    }
+
+    @Post('places/:id/menu/categories')
+    async createCategory(@Param('id') id: string, @Body() body: any) {
+        return this.menuService.createCategory(id, body);
+    }
+
+    @Patch('places/:id/menu/categories/:categoryId')
+    async updateCategory(@Param('categoryId') categoryId: string, @Body() body: any) {
+        return this.menuService.updateCategory(categoryId, body);
+    }
+
+    @Delete('places/:id/menu/categories/:categoryId')
+    async deleteCategory(@Param('categoryId') categoryId: string) {
+        await this.menuService.deleteCategory(categoryId);
+        return { message: 'Categoría eliminada' };
+    }
+
+    @Post('places/:id/menu/items')
+    async createDish(@Param('id') id: string, @Body() body: any) {
+        return this.menuService.createDish(id, body);
+    }
+
+    @Patch('places/:id/menu/items/:dishId')
+    async updateDish(@Param('dishId') dishId: string, @Body() body: any) {
+        return this.menuService.updateDish(dishId, body);
+    }
+
+    @Delete('places/:id/menu/items/:dishId')
+    async deleteDish(@Param('dishId') dishId: string) {
+        await this.menuService.deleteDish(dishId);
+        return { message: 'Plato eliminado' };
     }
 }

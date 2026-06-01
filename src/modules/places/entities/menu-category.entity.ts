@@ -5,13 +5,14 @@ import {
     CreateDateColumn,
     UpdateDateColumn,
     ManyToOne,
+    OneToMany,
     JoinColumn,
 } from 'typeorm';
 import { Place } from './place.entity';
-import { MenuCategory } from './menu-category.entity';
+import { Dish } from './dish.entity';
 
-@Entity('dishes')
-export class Dish {
+@Entity('menu_categories')
+export class MenuCategory {
     @PrimaryGeneratedColumn('uuid')
     id: string;
 
@@ -21,28 +22,18 @@ export class Dish {
     @Column({ type: 'text', nullable: true })
     description: string | null;
 
-    @Column({ type: 'decimal', precision: 10, scale: 2, nullable: true })
-    price: number | null;
-
-    @Column({ name: 'image_url', nullable: true })
-    imageUrl: string | null;
-
     @Column({ name: 'display_order', default: 0 })
     displayOrder: number;
 
-    @ManyToOne(() => Place, (place) => place.dishes, { onDelete: 'CASCADE' })
+    @ManyToOne(() => Place, { onDelete: 'CASCADE' })
     @JoinColumn({ name: 'place_id' })
     place: Place;
 
     @Column({ name: 'place_id' })
     placeId: string;
 
-    @ManyToOne(() => MenuCategory, (cat) => cat.dishes, { onDelete: 'SET NULL', nullable: true })
-    @JoinColumn({ name: 'category_id' })
-    category: MenuCategory | null;
-
-    @Column({ name: 'category_id', nullable: true })
-    categoryId: string | null;
+    @OneToMany(() => Dish, (dish) => dish.category)
+    dishes: Dish[];
 
     @CreateDateColumn({ name: 'created_at' })
     createdAt: Date;

@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { PlacesService } from './places.service';
+import { MenuService } from './menu.service';
 import { PlacesController } from './places.controller';
 import { BusinessPlacesController } from './business-places.controller';
 import { Place } from './entities/place.entity';
@@ -11,6 +12,7 @@ import { PlaceClaim } from './entities/place-claim.entity';
 import { Tag } from './entities/tag.entity';
 import { Amenity } from './entities/amenity.entity';
 import { Dish } from './entities/dish.entity';
+import { MenuCategory } from './entities/menu-category.entity';
 import { PlaceVideo } from './entities/place-video.entity';
 import { GoogleReview } from './entities/google-review.entity';
 
@@ -37,6 +39,7 @@ import { User } from '../users/entities/user.entity';
             Category,
             FavoritePlace,
             Dish,
+            MenuCategory,
             PlaceVideo,
             GoogleReview,
             User,
@@ -45,7 +48,7 @@ import { User } from '../users/entities/user.entity';
     ],
 
     controllers: [PlacesController, BusinessPlacesController, GoogleCallbackController],
-    providers: [PlacesService, GeolocationService, RarityCalculatorService, GoogleMapsService, GoogleBusinessService, WeeklyReportService],
+    providers: [PlacesService, MenuService, GeolocationService, RarityCalculatorService, GoogleMapsService, GoogleBusinessService, WeeklyReportService],
     exports: [PlacesService, GeolocationService, GoogleMapsService],
 })
 export class PlacesModule { }
