@@ -3,6 +3,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Anthropic } from '@anthropic-ai/sdk';
 import OpenAI from 'openai';
+import { GoogleGenerativeAI } from '@google/generative-ai';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { PlazBotService } from '../plazbot/plazbot.service';
 import { VectorService } from '../ai/vector.service';
@@ -18,6 +19,9 @@ export class ChatProcessorService {
     : null;
   private grok = process.env.XAI_API_KEY
     ? new OpenAI({ apiKey: process.env.XAI_API_KEY, baseURL: 'https://api.x.ai/v1' })
+    : null;
+  private gemini = process.env.GEMINI_API_KEY
+    ? new GoogleGenerativeAI(process.env.GEMINI_API_KEY)
     : null;
 
   constructor(
@@ -127,7 +131,7 @@ export class ChatProcessorService {
     if (this.anthropic) {
       this.logger.log(`[${placeId}] Usando Claude`);
       const claudeResponse = await this.anthropic.messages.create({
-        model: 'claude-3-5-sonnet-20241022',
+        model: 'claude-haiku-4-5-20251001',
         max_tokens: 512,
         system: systemPrompt,
         messages: [...historyMessages, { role: 'user', content: messageBody }],
@@ -146,8 +150,21 @@ export class ChatProcessorService {
         messages: grokMessages,
       });
       botResponse = grokResponse.choices[0]?.message?.content || '';
+    } else if (this.gemini) {
+      this.logger.log(`[${placeId}] Claude y Grok no disponibles, usando Gemini`);
+      const model = this.gemini.getGenerativeModel({ model: 'gemini-1.5-flash' });
+      const history = historyMessages.map(m => ({
+        role: m.role === 'assistant' ? 'model' : 'user',
+        parts: [{ text: m.content as string }],
+      }));
+      const chat = model.startChat({
+        history,
+        systemInstruction: systemPrompt,
+      });
+      const result = await chat.sendMessage(messageBody);
+      botResponse = result.response.text();
     } else {
-      this.logger.error(`[${placeId}] No hay API key configurada para ningún proveedor de IA (ANTHROPIC_API_KEY o XAI_API_KEY)`);
+      this.logger.error(`[${placeId}] No hay API key configurada (ANTHROPIC_API_KEY, XAI_API_KEY o GEMINI_API_KEY)`);
       return { success: false };
     }
 
