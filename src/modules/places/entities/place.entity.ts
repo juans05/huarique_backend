@@ -129,6 +129,18 @@ export class Place {
     @Column({ name: 'claimed_by_user_id', nullable: true })
     claimedByUserId: string | null;
 
+    @Column({ name: 'country_code', nullable: true, default: 'PE' })
+    countryCode: string | null;
+
+    @Column({ name: 'spain_community', nullable: true })
+    spainCommunity: string | null;
+
+    @Column({ name: 'spain_province', nullable: true })
+    spainProvince: string | null;
+
+    @Column({ name: 'spain_municipality', nullable: true })
+    spainMunicipality: string | null;
+
     @Column({ name: 'average_price', type: 'decimal', precision: 10, scale: 2, nullable: true })
     averagePrice: number | null;
 
