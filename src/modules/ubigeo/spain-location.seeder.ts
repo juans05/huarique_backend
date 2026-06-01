@@ -112,11 +112,15 @@ export class SpainLocationSeeder implements OnModuleInit {
     ) {}
 
     async onModuleInit() {
-        const count = await this.repo.count();
-        if (count > 0) return;
+        try {
+            const count = await this.repo.count();
+            if (count > 0) return;
 
-        const entities = SPAIN_DATA.map(d => this.repo.create(d));
-        await this.repo.save(entities, { chunk: 500 });
-        this.logger.log(`Inserted ${entities.length} Spain location entries`);
+            const entities = SPAIN_DATA.map(d => this.repo.create(d));
+            await this.repo.save(entities, { chunk: 500 });
+            this.logger.log(`Inserted ${entities.length} Spain location entries`);
+        } catch (err: any) {
+            this.logger.warn(`Spain locations seeder skipped: ${err?.message}`);
+        }
     }
 }
