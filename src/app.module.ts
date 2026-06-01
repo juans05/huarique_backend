@@ -30,6 +30,9 @@ import { DocumentsModule } from './modules/documents/documents.module';
 import { ChatModule } from './modules/chat/chat.module';
 import { PlazbotConfigModule } from './modules/plazbot-config/plazbot-config.module';
 import { PlazBotModule } from './modules/plazbot/plazbot.module';
+import { ContactsModule } from './modules/contacts/contacts.module';
+import { AuditLogModule } from './modules/audit-log/audit-log.module';
+import { CreditsModule } from './modules/credits/credits.module';
 
 @Module({
     imports: [
@@ -90,6 +93,9 @@ import { PlazBotModule } from './modules/plazbot/plazbot.module';
         PlazbotConfigModule,
         PlazBotModule,
         ChatModule,
+        ContactsModule,
+        AuditLogModule,
+        CreditsModule,
     ],
 })
 export class AppModule { }

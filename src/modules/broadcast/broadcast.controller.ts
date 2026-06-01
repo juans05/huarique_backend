@@ -1,4 +1,4 @@
-import { Controller, Post, Get, Param, Body, HttpCode, HttpStatus, UseGuards, ForbiddenException, NotFoundException } from '@nestjs/common';
+import { Controller, Post, Get, Patch, Param, Body, HttpCode, HttpStatus, UseGuards, ForbiddenException, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { BroadcastService } from './broadcast.service';
@@ -43,5 +43,26 @@ export class BroadcastController {
     @HttpCode(HttpStatus.ACCEPTED)
     async sendBroadcast(@Param('broadcastId') broadcastId: string) {
         return await this.broadcastService.triggerBroadcast(broadcastId);
+    }
+
+    @Patch(':broadcastId/schedule')
+    @HttpCode(HttpStatus.OK)
+    async scheduleBroadcast(
+        @Param('broadcastId') broadcastId: string,
+        @Body() data: { scheduledAt: string },
+    ) {
+        return await this.broadcastService.scheduleBroadcast(broadcastId, data.scheduledAt);
+    }
+
+    @Post(':broadcastId/cancel')
+    @HttpCode(HttpStatus.OK)
+    async cancelBroadcast(@Param('broadcastId') broadcastId: string) {
+        return await this.broadcastService.cancelBroadcast(broadcastId);
+    }
+
+    @Patch(':broadcastId')
+    @HttpCode(HttpStatus.OK)
+    async updateBroadcast(@Param('broadcastId') broadcastId: string, @Body() data: any) {
+        return await this.broadcastService.updateBroadcast(broadcastId, data);
     }
 }

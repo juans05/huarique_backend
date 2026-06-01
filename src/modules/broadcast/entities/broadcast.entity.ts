@@ -40,6 +40,21 @@ export class Broadcast {
     @Column({ name: 'messages_sent', default: 0 })
     messagesSent: number;
 
+    @Column({ name: 'csv_import_id', nullable: true })
+    csvImportId: string;
+
+    @Column({ name: 'use_csv_merge', default: false })
+    useCsvMerge: boolean;
+
+    @Column({ type: 'jsonb', name: 'merge_mapping', nullable: true })
+    mergeMapping: any;
+
+    @Column({ name: 'scheduled_at', type: 'timestamp', nullable: true })
+    scheduledAt: Date;
+
+    @Column({ default: 'America/Lima' })
+    timezone: string;
+
     @CreateDateColumn({ name: 'created_at' })
     createdAt: Date;
 }
