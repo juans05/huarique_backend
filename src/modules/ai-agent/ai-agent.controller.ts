@@ -1,28 +1,48 @@
-import { Controller, Post, Get, Delete, Param, Body, UseGuards, UseInterceptors, UploadedFile, BadRequestException } from '@nestjs/common';
+import { Controller, Post, Get, Delete, Param, Body, UseGuards, UseInterceptors, UploadedFile, BadRequestException, Logger } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { memoryStorage } from 'multer';
+import { GoogleGenerativeAI } from '@google/generative-ai';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { AiAgentService } from './ai-agent.service';
+import axios from 'axios';
+import { JSDOM } from 'jsdom';
+import { Readability } from '@mozilla/readability';
 
-// Use require for pdf-parse due to CommonJS module issues
 const pdfParse = require('pdf-parse');
+const mammoth = require('mammoth');
+const TurndownService = require('turndown');
+
+const ALLOWED_MIMES = [
+    'text/plain',
+    'application/pdf',
+    'application/msword',
+    'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    'image/jpeg',
+    'image/png',
+    'image/webp',
+    'image/gif',
+];
 
 @UseGuards(JwtAuthGuard)
 @Controller('business/knowledge-bases')
 export class AiAgentController {
+    private readonly logger = new Logger(AiAgentController.name);
+    private gemini = process.env.GEMINI_API_KEY
+        ? new GoogleGenerativeAI(process.env.GEMINI_API_KEY)
+        : null;
+
     constructor(private aiAgentService: AiAgentService) {}
 
-    // Upload and process document (PDF or TXT)
     @Post(':placeId/upload')
     @UseInterceptors(
         FileInterceptor('file', {
             storage: memoryStorage(),
+            limits: { fileSize: 50 * 1024 * 1024 },
             fileFilter: (req, file, cb) => {
-                const allowedMimes = ['text/plain', 'application/pdf'];
-                if (allowedMimes.includes(file.mimetype)) {
+                if (ALLOWED_MIMES.includes(file.mimetype)) {
                     cb(null, true);
                 } else {
-                    cb(new BadRequestException('Solo se aceptan archivos TXT y PDF'), false);
+                    cb(new BadRequestException('Formato no soportado. Acepta: PDF, TXT, DOC, DOCX, JPG, PNG, WEBP'), false);
                 }
             }
         })
@@ -32,30 +52,20 @@ export class AiAgentController {
         @UploadedFile() file: Express.Multer.File,
         @Body() body: { fileName?: string }
     ) {
-        if (!file) {
-            throw new BadRequestException('No file provided');
-        }
+        if (!file) throw new BadRequestException('No se proporcionó archivo');
 
-        let rawText = '';
+        const fileName = body.fileName || file.originalname;
+        this.logger.log(`[upload] Procesando "${fileName}" (${file.mimetype}) para placeId=${placeId}`);
 
-        // Extract text based on file type
-        if (file.mimetype === 'text/plain') {
-            rawText = file.buffer.toString('utf-8');
-        } else if (file.mimetype === 'application/pdf') {
-            try {
-                const pdfData = await pdfParse(file.buffer);
-                rawText = pdfData.text;
-            } catch (error) {
-                throw new BadRequestException('Error parsing PDF: ' + error.message);
-            }
-        }
+        const markdown = await this.toMarkdown(file, fileName);
 
-        if (!rawText || rawText.trim().length === 0) {
+        if (!markdown || markdown.trim().length === 0) {
             throw new BadRequestException('El archivo no contiene texto válido');
         }
 
-        const fileName = body.fileName || file.originalname;
-        const kb = await this.aiAgentService.createKnowledgeBase(placeId, fileName, rawText);
+        this.logger.log(`[upload] Markdown generado: ${markdown.length} caracteres`);
+
+        const kb = await this.aiAgentService.createKnowledgeBase(placeId, fileName, markdown);
 
         return {
             id: kb.id,
@@ -65,20 +75,143 @@ export class AiAgentController {
         };
     }
 
-    // List knowledge bases for a place
     @Get(':placeId')
     async getKnowledgeBases(@Param('placeId') placeId: string) {
         const bases = await this.aiAgentService.getKnowledgeBases(placeId);
+        return { data: bases, total: bases.length };
+    }
+
+    @Post(':placeId/url')
+    async indexFromUrl(
+        @Param('placeId') placeId: string,
+        @Body() body: { url: string; fileName?: string }
+    ) {
+        if (!body.url) throw new BadRequestException('URL requerida');
+
+        let url: URL;
+        try {
+            url = new URL(body.url);
+        } catch {
+            throw new BadRequestException('URL inválida');
+        }
+
+        this.logger.log(`[url] Procesando ${url.href} para placeId=${placeId}`);
+
+        const response = await axios.get(url.href, {
+            headers: { 'User-Agent': 'Mozilla/5.0 (compatible; WarikeBot/1.0)' },
+            timeout: 15000,
+            responseType: 'text',
+        }).catch(() => {
+            throw new BadRequestException('No se pudo acceder a la URL');
+        });
+
+        const dom = new JSDOM(response.data, { url: url.href });
+        const reader = new Readability(dom.window.document);
+        const article = reader.parse();
+
+        let markdown: string;
+
+        if (article && article.content) {
+            const turndown = new TurndownService({ headingStyle: 'atx', bulletListMarker: '-' });
+            const rawMd = turndown.turndown(article.content);
+            const title = article.title || body.fileName || url.hostname;
+            markdown = `# ${title}\n\n> Fuente: ${url.href}\n\n${rawMd}`;
+        } else {
+            // Fallback: extraer todo el texto visible
+            const text = dom.window.document.body?.textContent || '';
+            markdown = this.txtToMarkdown(text, body.fileName || url.hostname);
+            markdown += `\n\n> Fuente: ${url.href}`;
+        }
+
+        this.logger.log(`[url] Markdown generado: ${markdown.length} caracteres`);
+
+        const fileName = body.fileName || url.hostname;
+        const kb = await this.aiAgentService.createKnowledgeBase(placeId, fileName, markdown);
+
         return {
-            data: bases,
-            total: bases.length
+            id: kb.id,
+            fileName: kb.fileName,
+            createdAt: kb.createdAt,
+            status: 'URL indexada correctamente'
         };
     }
 
-    // Delete knowledge base
     @Delete(':kbId')
     async deleteKnowledgeBase(@Param('kbId') kbId: string) {
         await this.aiAgentService.deleteKnowledgeBase(kbId);
         return { message: 'Base de conocimiento eliminada' };
+    }
+
+    // ── Conversores ──────────────────────────────────────────────────────────
+
+    private async toMarkdown(file: Express.Multer.File, fileName: string): Promise<string> {
+        const mime = file.mimetype;
+
+        if (mime === 'text/plain') {
+            return this.txtToMarkdown(file.buffer.toString('utf-8'), fileName);
+        }
+
+        if (mime === 'application/pdf') {
+            const pdfData = await pdfParse(file.buffer);
+            return this.txtToMarkdown(pdfData.text, fileName);
+        }
+
+        if (mime === 'application/msword' || mime === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document') {
+            const result = await mammoth.convertToMarkdown({ buffer: file.buffer });
+            return `# ${fileName}\n\n${result.value}`;
+        }
+
+        if (mime.startsWith('image/')) {
+            return this.imageToMarkdown(file.buffer, mime, fileName);
+        }
+
+        throw new BadRequestException('Formato no soportado');
+    }
+
+    private txtToMarkdown(text: string, fileName: string): string {
+        const lines = text.split('\n');
+        const md: string[] = [`# ${fileName}`, ''];
+
+        for (const line of lines) {
+            const trimmed = line.trim();
+            if (!trimmed) { md.push(''); continue; }
+
+            // Detectar posibles títulos (línea corta sin punto al final, en mayúsculas o con números)
+            if (trimmed.length < 60 && !trimmed.endsWith('.') && !trimmed.endsWith(',') &&
+                (trimmed === trimmed.toUpperCase() || /^[\d]+[.)]\s/.test(trimmed))) {
+                md.push(`## ${trimmed}`);
+            } else if (/^[-*•]\s/.test(trimmed)) {
+                md.push(`- ${trimmed.replace(/^[-*•]\s/, '')}`);
+            } else {
+                md.push(trimmed);
+            }
+        }
+
+        return md.join('\n');
+    }
+
+    private async imageToMarkdown(buffer: Buffer, mimeType: string, fileName: string): Promise<string> {
+        if (!this.gemini) {
+            throw new BadRequestException('Se necesita GEMINI_API_KEY para procesar imágenes');
+        }
+
+        this.logger.log(`[imageToMarkdown] Procesando imagen con Gemini Vision`);
+        const model = this.gemini.getGenerativeModel({ model: 'gemini-1.5-flash' });
+
+        const result = await model.generateContent([
+            {
+                inlineData: {
+                    mimeType,
+                    data: buffer.toString('base64'),
+                }
+            },
+            `Extrae TODO el texto de esta imagen y conviértelo a formato Markdown estructurado.
+             Usa # para títulos principales, ## para subtítulos, - para listas, **negrita** para énfasis.
+             Si es un menú, organiza por secciones con precios. Si es texto libre, mantén la estructura original.
+             Responde SOLO con el markdown, sin explicaciones.`,
+        ]);
+
+        const text = result.response.text();
+        return `# ${fileName}\n\n${text}`;
     }
 }
