@@ -130,7 +130,7 @@ export class WhatsAppTemplateService {
         } catch (err: any) {
             template.status = 'FAILED';
             template.errorMessage = err?.message || 'Error desconocido al enviar a PlazBot';
-            template.plazbotResponse = null;
+            template.plazbotResponse = err?.plazbotResponse ?? null;  // guardar respuesta de PlazBot si existe
             this.logger.error(`[submitToPlazBot] Error al enviar name=${template.name}: ${template.errorMessage}`);
         }
         return this.templateRepo.save(template);

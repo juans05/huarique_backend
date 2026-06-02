@@ -73,11 +73,14 @@ export class PlazBotAdvancedService {
         }
       );
       this.logger.log(`[sendTemplateMessage] Respuesta status=${response.status} data=${JSON.stringify(response.data)}`);
+      if (response.data?.success === false) {
+        throw new Error(response.data.message || response.data.errorCode || 'PlazBot rechazó el envío');
+      }
       return response.data?.data ?? response.data ?? { success: true };
     } catch (error) {
       this.logger.error(`[sendTemplateMessage] Error status=${error?.response?.status} body=${JSON.stringify(error?.response?.data)}`, error?.message);
       const apiError = error?.response?.data;
-      throw new Error(apiError?.message || apiError?.error || error?.message || 'Error al enviar template');
+      throw new Error(apiError?.message || error?.message || 'Error al enviar template');
     }
   }
 
@@ -185,11 +188,19 @@ export class PlazBotAdvancedService {
         }
       );
       this.logger.log(`[createTemplate] Respuesta status=${response.status} data=${JSON.stringify(response.data)}`);
+      // PlazBot puede devolver HTTP 200 con success:false — tratar como error
+      if (response.data?.success === false) {
+        const msg = response.data.message || response.data.errorCode || 'PlazBot rechazó la plantilla';
+        this.logger.error(`[createTemplate] PlazBot success=false: ${msg}`);
+        const err = new Error(msg) as any;
+        err.plazbotResponse = response.data;  // preservar respuesta para guardar en DB
+        throw err;
+      }
       return response.data?.data ?? response.data ?? { success: true };
     } catch (error) {
       this.logger.error(`[createTemplate] Error status=${error?.response?.status} body=${JSON.stringify(error?.response?.data)}`, error?.message);
       const apiError = error?.response?.data;
-      throw new Error(apiError?.message || apiError?.error || error?.message || 'Error al crear template en PlazBot');
+      throw new Error(apiError?.message || error?.message || 'Error al crear template en PlazBot');
     }
   }
 
