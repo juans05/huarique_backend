@@ -142,18 +142,34 @@ export class PlazBotAdvancedService {
           .map(k => data.variableSamples![Number(k)]?.value || `sample_${k}`)
       : undefined;
 
+    const components: any[] = [];
+
+    if (data.headerText) {
+      components.push({ type: 'HEADER', format: 'TEXT', text: data.headerText });
+    }
+
+    components.push({
+      type: 'BODY',
+      text: data.body,
+      ...(bodyExamples?.length ? { example: { body_text: [bodyExamples] } } : {}),
+    });
+
+    if (data.footer) {
+      components.push({ type: 'FOOTER', text: data.footer });
+    }
+
+    if (buttons.length) {
+      components.push({ type: 'BUTTONS', buttons });
+    }
+
     const payload = {
       workspaceId,
-      name: data.elementName,
-      category: data.category,
-      language: data.languageCode,
-      header: data.headerText ? { type: 'TEXT', text: data.headerText } : undefined,
-      body: {
-        text: data.body,
-        ...(bodyExamples?.length ? { example: { body_text: [bodyExamples] } } : {}),
+      payloadTemplate: {
+        name: data.elementName,
+        category: data.category,
+        language: data.languageCode,
+        components,
       },
-      footer: data.footer ? { text: data.footer } : undefined,
-      buttons: buttons.length ? buttons : undefined,
     };
     this.logger.log(`[createTemplate] name=${data.elementName} category=${data.category} workspace=${workspaceId}`);
     this.logger.log(`[createTemplate] Payload: ${JSON.stringify(payload)}`);
