@@ -1,7 +1,6 @@
-import { Controller, Post, Get, Body, Query, Request, UseGuards } from '@nestjs/common';
+import { Controller, Post, Get, Body, Query, UseGuards } from '@nestjs/common';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { PlaceBotConfigService } from './place-bot-config.service';
-import { PlazBotService } from '../plazbot/plazbot.service';
 import { PlazBotAdvancedService } from '../plazbot/plazbot-advanced.service';
 
 @UseGuards(JwtAuthGuard)
@@ -9,7 +8,6 @@ import { PlazBotAdvancedService } from '../plazbot/plazbot-advanced.service';
 export class PlazbotConfigController {
   constructor(
     private botConfigService: PlaceBotConfigService,
-    private plazBotService: PlazBotService,
     private plazBotAdvanced: PlazBotAdvancedService,
   ) {}
 
@@ -95,6 +93,7 @@ export class PlazbotConfigController {
       footer?: string;
       quickReplies?: { text: string }[];
       ctaButtons?: { text: string; type: string; value: string }[];
+      variableSamples?: Record<number, { value: string; type: string }>;
     },
   ) {
     const { apiKey, workspaceId } = this.getGlobalCreds();

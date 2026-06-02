@@ -73,10 +73,11 @@ export class PlazBotAdvancedService {
         }
       );
       this.logger.log(`[sendTemplateMessage] Respuesta status=${response.status} data=${JSON.stringify(response.data)}`);
-      return response.data.data;
+      return response.data?.data ?? response.data ?? { success: true };
     } catch (error) {
       this.logger.error(`[sendTemplateMessage] Error status=${error?.response?.status} body=${JSON.stringify(error?.response?.data)}`, error?.message);
-      throw error;
+      const apiError = error?.response?.data;
+      throw new Error(apiError?.message || apiError?.error || error?.message || 'Error al enviar template');
     }
   }
 
@@ -103,10 +104,11 @@ export class PlazBotAdvancedService {
         }
       );
       this.logger.log(`[createCampaign] Respuesta status=${response.status} data=${JSON.stringify(response.data)}`);
-      return response.data.data;
+      return response.data?.data ?? response.data ?? { success: true };
     } catch (error) {
       this.logger.error(`[createCampaign] Error status=${error?.response?.status} body=${JSON.stringify(error?.response?.data)}`, error?.message);
-      throw error;
+      const apiError = error?.response?.data;
+      throw new Error(apiError?.message || apiError?.error || error?.message || 'Error al crear campaña');
     }
   }
 
@@ -122,6 +124,7 @@ export class PlazBotAdvancedService {
       footer?: string;
       quickReplies?: { text: string }[];
       ctaButtons?: { text: string; type: string; value: string }[];
+      variableSamples?: Record<number, { value: string; type: string }>;
     }
   ) {
     const buttons: any[] = [];
@@ -132,13 +135,23 @@ export class PlazBotAdvancedService {
       buttons.push({ type: c.type === 'PHONE' ? 'PHONE_NUMBER' : 'URL', text: c.text, ...(c.type === 'URL' ? { url: c.value } : { phoneNumber: c.value }) });
     });
 
+    // Build body example values for Meta's approval (required when template has {{N}} variables)
+    const bodyExamples = data.variableSamples
+      ? Object.keys(data.variableSamples)
+          .sort((a, b) => Number(a) - Number(b))
+          .map(k => data.variableSamples![Number(k)]?.value || `sample_${k}`)
+      : undefined;
+
     const payload = {
       workspaceId,
       name: data.elementName,
       category: data.category,
       language: data.languageCode,
       header: data.headerText ? { type: 'TEXT', text: data.headerText } : undefined,
-      body: { text: data.body },
+      body: {
+        text: data.body,
+        ...(bodyExamples?.length ? { example: { body_text: [bodyExamples] } } : {}),
+      },
       footer: data.footer ? { text: data.footer } : undefined,
       buttons: buttons.length ? buttons : undefined,
     };
@@ -156,10 +169,11 @@ export class PlazBotAdvancedService {
         }
       );
       this.logger.log(`[createTemplate] Respuesta status=${response.status} data=${JSON.stringify(response.data)}`);
-      return response.data.data;
+      return response.data?.data ?? response.data ?? { success: true };
     } catch (error) {
       this.logger.error(`[createTemplate] Error status=${error?.response?.status} body=${JSON.stringify(error?.response?.data)}`, error?.message);
-      throw error;
+      const apiError = error?.response?.data;
+      throw new Error(apiError?.message || apiError?.error || error?.message || 'Error al crear template en PlazBot');
     }
   }
 
