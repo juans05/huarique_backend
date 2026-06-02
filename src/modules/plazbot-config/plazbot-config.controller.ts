@@ -1,7 +1,8 @@
-import { Controller, Post, Get, Body, Query, UseGuards } from '@nestjs/common';
+import { Controller, Post, Get, Body, Query, Param, UseGuards } from '@nestjs/common';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { PlaceBotConfigService } from './place-bot-config.service';
 import { PlazBotAdvancedService } from '../plazbot/plazbot-advanced.service';
+import { WhatsAppTemplateService } from './whatsapp-template.service';
 
 @UseGuards(JwtAuthGuard)
 @Controller('plazbot-setup')
@@ -9,9 +10,9 @@ export class PlazbotConfigController {
   constructor(
     private botConfigService: PlaceBotConfigService,
     private plazBotAdvanced: PlazBotAdvancedService,
+    private templateService: WhatsAppTemplateService,
   ) {}
 
-  // Configuración del bot para un restaurante específico
   @Get('config')
   async getConfig(@Query('placeId') placeId: string) {
     const config = placeId ? await this.botConfigService.findByPlaceId(placeId) : null;
@@ -24,15 +25,9 @@ export class PlazbotConfigController {
     };
   }
 
-  // Guardar configuración del bot para un restaurante
   @Post('configure')
   async configure(
-    @Body()
-    dto: {
-      placeId: string;
-      systemPrompt?: string;
-      tone?: 'professional' | 'casual' | 'friendly';
-    },
+    @Body() dto: { placeId: string; systemPrompt?: string; tone?: 'professional' | 'casual' | 'friendly' },
   ) {
     const saved = await this.botConfigService.createOrUpdate(dto.placeId, {
       systemPrompt: dto.systemPrompt,
@@ -41,7 +36,6 @@ export class PlazbotConfigController {
     return { ...saved, webhookUrl: this.getWebhookUrl() };
   }
 
-  // Estado de conexión de PlazBot (credenciales globales del sistema)
   @Get('status')
   getStatus() {
     const apiKey = process.env.PLAZBOT_API_KEY;
@@ -53,35 +47,19 @@ export class PlazbotConfigController {
     };
   }
 
-  // Templates disponibles en la cuenta PlazBot de wuarikes
-  @Get('templates')
-  async getTemplates() {
-    const { apiKey, workspaceId } = this.getGlobalCreds();
-    return this.plazBotAdvanced.listActiveTemplates(apiKey, workspaceId);
-  }
-
-  // Métricas del workspace PlazBot
   @Get('metrics')
   async getMetrics() {
     const { apiKey, workspaceId } = this.getGlobalCreds();
     return this.plazBotAdvanced.getWorkspaceMetrics(apiKey, workspaceId);
   }
 
-  // Enviar template a un contacto (uso manual desde el dashboard)
-  @Post('send-template')
-  async sendTemplate(
-    @Body()
-    dto: {
-      template: string;
-      destination: string;
-      variablesBody?: { variable: string; value: string }[];
-    },
-  ) {
-    const { apiKey, workspaceId } = this.getGlobalCreds();
-    return this.plazBotAdvanced.sendTemplateMessage(apiKey, workspaceId, dto);
+  // ── Templates (guardados en DB + enviados a PlazBot) ──
+
+  @Get('templates')
+  async getTemplates() {
+    return this.templateService.findAll();
   }
 
-  // Crear plantilla en PlazBot (requiere aprobación Meta)
   @Post('template')
   async createTemplate(
     @Body() dto: {
@@ -96,11 +74,29 @@ export class PlazbotConfigController {
       variableSamples?: Record<number, { value: string; type: string }>;
     },
   ) {
-    const { apiKey, workspaceId } = this.getGlobalCreds();
-    return this.plazBotAdvanced.createTemplate(apiKey, workspaceId, dto);
+    return this.templateService.createAndSubmit(dto);
   }
 
-  // Crear campaña masiva
+  @Post('templates/:id/resend')
+  async resendTemplate(@Param('id') id: string) {
+    return this.templateService.resend(id);
+  }
+
+  @Post('templates/sync')
+  async syncTemplates() {
+    return this.templateService.syncStatuses();
+  }
+
+  // ── Envío de mensajes ──
+
+  @Post('send-template')
+  async sendTemplate(
+    @Body() dto: { template: string; destination: string; variablesBody?: { variable: string; value: string }[] },
+  ) {
+    const { apiKey, workspaceId } = this.getGlobalCreds();
+    return this.plazBotAdvanced.sendTemplateMessage(apiKey, workspaceId, dto);
+  }
+
   @Post('campaign')
   async createCampaign(
     @Body() dto: { name: string; templateId: string; contacts: string[] },
@@ -110,9 +106,10 @@ export class PlazbotConfigController {
   }
 
   private getGlobalCreds() {
-    const apiKey = process.env.PLAZBOT_API_KEY || '';
-    const workspaceId = process.env.PLAZBOT_WORKSPACE_ID || '';
-    return { apiKey, workspaceId };
+    return {
+      apiKey: process.env.PLAZBOT_API_KEY || '',
+      workspaceId: process.env.PLAZBOT_WORKSPACE_ID || '',
+    };
   }
 
   private getWebhookUrl(): string {
