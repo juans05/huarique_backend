@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
-import { APP_GUARD } from '@nestjs/core';
+import { APP_FILTER, APP_GUARD } from '@nestjs/core';
+import { SentryGlobalFilter, SentryModule } from '@sentry/nestjs/setup';
 import { ThrottlerGuard } from '@nestjs/throttler';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { ScheduleModule } from '@nestjs/schedule';
@@ -38,6 +39,8 @@ import { CreditsModule } from './modules/credits/credits.module';
 
 @Module({
     imports: [
+        SentryModule.forRoot(),
+
         // Configuration
         ConfigModule.forRoot({
             isGlobal: true,
@@ -98,6 +101,10 @@ import { CreditsModule } from './modules/credits/credits.module';
         CreditsModule,
     ],
     providers: [
+        {
+            provide: APP_FILTER,
+            useClass: SentryGlobalFilter,
+        },
         {
             provide: APP_GUARD,
             useClass: ThrottlerGuard,

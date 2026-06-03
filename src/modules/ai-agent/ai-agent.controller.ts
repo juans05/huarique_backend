@@ -215,7 +215,7 @@ export class AiAgentController {
         }
 
         this.logger.log(`[imageToMarkdown] Procesando imagen con Gemini Vision`);
-        const model = this.gemini.getGenerativeModel({ model: 'gemini-1.5-flash' });
+        const model = this.gemini.getGenerativeModel({ model: 'gemini-2.0-flash' });
 
         const result = await model.generateContent([
             {
