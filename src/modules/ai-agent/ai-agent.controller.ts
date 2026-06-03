@@ -1,4 +1,4 @@
-import { Controller, Post, Get, Delete, Param, Body, UseGuards, UseInterceptors, UploadedFile, BadRequestException, NotFoundException, ForbiddenException, Logger } from '@nestjs/common';
+import { Controller, Post, Get, Delete, Param, Body, UseGuards, UseInterceptors, UploadedFile, BadRequestException, NotFoundException, ForbiddenException, HttpException, Logger } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { memoryStorage } from 'multer';
 import { GoogleGenerativeAI } from '@google/generative-ai';
@@ -94,8 +94,12 @@ export class AiAgentController {
                 status: 'Documento indexado correctamente'
             };
         } catch (error) {
-            console.log(error);
-            throw new BadRequestException('El archivo no contiene texto válido' + error);
+            this.logger.error(`[upload] Error: ${error?.message}`);
+            if (error instanceof HttpException) throw error;
+            if (error?.message?.includes('429') || error?.message?.includes('quota') || error?.message?.includes('Too Many Requests')) {
+                throw new BadRequestException('Cuota de Gemini excedida. Espera unos minutos o actualiza tu plan en ai.google.dev');
+            }
+            throw new BadRequestException(`Error procesando el archivo: ${error?.message ?? error}`);
         }
     }
 
