@@ -143,13 +143,13 @@ export class PlazBotAdvancedService {
       });
     });
 
-    // Variables format for PlazBot: [{variable: '{{1}}', example: 'value'}]
+    // Variables format for PlazBot: [{variable: '1', example: 'value'}]
     const bodyVariables = data.variableSamples
       ? Object.keys(data.variableSamples)
           .sort((a, b) => Number(a) - Number(b))
           .map(k => ({
-            variable: `{{${k}}}`,
-            example: data.variableSamples![Number(k)]?.value || `sample_${k}`,
+            variable: k,
+            example: data.variableSamples![Number(k)]?.value || `ejemplo_${k}`,
           }))
       : undefined;
 
@@ -178,8 +178,8 @@ export class PlazBotAdvancedService {
       elementName: data.elementName,
       languageCode: data.languageCode,
       category: data.category,
-      templateType: 'STANDARD',
-      components,
+      templateType: 'TEXT',
+      payloadTemplate: components,
     };
     this.logger.log(`[createTemplate] name=${data.elementName} category=${data.category} workspace=${workspaceId}`);
     this.logger.log(`[createTemplate] Payload: ${JSON.stringify(payload)}`);
