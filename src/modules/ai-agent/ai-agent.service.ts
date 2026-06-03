@@ -24,19 +24,29 @@ export class AiAgentService {
         });
         const savedKb = await this.knowledgeBaseRepo.save(kb);
 
+        if (!savedKb?.id) {
+            throw new Error('No se pudo obtener el ID del knowledge base después de guardarlo');
+        }
+
         // 2. Chunk the text (500 chars with 50 char overlap)
         const chunks = this.chunkText(rawText, 500, 50);
 
-        // 3. Generate embeddings and save chunks
+        // 3. Generate embeddings and save chunks usando el repositorio TypeORM
+        // (evita mismatch de schema entre TypeORM y SQL raw)
         for (const chunkText of chunks) {
+            let embedding: number[] = [];
             try {
-                const embedding = await this.vectorService.generateEmbedding(chunkText);
-                await this.vectorService.saveChunk(savedKb.id, chunkText, embedding);
+                embedding = await this.vectorService.generateEmbedding(chunkText);
             } catch (error) {
-                console.error(`Error generating embedding for chunk, guardando sin vector:`, error?.message);
-                // Save chunk without embedding so fallback text search can still find it
-                await this.vectorService.saveChunk(savedKb.id, chunkText, []);
+                console.error(`Error generando embedding, guardando chunk sin vector:`, error?.message);
             }
+
+            const chunk = this.knowledgeBaseChunkRepo.create({
+                knowledgeBaseId: savedKb.id,
+                chunkText,
+                embedding: JSON.stringify(embedding),
+            });
+            await this.knowledgeBaseChunkRepo.save(chunk);
         }
 
         return savedKb;
