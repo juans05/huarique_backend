@@ -1,7 +1,11 @@
-import { Controller, Post, Get, Delete, Param, Body, UseGuards, UseInterceptors, UploadedFile, BadRequestException, Logger } from '@nestjs/common';
+import { Controller, Post, Get, Delete, Param, Body, UseGuards, UseInterceptors, UploadedFile, BadRequestException, NotFoundException, ForbiddenException, Logger } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { memoryStorage } from 'multer';
 import { GoogleGenerativeAI } from '@google/generative-ai';
+import { InjectRepository } from '@nestjs/typeorm';
+import { Repository } from 'typeorm';
+import { Place } from '../places/entities/place.entity';
+import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { AiAgentService } from './ai-agent.service';
 import axios from 'axios';
@@ -31,7 +35,17 @@ export class AiAgentController {
         ? new GoogleGenerativeAI(process.env.GEMINI_API_KEY)
         : null;
 
-    constructor(private aiAgentService: AiAgentService) {}
+    constructor(
+        private aiAgentService: AiAgentService,
+        @InjectRepository(Place)
+        private placesRepo: Repository<Place>,
+    ) {}
+
+    private async assertOwner(placeId: string, userId: string) {
+        const place = await this.placesRepo.findOne({ where: { id: placeId } });
+        if (!place) throw new NotFoundException('Local no encontrado');
+        if (place.claimedByUserId !== userId) throw new ForbiddenException('No tienes permiso para gestionar este local');
+    }
 
     @Post(':placeId/upload')
     @UseInterceptors(
@@ -48,10 +62,12 @@ export class AiAgentController {
         })
     )
     async uploadKnowledgeBase(
+        @CurrentUser() user: any,
         @Param('placeId') placeId: string,
         @UploadedFile() file: Express.Multer.File,
         @Body() body: { fileName?: string }
     ) {
+        await this.assertOwner(placeId, user.id);
         if (!file) throw new BadRequestException('No se proporcionó archivo');
 
         const fileName = body.fileName || file.originalname;
@@ -76,16 +92,19 @@ export class AiAgentController {
     }
 
     @Get(':placeId')
-    async getKnowledgeBases(@Param('placeId') placeId: string) {
+    async getKnowledgeBases(@CurrentUser() user: any, @Param('placeId') placeId: string) {
+        await this.assertOwner(placeId, user.id);
         const bases = await this.aiAgentService.getKnowledgeBases(placeId);
         return { data: bases, total: bases.length };
     }
 
     @Post(':placeId/url')
     async indexFromUrl(
+        @CurrentUser() user: any,
         @Param('placeId') placeId: string,
         @Body() body: { url: string; fileName?: string }
     ) {
+        await this.assertOwner(placeId, user.id);
         if (!body.url) throw new BadRequestException('URL requerida');
 
         let url: URL;

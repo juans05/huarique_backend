@@ -1,5 +1,7 @@
-import { Controller, Post, Body, UseGuards, HttpCode } from '@nestjs/common';
+import { Controller, Post, Body, UseGuards, HttpCode, Res, Req, UnauthorizedException } from '@nestjs/common';
 import { ApiTags, ApiBearerAuth, ApiOperation, ApiResponse } from '@nestjs/swagger';
+import { Response } from 'express';
+import { ConfigService } from '@nestjs/config';
 import { AuthService } from './auth.service';
 import { RegisterDto } from './dto/register.dto';
 import { LoginDto } from './dto/login.dto';
@@ -16,7 +18,28 @@ import { IsPublic } from '../../common/decorators/is-public.decorator';
 @ApiTags('auth')
 @Controller('auth')
 export class AuthController {
-    constructor(private readonly authService: AuthService) { }
+    constructor(
+        private readonly authService: AuthService,
+        private configService: ConfigService,
+    ) { }
+
+    private setTokenCookies(res: Response, accessToken: string, refreshToken: string) {
+        const isProduction = process.env.NODE_ENV === 'production';
+        const cookieOptions = {
+            httpOnly: true,
+            secure: isProduction,
+            sameSite: isProduction ? 'strict' as const : 'lax' as const,
+            path: '/',
+        };
+        res.cookie('accessToken', accessToken, {
+            ...cookieOptions,
+            maxAge: 15 * 60 * 1000, // 15 min
+        });
+        res.cookie('refreshToken', refreshToken, {
+            ...cookieOptions,
+            maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
+        });
+    }
 
     @Post('register')
     @ApiOperation({ summary: 'Register a new user' })
@@ -31,8 +54,10 @@ export class AuthController {
     @ApiOperation({ summary: 'Login with email and password' })
     @ApiResponse({ status: 200, description: 'Returns accessToken, refreshToken and user.' })
     @ApiResponse({ status: 401, description: 'Invalid credentials.' })
-    async login(@Body() loginDto: LoginDto) {
-        return this.authService.login(loginDto);
+    async login(@Body() loginDto: LoginDto, @Res({ passthrough: true }) res: Response) {
+        const result = await this.authService.login(loginDto);
+        this.setTokenCookies(res, result.accessToken, result.refreshToken);
+        return result;
     }
 
     @Post('verify-email')
@@ -40,8 +65,12 @@ export class AuthController {
     @ApiOperation({ summary: 'Verify email with 6-digit code sent on registration' })
     @ApiResponse({ status: 200, description: 'Email verified successfully.' })
     @ApiResponse({ status: 400, description: 'Invalid or expired code.' })
-    async verifyEmail(@Body() dto: VerifyEmailDto) {
-        return this.authService.verifyEmail(dto.email, dto.code);
+    async verifyEmail(@Body() dto: VerifyEmailDto, @Res({ passthrough: true }) res: Response) {
+        const result: any = await this.authService.verifyEmail(dto.email, dto.code);
+        if (result.accessToken) {
+            this.setTokenCookies(res, result.accessToken, result.refreshToken);
+        }
+        return result;
     }
 
     @IsPublic()
@@ -90,8 +119,30 @@ export class AuthController {
     @ApiOperation({ summary: 'Get new access token using refresh token' })
     @ApiResponse({ status: 200, description: 'Returns new accessToken and refreshToken.' })
     @ApiResponse({ status: 401, description: 'Refresh token invalid or expired.' })
-    async refresh(@Body() refreshTokenDto: RefreshTokenDto) {
-        return this.authService.refreshTokens(refreshTokenDto.refreshToken);
+    @Post('refresh-cookie')
+    @HttpCode(200)
+    @ApiOperation({ summary: 'Refresh tokens using httpOnly cookie' })
+    @ApiResponse({ status: 200, description: 'New tokens set as cookies.' })
+    @ApiResponse({ status: 401, description: 'No refresh token cookie.' })
+    async refreshFromCookie(@Res({ passthrough: true }) res: Response, @Req() req: any) {
+        const refreshToken = req.cookies?.refreshToken;
+        if (!refreshToken) {
+            throw new UnauthorizedException('No refresh token cookie');
+        }
+        const result = await this.authService.refreshTokens(refreshToken);
+        this.setTokenCookies(res, result.accessToken, result.refreshToken);
+        return { message: 'Tokens refreshed' };
+    }
+
+    @Post('refresh')
+    @HttpCode(200)
+    @ApiOperation({ summary: 'Get new access token using refresh token' })
+    @ApiResponse({ status: 200, description: 'Returns new accessToken and refreshToken.' })
+    @ApiResponse({ status: 401, description: 'Refresh token invalid or expired.' })
+    async refresh(@Body() refreshTokenDto: RefreshTokenDto, @Res({ passthrough: true }) res: Response) {
+        const result = await this.authService.refreshTokens(refreshTokenDto.refreshToken);
+        this.setTokenCookies(res, result.accessToken, result.refreshToken);
+        return result;
     }
 
     @Post('logout')
@@ -101,8 +152,10 @@ export class AuthController {
     @ApiOperation({ summary: 'Logout and invalidate tokens' })
     @ApiResponse({ status: 204, description: 'Logged out successfully.' })
     @ApiResponse({ status: 401, description: 'Not authenticated.' })
-    async logout(@CurrentUser() user: any) {
+    async logout(@CurrentUser() user: any, @Res({ passthrough: true }) res: Response) {
         await this.authService.logout(user.id);
+        res.clearCookie('accessToken', { path: '/' });
+        res.clearCookie('refreshToken', { path: '/' });
     }
 
 }

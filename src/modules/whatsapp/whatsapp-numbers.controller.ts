@@ -1,7 +1,9 @@
-import { Controller, Post, Get, Delete, Param, Body, UseGuards, Logger } from '@nestjs/common';
+import { Controller, Post, Get, Delete, Param, Body, UseGuards, Logger, NotFoundException, ForbiddenException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
+import { Place } from '../places/entities/place.entity';
 import { WhatsAppNumber } from './entities/whatsapp-number.entity';
+import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { PlazBotService } from '../plazbot/plazbot.service';
 
@@ -13,11 +15,20 @@ export class WhatsAppNumbersController {
     constructor(
         @InjectRepository(WhatsAppNumber)
         private whatsappNumberRepo: Repository<WhatsAppNumber>,
+        @InjectRepository(Place)
+        private placesRepo: Repository<Place>,
         private plazbotService: PlazBotService,
     ) { }
 
+    private async assertOwner(placeId: string, userId: string) {
+        const place = await this.placesRepo.findOne({ where: { id: placeId } });
+        if (!place) throw new NotFoundException('Local no encontrado');
+        if (place.claimedByUserId !== userId) throw new ForbiddenException('No tienes permiso para gestionar este local');
+    }
+
     @Post()
-    async createWhatsAppNumber(@Body() data: any) {
+    async createWhatsAppNumber(@CurrentUser() user: any, @Body() data: any) {
+        await this.assertOwner(data.placeId, user.id);
         const number = this.whatsappNumberRepo.create({
             placeId: data.placeId,
             phoneNumber: data.phoneNumber,
@@ -53,7 +64,8 @@ export class WhatsAppNumbersController {
     }
 
     @Get(':placeId')
-    async getWhatsAppNumbers(@Param('placeId') placeId: string) {
+    async getWhatsAppNumbers(@CurrentUser() user: any, @Param('placeId') placeId: string) {
+        await this.assertOwner(placeId, user.id);
         console.log('----------------------->', placeId);
         const numbers = await this.whatsappNumberRepo.find({
             where: { placeId },

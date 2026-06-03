@@ -11,6 +11,7 @@ import {
     ManyToMany,
     JoinTable,
 } from 'typeorm';
+import { Exclude } from 'class-transformer';
 import { User } from '../../users/entities/user.entity';
 import { Checkin } from '../../checkins/entities/checkin.entity';
 import { Tag } from './tag.entity';
@@ -19,6 +20,7 @@ import { Ubigeo } from '../../ubigeo/entities/ubigeo.entity';
 import { Category } from './category.entity';
 import { Dish } from './dish.entity';
 import { PlaceVideo } from './place-video.entity';
+import { encryptTransformer } from '../../../common/utils/encryption-transformer';
 
 
 @Entity('places')
@@ -107,10 +109,12 @@ export class Place {
     @Column({ name: 'google_place_id', nullable: true })
     googlePlaceId: string | null;
 
-    @Column({ name: 'google_access_token', type: 'text', nullable: true })
+    @Column({ name: 'google_access_token', type: 'text', nullable: true, transformer: encryptTransformer })
+    @Exclude()
     googleAccessToken: string | null;
 
-    @Column({ name: 'google_refresh_token', type: 'text', nullable: true })
+    @Column({ name: 'google_refresh_token', type: 'text', nullable: true, transformer: encryptTransformer })
+    @Exclude()
     googleRefreshToken: string | null;
 
     @Column({ name: 'google_location_name', nullable: true })

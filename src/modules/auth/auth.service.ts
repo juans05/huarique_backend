@@ -3,6 +3,7 @@ import { JwtService } from '@nestjs/jwt';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, LessThan } from 'typeorm';
 import { ConfigService } from '@nestjs/config';
+import { createHash } from 'crypto';
 import { UsersService } from '../users/users.service';
 import { RefreshToken } from './entities/refresh-token.entity';
 import { RegisterDto } from './dto/register.dto';
@@ -171,8 +172,9 @@ export class AuthService {
     }
 
     async refreshTokens(refreshToken: string) {
+        const tokenHash = createHash('sha256').update(refreshToken).digest('hex');
         const storedToken = await this.refreshTokenRepository.findOne({
-            where: { token: refreshToken },
+            where: { token: tokenHash },
             relations: ['user'],
         });
 
@@ -220,13 +222,14 @@ export class AuthService {
             ),
         ]);
 
-        // Store refresh token
+        // Store refresh token (SHA-256 hashed)
+        const tokenHash = createHash('sha256').update(refreshToken).digest('hex');
         const expiresAt = new Date();
         expiresAt.setDate(expiresAt.getDate() + 7); // 7 days
 
         await this.refreshTokenRepository.save({
             userId,
-            token: refreshToken,
+            token: tokenHash,
             expiresAt,
         });
 

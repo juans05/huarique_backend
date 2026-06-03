@@ -1,5 +1,9 @@
-import { Controller, Post, Get, Put, Delete, Body, Query, Param, UseGuards, HttpCode } from '@nestjs/common';
+import { Controller, Post, Get, Put, Delete, Body, Query, Param, UseGuards, HttpCode, NotFoundException, ForbiddenException } from '@nestjs/common';
+import { InjectRepository } from '@nestjs/typeorm';
+import { Repository } from 'typeorm';
+import { Place } from '../places/entities/place.entity';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { PlaceBotConfigService } from './place-bot-config.service';
 import { PlazBotAdvancedService } from '../plazbot/plazbot-advanced.service';
 import { WhatsAppTemplateService } from './whatsapp-template.service';
@@ -11,10 +15,19 @@ export class PlazbotConfigController {
     private botConfigService: PlaceBotConfigService,
     private plazBotAdvanced: PlazBotAdvancedService,
     private templateService: WhatsAppTemplateService,
+    @InjectRepository(Place)
+    private placesRepo: Repository<Place>,
   ) {}
 
+  private async assertOwner(placeId: string, userId: string) {
+    const place = await this.placesRepo.findOne({ where: { id: placeId } });
+    if (!place) throw new NotFoundException('Local no encontrado');
+    if (place.claimedByUserId !== userId) throw new ForbiddenException('No tienes permiso para gestionar este local');
+  }
+
   @Get('config')
-  async getConfig(@Query('placeId') placeId: string) {
+  async getConfig(@CurrentUser() user: any, @Query('placeId') placeId: string) {
+    if (placeId) await this.assertOwner(placeId, user.id);
     const config = placeId ? await this.botConfigService.findByPlaceId(placeId) : null;
     return {
       placeId: placeId || null,
@@ -27,8 +40,10 @@ export class PlazbotConfigController {
 
   @Post('configure')
   async configure(
+    @CurrentUser() user: any,
     @Body() dto: { placeId: string; systemPrompt?: string; tone?: 'professional' | 'casual' | 'friendly' },
   ) {
+    await this.assertOwner(dto.placeId, user.id);
     const saved = await this.botConfigService.createOrUpdate(dto.placeId, {
       systemPrompt: dto.systemPrompt,
       tone: dto.tone,
@@ -143,7 +158,8 @@ export class PlazbotConfigController {
   }
 
   private getWebhookUrl(): string {
-    const base = process.env.BACKEND_URL || 'https://backendwarike-production.up.railway.app';
+    const base = process.env.BACKEND_URL || '';
+    if (!base) return '';
     return `${base}/webhooks/plazbot`;
   }
 }

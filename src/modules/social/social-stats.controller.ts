@@ -4,13 +4,17 @@ import {
     Param,
     Query,
     UseGuards,
+    NotFoundException,
+    ForbiddenException,
 } from '@nestjs/common';
 import { ApiTags, ApiBearerAuth, ApiOperation, ApiParam } from '@nestjs/swagger';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, Between } from 'typeorm';
 import { SocialAccount } from './entities/social-account.entity';
 import { SocialComment } from './entities/social-comment.entity';
+import { Place } from '../places/entities/place.entity';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+import { CurrentUser } from '../../common/decorators/current-user.decorator';
 
 @ApiTags('social-stats')
 @Controller('business/places/:placeId/social/stats')
@@ -22,12 +26,22 @@ export class SocialStatsController {
         private accountsRepo: Repository<SocialAccount>,
         @InjectRepository(SocialComment)
         private commentsRepo: Repository<SocialComment>,
+        @InjectRepository(Place)
+        private placesRepo: Repository<Place>,
     ) {}
+
+    private async assertOwner(placeId: string, userId: string) {
+        const place = await this.placesRepo.findOne({ where: { id: placeId } });
+        if (!place) throw new NotFoundException('Local no encontrado');
+        if (place.claimedByUserId !== userId) throw new ForbiddenException('No tienes permiso para gestionar este local');
+        return place;
+    }
 
     @Get()
     @ApiOperation({ summary: 'Get aggregated social media stats for a place' })
     @ApiParam({ name: 'placeId', description: 'Place UUID' })
-    async getStats(@Param('placeId') placeId: string) {
+    async getStats(@CurrentUser() user: any, @Param('placeId') placeId: string) {
+        await this.assertOwner(placeId, user.id);
         // Cuentas activas
         const accounts = await this.accountsRepo.find({ where: { placeId, isActive: true } });
         const accountIds = accounts.map(a => a.id);

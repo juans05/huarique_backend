@@ -1,12 +1,24 @@
 import { NestFactory } from '@nestjs/core';
 import { ValidationPipe } from '@nestjs/common';
 import { SwaggerModule, DocumentBuilder } from '@nestjs/swagger';
+import helmet from 'helmet';
+import * as cookieParser from 'cookie-parser';
 import { AppModule } from './app.module';
 
 async function bootstrap() {
     const app = await NestFactory.create(AppModule);
 
+    // Validate critical secrets at startup
+    const requiredSecrets = ['JWT_SECRET', 'JWT_REFRESH_SECRET'];
+    for (const key of requiredSecrets) {
+        if (!process.env[key]) {
+            throw new Error(`Missing required environment variable: ${key}`);
+        }
+    }
+
     app.setGlobalPrefix('api');
+    app.use(helmet());
+    app.use(cookieParser());
 
     app.useGlobalPipes(
         new ValidationPipe({

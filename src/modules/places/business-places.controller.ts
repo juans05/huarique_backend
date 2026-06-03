@@ -431,12 +431,18 @@ El prompt debe:
     // ── Menu ─────────────────────────────────────────────────────────────────
 
     @Get('places/:id/menu')
-    async getMenu(@Param('id') id: string) {
+    async getMenu(@CurrentUser() user: any, @Param('id') id: string) {
+        const place = await this.placesRepo.findOne({ where: { id } });
+        if (!place) throw new NotFoundException('Local no encontrado');
+        if (place.claimedByUserId !== user.id) throw new ForbiddenException('No tienes permiso para gestionar este local');
         return this.menuService.getMenu(id);
     }
 
     @Post('places/:id/menu/categories')
-    async createCategory(@Param('id') id: string, @Body() body: any) {
+    async createCategory(@CurrentUser() user: any, @Param('id') id: string, @Body() body: any) {
+        const place = await this.placesRepo.findOne({ where: { id } });
+        if (!place) throw new NotFoundException('Local no encontrado');
+        if (place.claimedByUserId !== user.id) throw new ForbiddenException('No tienes permiso para gestionar este local');
         return this.menuService.createCategory(id, body);
     }
 
@@ -452,7 +458,10 @@ El prompt debe:
     }
 
     @Post('places/:id/menu/items')
-    async createDish(@Param('id') id: string, @Body() body: any) {
+    async createDish(@CurrentUser() user: any, @Param('id') id: string, @Body() body: any) {
+        const place = await this.placesRepo.findOne({ where: { id } });
+        if (!place) throw new NotFoundException('Local no encontrado');
+        if (place.claimedByUserId !== user.id) throw new ForbiddenException('No tienes permiso para gestionar este local');
         return this.menuService.createDish(id, body);
     }
 

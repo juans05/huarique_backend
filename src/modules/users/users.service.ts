@@ -234,25 +234,12 @@ export class UsersService {
             birthDate?: string;
         },
     ): Promise<void> {
-        console.log('🔵 [Service] updateProfile llamado');
-        console.log('🔵 [Service] User ID:', userId);
-        console.log('🔵 [Service] Updates recibidos:', JSON.stringify(updates, null, 2));
-
-        // Si birthDate viene como string ISO, convertir a Date
         const updateData: any = { ...updates };
         if (updates.birthDate) {
-            console.log('🔵 [Service] Convirtiendo birthDate de string a Date');
-            console.log('   - birthDate original:', updates.birthDate);
             updateData.birthDate = new Date(updates.birthDate);
-            console.log('   - birthDate convertida:', updateData.birthDate);
         }
 
-        console.log('🔵 [Service] Datos finales para actualizar:', JSON.stringify(updateData, null, 2));
-        console.log('🔵 [Service] Llamando a usersRepository.update...');
-
         await this.usersRepository.update(userId, updateData);
-
-        console.log('✅ [Service] Usuario actualizado exitosamente en BD');
     }
 
     async getUserCheckins(userId: string, page: number = 1, limit: number = 12): Promise<any> {

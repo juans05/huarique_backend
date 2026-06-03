@@ -10,6 +10,7 @@ import {
     UseGuards,
     ConflictException,
     NotFoundException,
+    ForbiddenException,
 } from '@nestjs/common';
 import { ApiTags, ApiBearerAuth, ApiOperation, ApiResponse, ApiParam } from '@nestjs/swagger';
 import { InjectRepository } from '@nestjs/typeorm';
@@ -17,6 +18,7 @@ import { Repository, In } from 'typeorm';
 import { SocialAccount } from './entities/social-account.entity';
 import { SocialComment } from './entities/social-comment.entity';
 import { SocialBotRule } from './entities/social-bot-rule.entity';
+import { Place } from '../places/entities/place.entity';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 
@@ -32,7 +34,16 @@ export class SocialController {
         private commentsRepo: Repository<SocialComment>,
         @InjectRepository(SocialBotRule)
         private rulesRepo: Repository<SocialBotRule>,
+        @InjectRepository(Place)
+        private placesRepo: Repository<Place>,
     ) {}
+
+    private async assertOwner(placeId: string, userId: string) {
+        const place = await this.placesRepo.findOne({ where: { id: placeId } });
+        if (!place) throw new NotFoundException('Local no encontrado');
+        if (place.claimedByUserId !== userId) throw new ForbiddenException('No tienes permiso para gestionar este local');
+        return place;
+    }
 
     // ══════════════════════════════════════════════════
     // CUENTAS — Soporta MÚLTIPLES cuentas por empresa
@@ -43,7 +54,8 @@ export class SocialController {
     @Get('accounts')
     @ApiOperation({ summary: 'Get ALL connected social accounts for this place' })
     @ApiParam({ name: 'placeId', description: 'Place UUID' })
-    async getAccounts(@Param('placeId') placeId: string) {
+    async getAccounts(@CurrentUser() user: any, @Param('placeId') placeId: string) {
+        await this.assertOwner(placeId, user.id);
         const accounts = await this.accountsRepo.find({
             where: { placeId, isActive: true },
             order: { createdAt: 'DESC' },
@@ -65,9 +77,11 @@ export class SocialController {
     @ApiOperation({ summary: 'Connect a NEW Instagram account (allows multiple per place)' })
     @ApiParam({ name: 'placeId', description: 'Place UUID' })
     async connectAccount(
+        @CurrentUser() user: any,
         @Param('placeId') placeId: string,
         @Body() body: { accessToken: string; platformUserId: string; platformUsername: string },
     ) {
+        await this.assertOwner(placeId, user.id);
         // Verificar que NO se repita la misma cuenta de Instagram
         const existing = await this.accountsRepo.findOne({
             where: { placeId, platformUserId: body.platformUserId, isActive: true },
@@ -95,9 +109,11 @@ export class SocialController {
     @ApiParam({ name: 'placeId', description: 'Place UUID' })
     @ApiParam({ name: 'accountId', description: 'Social Account UUID' })
     async disconnectAccount(
+        @CurrentUser() user: any,
         @Param('placeId') placeId: string,
         @Param('accountId') accountId: string,
     ) {
+        await this.assertOwner(placeId, user.id);
         const account = await this.accountsRepo.findOne({
             where: { id: accountId, placeId },
         });
@@ -116,10 +132,12 @@ export class SocialController {
     @ApiOperation({ summary: 'Get recent comments from ALL connected accounts' })
     @ApiParam({ name: 'placeId', description: 'Place UUID' })
     async getComments(
+        @CurrentUser() user: any,
         @Param('placeId') placeId: string,
         @Query('page') page = 1,
         @Query('accountId') accountId?: string,
     ) {
+        await this.assertOwner(placeId, user.id);
         // Buscar todas las cuentas activas (o una específica si se filtra)
         const whereAccount: any = { placeId, isActive: true };
         if (accountId) whereAccount.id = accountId;
@@ -169,7 +187,8 @@ export class SocialController {
     @Get('rules')
     @ApiOperation({ summary: 'Get AI bot rules for this place' })
     @ApiParam({ name: 'placeId', description: 'Place UUID' })
-    async getRules(@Param('placeId') placeId: string) {
+    async getRules(@CurrentUser() user: any, @Param('placeId') placeId: string) {
+        await this.assertOwner(placeId, user.id);
         let rules = await this.rulesRepo.findOne({ where: { placeId } });
         if (!rules) {
             rules = this.rulesRepo.create({
@@ -190,9 +209,11 @@ export class SocialController {
     @ApiOperation({ summary: 'Update AI bot rules for this place' })
     @ApiParam({ name: 'placeId', description: 'Place UUID' })
     async updateRules(
+        @CurrentUser() user: any,
         @Param('placeId') placeId: string,
         @Body() body: Partial<SocialBotRule>,
     ) {
+        await this.assertOwner(placeId, user.id);
         let rules = await this.rulesRepo.findOne({ where: { placeId } });
         if (!rules) {
             rules = this.rulesRepo.create({ placeId, ...body });
