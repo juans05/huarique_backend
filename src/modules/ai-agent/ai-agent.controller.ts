@@ -228,7 +228,7 @@ export class AiAgentController {
         }
 
         // Intentar modelos en orden hasta que uno funcione
-        const models = ['gemini-2.0-flash-lite', 'gemini-1.5-flash', 'gemini-2.0-flash'];
+        const models = ['gemini-2.0-flash-lite', 'gemini-2.0-flash'];
         const prompt = `Extrae TODO el texto de esta imagen y conviértelo a formato Markdown estructurado.
              Usa # para títulos principales, ## para subtítulos, - para listas, **negrita** para énfasis.
              Si es un menú, organiza por secciones con precios. Si es texto libre, mantén la estructura original.
@@ -246,9 +246,11 @@ export class AiAgentController {
                 this.logger.log(`[imageToMarkdown] Éxito con ${modelName}`);
                 return `# ${fileName}\n\n${text}`;
             } catch (err) {
-                const isQuota = err?.message?.includes('429') || err?.message?.includes('quota') || err?.message?.includes('Too Many Requests');
-                if (isQuota) {
-                    this.logger.warn(`[imageToMarkdown] Cuota agotada para ${modelName}, intentando siguiente modelo...`);
+                const isSkippable = err?.message?.includes('429') || err?.message?.includes('quota') ||
+                    err?.message?.includes('Too Many Requests') || err?.message?.includes('404') ||
+                    err?.message?.includes('not found');
+                if (isSkippable) {
+                    this.logger.warn(`[imageToMarkdown] Modelo ${modelName} no disponible: ${err?.message?.slice(0, 80)}`);
                     continue;
                 }
                 throw err;
