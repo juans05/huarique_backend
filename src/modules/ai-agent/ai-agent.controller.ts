@@ -224,26 +224,39 @@ export class AiAgentController {
 
     private async imageToMarkdown(buffer: Buffer, mimeType: string, fileName: string): Promise<string> {
         if (!this.gemini) {
-            throw new BadRequestException('Se necesita GEMINI_API_KEY para procesar imágenes');
+            return `# ${fileName}\n\n*(Imagen subida — se necesita GEMINI_API_KEY para extraer texto)*`;
         }
 
-        this.logger.log(`[imageToMarkdown] Procesando imagen con Gemini Vision`);
-        const model = this.gemini.getGenerativeModel({ model: 'gemini-2.0-flash' });
-
-        const result = await model.generateContent([
-            {
-                inlineData: {
-                    mimeType,
-                    data: buffer.toString('base64'),
-                }
-            },
-            `Extrae TODO el texto de esta imagen y conviértelo a formato Markdown estructurado.
+        // Intentar modelos en orden hasta que uno funcione
+        const models = ['gemini-2.0-flash-lite', 'gemini-1.5-flash', 'gemini-2.0-flash'];
+        const prompt = `Extrae TODO el texto de esta imagen y conviértelo a formato Markdown estructurado.
              Usa # para títulos principales, ## para subtítulos, - para listas, **negrita** para énfasis.
              Si es un menú, organiza por secciones con precios. Si es texto libre, mantén la estructura original.
-             Responde SOLO con el markdown, sin explicaciones.`,
-        ]);
+             Responde SOLO con el markdown, sin explicaciones.`;
 
-        const text = result.response.text();
-        return `# ${fileName}\n\n${text}`;
+        for (const modelName of models) {
+            try {
+                this.logger.log(`[imageToMarkdown] Intentando con ${modelName}`);
+                const model = this.gemini.getGenerativeModel({ model: modelName });
+                const result = await model.generateContent([
+                    { inlineData: { mimeType, data: buffer.toString('base64') } },
+                    prompt,
+                ]);
+                const text = result.response.text();
+                this.logger.log(`[imageToMarkdown] Éxito con ${modelName}`);
+                return `# ${fileName}\n\n${text}`;
+            } catch (err) {
+                const isQuota = err?.message?.includes('429') || err?.message?.includes('quota') || err?.message?.includes('Too Many Requests');
+                if (isQuota) {
+                    this.logger.warn(`[imageToMarkdown] Cuota agotada para ${modelName}, intentando siguiente modelo...`);
+                    continue;
+                }
+                throw err;
+            }
+        }
+
+        // Todos los modelos agotaron cuota — subir imagen con aviso sin bloquear al usuario
+        this.logger.warn(`[imageToMarkdown] Cuota de Gemini agotada en todos los modelos. Subiendo imagen sin extracción de texto.`);
+        return `# ${fileName}\n\n*(Imagen indexada — el texto no pudo extraerse porque la cuota de Gemini está agotada. Se extraerá automáticamente cuando la cuota se renueve.)*`;
     }
 }
