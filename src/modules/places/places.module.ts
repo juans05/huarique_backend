@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { PlacesService } from './places.service';
 import { MenuService } from './menu.service';
+import { MenuFormatterService } from './menu-formatter.service';
 import { PlacesController } from './places.controller';
 import { BusinessPlacesController } from './business-places.controller';
 import { Place } from './entities/place.entity';
@@ -48,7 +49,7 @@ import { User } from '../users/entities/user.entity';
     ],
 
     controllers: [PlacesController, BusinessPlacesController, GoogleCallbackController],
-    providers: [PlacesService, MenuService, GeolocationService, RarityCalculatorService, GoogleMapsService, GoogleBusinessService, WeeklyReportService],
-    exports: [PlacesService, GeolocationService, GoogleMapsService],
+    providers: [PlacesService, MenuService, MenuFormatterService, GeolocationService, RarityCalculatorService, GoogleMapsService, GoogleBusinessService, WeeklyReportService],
+    exports: [PlacesService, MenuFormatterService, GeolocationService, GoogleMapsService],
 })
 export class PlacesModule { }
