@@ -39,7 +39,7 @@ export class AiAgentController {
         private aiAgentService: AiAgentService,
         @InjectRepository(Place)
         private placesRepo: Repository<Place>,
-    ) {}
+    ) { }
 
     private async assertOwner(placeId: string, userId: string) {
         const place = await this.placesRepo.findOne({ where: { id: placeId } });
@@ -67,32 +67,41 @@ export class AiAgentController {
         @UploadedFile() file: Express.Multer.File,
         @Body() body: { fileName?: string }
     ) {
-        await this.assertOwner(placeId, user.id);
-        if (!file) throw new BadRequestException('No se proporcionó archivo');
 
-        const fileName = body.fileName || file.originalname;
-        this.logger.log(`[upload] Procesando "${fileName}" (${file.mimetype}) para placeId=${placeId}`);
+        try {
+            this.logger.log(`[upload] comienzo`);
 
-        const markdown = await this.toMarkdown(file, fileName);
+            await this.assertOwner(placeId, user.id);
+            if (!file) throw new BadRequestException('No se proporcionó archivo');
 
-        if (!markdown || markdown.trim().length === 0) {
-            throw new BadRequestException('El archivo no contiene texto válido');
+            const fileName = body.fileName || file.originalname;
+            this.logger.log(`[upload] Procesando "${fileName}" (${file.mimetype}) para placeId=${placeId}`);
+
+            const markdown = await this.toMarkdown(file, fileName);
+
+            if (!markdown || markdown.trim().length === 0) {
+                throw new BadRequestException('El archivo no contiene texto válido');
+            }
+
+            this.logger.log(`[upload] Markdown generado: ${markdown.length} caracteres`);
+
+            const kb = await this.aiAgentService.createKnowledgeBase(placeId, fileName, markdown);
+
+            return {
+                id: kb.id,
+                fileName: kb.fileName,
+                createdAt: kb.createdAt,
+                status: 'Documento indexado correctamente'
+            };
+        } catch (error) {
+            console.log(error);
+            throw new BadRequestException('El archivo no contiene texto válido' + error);
         }
-
-        this.logger.log(`[upload] Markdown generado: ${markdown.length} caracteres`);
-
-        const kb = await this.aiAgentService.createKnowledgeBase(placeId, fileName, markdown);
-
-        return {
-            id: kb.id,
-            fileName: kb.fileName,
-            createdAt: kb.createdAt,
-            status: 'Documento indexado correctamente'
-        };
     }
 
     @Get(':placeId')
     async getKnowledgeBases(@CurrentUser() user: any, @Param('placeId') placeId: string) {
+        console.log('*/**********');
         await this.assertOwner(placeId, user.id);
         const bases = await this.aiAgentService.getKnowledgeBases(placeId);
         return { data: bases, total: bases.length };
