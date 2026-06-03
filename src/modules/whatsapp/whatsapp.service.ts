@@ -7,6 +7,7 @@ import { Conversation } from './entities/conversation.entity';
 import { Message } from './entities/message.entity';
 import { AiService } from '../ai/ai.service';
 import { VectorService } from '../ai/vector.service';
+import { MenuFormatterService } from '../places/menu-formatter.service';
 import axios from 'axios';
 
 @Injectable()
@@ -20,6 +21,7 @@ export class WhatsappService {
         private messageRepo: Repository<Message>,
         private aiService: AiService,
         private vectorService: VectorService,
+        private menuFormatter: MenuFormatterService,
         private eventEmitter: EventEmitter2
     ) {}
 
@@ -95,7 +97,19 @@ export class WhatsappService {
         try {
             // Retrieve contextual chunks from the vector database (RAG)
             const contextChunks = await this.vectorService.searchSimilarity(conversation.placeId, userMsg, 3);
-            const contextText = contextChunks.join('\n');
+            let contextText = contextChunks.join('\n');
+            console.log(`[WhatsApp] RAG: ${contextChunks.length} chunks, ${contextText.length} chars`);
+
+            // Append structured digital menu if available
+            const menuMarkdown = await this.menuFormatter.formatMenuToMarkdown(conversation.placeId);
+            if (menuMarkdown) {
+                console.log(`[WhatsApp] Menú digital disponible: ${menuMarkdown.length} chars`);
+                contextText = contextText
+                    ? `${contextText}\n\n${menuMarkdown}`
+                    : menuMarkdown;
+            } else {
+                console.log(`[WhatsApp] Sin carta digital configurada`);
+            }
 
             if (contextText.trim().length > 0) {
                 systemPrompt = `
@@ -115,7 +129,7 @@ Instrucciones:
                 systemPrompt = `Eres el asistente virtual del restaurante "${waNumber.place.name}". Responde de forma amable, servicial y muy breve (menos de 150 caracteres). Si te preguntan por reservas o detalles específicos, indica que pronto un agente humano le atenderá.`;
             }
         } catch (error) {
-            console.error('[WhatsApp Service] RAG Search failed, falling back to simple AI', error);
+            console.error('[WhatsApp Service] RAG/menu fetch failed, falling back to simple AI', error);
             systemPrompt = `Eres el asistente virtual del restaurante "${waNumber.place.name}". Responde de forma amable, servicial y muy breve.`;
         }
 

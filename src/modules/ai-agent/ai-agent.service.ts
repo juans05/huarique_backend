@@ -33,7 +33,9 @@ export class AiAgentService {
                 const embedding = await this.vectorService.generateEmbedding(chunkText);
                 await this.vectorService.saveChunk(savedKb.id, chunkText, embedding);
             } catch (error) {
-                console.error(`Error generating embedding for chunk`, error);
+                console.error(`Error generating embedding for chunk, guardando sin vector:`, error?.message);
+                // Save chunk without embedding so fallback text search can still find it
+                await this.vectorService.saveChunk(savedKb.id, chunkText, []);
             }
         }
 

@@ -7,6 +7,7 @@ import { GoogleGenerativeAI } from '@google/generative-ai';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { PlazBotService } from '../plazbot/plazbot.service';
 import { VectorService } from '../ai/vector.service';
+import { MenuFormatterService } from '../places/menu-formatter.service';
 import { PlaceBotConfigService } from '../plazbot-config/place-bot-config.service';
 import { Conversation } from '../whatsapp/entities/conversation.entity';
 import { Message } from '../whatsapp/entities/message.entity';
@@ -27,6 +28,7 @@ export class ChatProcessorService {
   constructor(
     private plazbot: PlazBotService,
     private vectorService: VectorService,
+    private menuFormatter: MenuFormatterService,
     private botConfigService: PlaceBotConfigService,
     private eventEmitter: EventEmitter2,
     @InjectRepository(Conversation)
@@ -94,6 +96,21 @@ export class ChatProcessorService {
       if (chunks.length > 0) ragContext = chunks.join('\n\n');
     } catch (err) {
       this.logger.warn('RAG search falló, continuando sin contexto:', err);
+    }
+
+    // 5b. Agregar carta digital estructurada si existe
+    try {
+      const menuMarkdown = await this.menuFormatter.formatMenuToMarkdown(placeId);
+      if (menuMarkdown) {
+        this.logger.log(`Menú digital disponible: ${menuMarkdown.length} chars`);
+        ragContext = ragContext
+          ? `${ragContext}\n\n${menuMarkdown}`
+          : menuMarkdown;
+      } else {
+        this.logger.log('Sin carta digital configurada');
+      }
+    } catch (err) {
+      this.logger.warn('Error al obtener carta digital:', err);
     }
 
     // 6. Construir system prompt
