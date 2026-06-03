@@ -48,6 +48,7 @@ export class PlazBotAdvancedService {
       variablesHeader?: { variable: string; value: string }[];
       variablesBody?: { variable: string; value: string }[];
       campaignName?: string;
+      sendType?: string;
     }
   ) {
     this.logger.log(`[sendTemplateMessage] template=${data.template} destination=${data.destination} workspace=${workspaceId}`);
@@ -58,7 +59,7 @@ export class PlazBotAdvancedService {
       variablesHeader: data.variablesHeader ?? [],
       variablesBody: data.variablesBody ?? [],
       campaignName: data.campaignName,
-      sendType: 3,
+      sendType: data.sendType ?? '3',
     };
     this.logger.log(`[sendTemplateMessage] Payload: ${JSON.stringify(payload)}`);
     try {
@@ -135,14 +136,21 @@ export class PlazBotAdvancedService {
       buttons.push({ type: 'QUICK_REPLY', text: q.text });
     });
     (data.ctaButtons || []).filter(c => c.text).forEach(c => {
-      buttons.push({ type: c.type === 'PHONE' ? 'PHONE_NUMBER' : 'URL', text: c.text, ...(c.type === 'URL' ? { url: c.value } : { phoneNumber: c.value }) });
+      buttons.push({
+        type: c.type === 'PHONE' ? 'PHONE_NUMBER' : 'URL',
+        text: c.text,
+        ...(c.type === 'URL' ? { url: c.value } : { phone_number: c.value }),
+      });
     });
 
-    // Build body example values for Meta's approval (required when template has {{N}} variables)
-    const bodyExamples = data.variableSamples
+    // Variables format for PlazBot: [{variable: '{{1}}', example: 'value'}]
+    const bodyVariables = data.variableSamples
       ? Object.keys(data.variableSamples)
           .sort((a, b) => Number(a) - Number(b))
-          .map(k => data.variableSamples![Number(k)]?.value || `sample_${k}`)
+          .map(k => ({
+            variable: `{{${k}}}`,
+            example: data.variableSamples![Number(k)]?.value || `sample_${k}`,
+          }))
       : undefined;
 
     const components: any[] = [];
@@ -154,7 +162,7 @@ export class PlazBotAdvancedService {
     components.push({
       type: 'BODY',
       text: data.body,
-      ...(bodyExamples?.length ? { example: { body_text: [bodyExamples] } } : {}),
+      ...(bodyVariables?.length ? { variables: bodyVariables } : {}),
     });
 
     if (data.footer) {
@@ -167,12 +175,11 @@ export class PlazBotAdvancedService {
 
     const payload = {
       workspaceId,
-      payloadTemplate: {
-        name: data.elementName,
-        category: data.category,
-        language: data.languageCode,
-        components,
-      },
+      elementName: data.elementName,
+      languageCode: data.languageCode,
+      category: data.category,
+      templateType: 'STANDARD',
+      components,
     };
     this.logger.log(`[createTemplate] name=${data.elementName} category=${data.category} workspace=${workspaceId}`);
     this.logger.log(`[createTemplate] Payload: ${JSON.stringify(payload)}`);
@@ -184,6 +191,7 @@ export class PlazBotAdvancedService {
           headers: {
             'Authorization': `Bearer ${apiKey}`,
             'x-workspace-id': workspaceId,
+            'Content-Type': 'application/json',
           },
         }
       );
@@ -200,7 +208,9 @@ export class PlazBotAdvancedService {
     } catch (error) {
       this.logger.error(`[createTemplate] Error status=${error?.response?.status} body=${JSON.stringify(error?.response?.data)}`, error?.message);
       const apiError = error?.response?.data;
-      throw new Error(apiError?.message || error?.message || 'Error al crear template en PlazBot');
+      const newErr = new Error(apiError?.message || error?.message || 'Error al crear template en PlazBot') as any;
+      newErr.plazbotResponse = apiError ?? error?.plazbotResponse ?? null;
+      throw newErr;
     }
   }
 
@@ -208,9 +218,8 @@ export class PlazBotAdvancedService {
     this.logger.log(`[listActiveTemplates] workspace=${workspaceId}`);
     try {
       const response = await axios.get(
-        `${this.baseUrl}/api/template/actives`,
+        `${this.baseUrl}/api/template`,
         {
-          params: { workspaceId },
           headers: {
             'Authorization': `Bearer ${apiKey}`,
             'x-workspace-id': workspaceId,
@@ -218,7 +227,6 @@ export class PlazBotAdvancedService {
         }
       );
       this.logger.log(`[listActiveTemplates] Respuesta status=${response.status} items=${response.data.data?.length ?? 0}`);
-      this.logger.debug(`[listActiveTemplates] Raw response: ${JSON.stringify(response.data)}`);
       return response.data.data || [];
     } catch (error) {
       this.logger.error(`[listActiveTemplates] Error status=${error?.response?.status} body=${JSON.stringify(error?.response?.data)}`, error?.message);
@@ -248,6 +256,147 @@ export class PlazBotAdvancedService {
     } catch (error) {
       this.logger.error(`[getWorkspaceMetrics] Error status=${error?.response?.status} body=${JSON.stringify(error?.response?.data)}`, error?.message);
       return null;
+    }
+  }
+
+  async deleteTemplate(apiKey: string, workspaceId: string, templateId: string) {
+    this.logger.log(`[deleteTemplate] templateId=${templateId} workspace=${workspaceId}`);
+    try {
+      const response = await axios.delete(
+        `${this.baseUrl}/api/template/${templateId}`,
+        {
+          headers: {
+            'Authorization': `Bearer ${apiKey}`,
+            'x-workspace-id': workspaceId,
+          },
+        }
+      );
+      this.logger.log(`[deleteTemplate] Respuesta status=${response.status}`);
+      if (response.data?.success === false) {
+        throw new Error(response.data.message || response.data.errorCode || 'Error al eliminar plantilla');
+      }
+      return response.data?.data ?? { success: true };
+    } catch (error) {
+      this.logger.error(`[deleteTemplate] Error status=${error?.response?.status} body=${JSON.stringify(error?.response?.data)}`, error?.message);
+      const apiError = error?.response?.data;
+      throw new Error(apiError?.message || error?.message || 'Error al eliminar plantilla en PlazBot');
+    }
+  }
+
+  async updateTemplate(
+    apiKey: string,
+    workspaceId: string,
+    templateId: string,
+    data: {
+      elementName: string;
+      category: string;
+      languageCode: string;
+      templateType?: string;
+      headerText?: string;
+      body: string;
+      footer?: string;
+      quickReplies?: { text: string }[];
+      ctaButtons?: { text: string; type: string; value: string }[];
+      variableSamples?: Record<number, { value: string; type: string }>;
+    }
+  ) {
+    const buttons: any[] = [];
+    (data.quickReplies || []).filter(q => q.text).forEach(q => {
+      buttons.push({ type: 'QUICK_REPLY', text: q.text });
+    });
+    (data.ctaButtons || []).filter(c => c.text).forEach(c => {
+      buttons.push({
+        type: c.type === 'PHONE' ? 'PHONE_NUMBER' : 'URL',
+        text: c.text,
+        ...(c.type === 'URL' ? { url: c.value } : { phone_number: c.value }),
+      });
+    });
+
+    const bodyVariables = data.variableSamples
+      ? Object.keys(data.variableSamples)
+          .sort((a, b) => Number(a) - Number(b))
+          .map(k => ({
+            variable: `{{${k}}}`,
+            example: data.variableSamples![Number(k)]?.value || `sample_${k}`,
+          }))
+      : undefined;
+
+    const components: any[] = [];
+    if (data.headerText) {
+      components.push({ type: 'HEADER', format: 'TEXT', text: data.headerText });
+    }
+    components.push({
+      type: 'BODY',
+      text: data.body,
+      ...(bodyVariables?.length ? { variables: bodyVariables } : {}),
+    });
+    if (data.footer) {
+      components.push({ type: 'FOOTER', text: data.footer });
+    }
+    if (buttons.length) {
+      components.push({ type: 'BUTTONS', buttons });
+    }
+
+    const payload = {
+      workspaceId,
+      elementName: data.elementName,
+      languageCode: data.languageCode,
+      category: data.category,
+      templateType: data.templateType ?? 'STANDARD',
+      components,
+    };
+    this.logger.log(`[updateTemplate] templateId=${templateId} Payload: ${JSON.stringify(payload)}`);
+    try {
+      const response = await axios.put(
+        `${this.baseUrl}/api/template/${templateId}`,
+        payload,
+        {
+          headers: {
+            'Authorization': `Bearer ${apiKey}`,
+            'x-workspace-id': workspaceId,
+            'Content-Type': 'application/json',
+          },
+        }
+      );
+      this.logger.log(`[updateTemplate] Respuesta status=${response.status}`);
+      if (response.data?.success === false) {
+        const err = new Error(response.data.message || response.data.errorCode || 'PlazBot rechazó la actualización') as any;
+        err.plazbotResponse = response.data;
+        throw err;
+      }
+      return response.data?.data ?? response.data ?? { success: true };
+    } catch (error) {
+      this.logger.error(`[updateTemplate] Error status=${error?.response?.status} body=${JSON.stringify(error?.response?.data)}`, error?.message);
+      const apiError = error?.response?.data;
+      const newErr = new Error(apiError?.message || error?.message || 'Error al actualizar plantilla en PlazBot') as any;
+      newErr.plazbotResponse = apiError ?? error?.plazbotResponse ?? null;
+      throw newErr;
+    }
+  }
+
+  async toggleTemplate(apiKey: string, workspaceId: string, templateId: string) {
+    this.logger.log(`[toggleTemplate] templateId=${templateId} workspace=${workspaceId}`);
+    try {
+      const response = await axios.post(
+        `${this.baseUrl}/api/template/${templateId}/activate`,
+        { workspaceId },
+        {
+          headers: {
+            'Authorization': `Bearer ${apiKey}`,
+            'x-workspace-id': workspaceId,
+            'Content-Type': 'application/json',
+          },
+        }
+      );
+      this.logger.log(`[toggleTemplate] Respuesta status=${response.status}`);
+      if (response.data?.success === false) {
+        throw new Error(response.data.message || response.data.errorCode || 'Error al cambiar estado de plantilla');
+      }
+      return response.data?.data ?? { success: true };
+    } catch (error) {
+      this.logger.error(`[toggleTemplate] Error status=${error?.response?.status} body=${JSON.stringify(error?.response?.data)}`, error?.message);
+      const apiError = error?.response?.data;
+      throw new Error(apiError?.message || error?.message || 'Error al activar/desactivar plantilla');
     }
   }
 }

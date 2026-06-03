@@ -1,4 +1,4 @@
-import { Controller, Post, Get, Body, Query, Param, UseGuards } from '@nestjs/common';
+import { Controller, Post, Get, Put, Delete, Body, Query, Param, UseGuards, HttpCode } from '@nestjs/common';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { PlaceBotConfigService } from './place-bot-config.service';
 import { PlazBotAdvancedService } from '../plazbot/plazbot-advanced.service';
@@ -85,6 +85,36 @@ export class PlazbotConfigController {
   @Post('templates/sync')
   async syncTemplates() {
     return this.templateService.syncStatuses();
+  }
+
+  @Delete('templates/:id')
+  @HttpCode(204)
+  async deleteTemplate(@Param('id') id: string) {
+    await this.templateService.delete(id);
+  }
+
+  @Post('templates/:id/toggle')
+  async toggleTemplate(@Param('id') id: string) {
+    return this.templateService.toggle(id);
+  }
+
+  @Put('templates/:id')
+  async updateTemplate(
+    @Param('id') id: string,
+    @Body() dto: {
+      elementName: string;
+      category: string;
+      languageCode: string;
+      headerText?: string;
+      body: string;
+      footer?: string;
+      quickReplies?: { text: string }[];
+      ctaButtons?: { text: string; type: string; value: string }[];
+      variableSamples?: Record<number, { value: string; type: string }>;
+    },
+  ) {
+    const { apiKey, workspaceId } = this.getGlobalCreds();
+    return this.plazBotAdvanced.updateTemplate(apiKey, workspaceId, id, dto);
   }
 
   // ── Envío de mensajes ──
