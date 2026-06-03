@@ -1,4 +1,4 @@
-import { Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { WhatsAppTemplate } from './entities/whatsapp-template.entity';
@@ -28,6 +28,7 @@ export class WhatsAppTemplateService {
 
     async createAndSubmit(dto: CreateTemplateDto): Promise<WhatsAppTemplate> {
         this.logger.log(`[createAndSubmit] name=${dto.elementName} category=${dto.category}`);
+        this.validateDto(dto);
 
         // 1. Guardar en DB con estado PENDING
         let template = await this.templateRepo.findOne({ where: { name: dto.elementName } });
@@ -166,6 +167,64 @@ export class WhatsAppTemplateService {
             this.logger.error(`[submitToPlazBot] Error al enviar name=${template.name}: ${template.errorMessage}`);
         }
         return this.templateRepo.save(template);
+    }
+
+    private validateDto(dto: CreateTemplateDto): void {
+        const errors: string[] = [];
+
+        // elementName: requerido, solo minúsculas, números y guiones bajos
+        if (!dto.elementName?.trim()) {
+            errors.push('El nombre del template (elementName) es requerido');
+        } else if (!/^[a-z0-9_]+$/.test(dto.elementName.trim())) {
+            errors.push('El nombre del template solo puede contener letras minúsculas, números y guiones bajos (sin espacios ni mayúsculas)');
+        } else if (dto.elementName.length > 512) {
+            errors.push('El nombre del template no puede superar los 512 caracteres');
+        }
+
+        // category: requerida y debe ser válida para Meta
+        const validCategories = ['MARKETING', 'UTILITY', 'AUTHENTICATION'];
+        if (!dto.category?.trim()) {
+            errors.push('La categoría es requerida');
+        } else if (!validCategories.includes(dto.category.toUpperCase())) {
+            errors.push(`La categoría debe ser una de: ${validCategories.join(', ')}`);
+        }
+
+        // languageCode: requerido
+        if (!dto.languageCode?.trim()) {
+            errors.push('El código de idioma (languageCode) es requerido');
+        }
+
+        // body: requerido y no vacío
+        if (!dto.body?.trim()) {
+            errors.push('El cuerpo del mensaje (body) es requerido');
+        }
+
+        // variables: si el body tiene {{N}}, deben tener ejemplo no vacío
+        if (dto.body) {
+            const varMatches = [...dto.body.matchAll(/\{\{(\d+)\}\}/g)];
+            const usedVars = new Set(varMatches.map(m => Number(m[1])));
+
+            for (const varNum of usedVars) {
+                const sample = dto.variableSamples?.[varNum];
+                if (!sample?.value?.trim()) {
+                    errors.push(`La variable {{${varNum}}} requiere un ejemplo (value) no vacío en variableSamples`);
+                }
+            }
+        }
+
+        // botones CTA: url y phone deben tener valor
+        for (const btn of dto.ctaButtons || []) {
+            if (!btn.text?.trim()) {
+                errors.push('Todos los botones deben tener texto');
+            }
+            if (!btn.value?.trim()) {
+                errors.push(`El botón "${btn.text || 'CTA'}" requiere un valor (URL o número de teléfono)`);
+            }
+        }
+
+        if (errors.length > 0) {
+            throw new BadRequestException(errors);
+        }
     }
 
     private getGlobalCreds() {
