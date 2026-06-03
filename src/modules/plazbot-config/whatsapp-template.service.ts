@@ -66,6 +66,7 @@ export class WhatsAppTemplateService {
 
         this.logger.log(`[resend] id=${id} name=${template.name} status=${template.status}`);
 
+        const savedButtons: any[] = template.buttons || [];
         const dto: CreateTemplateDto = {
             elementName: template.name,
             category: template.category,
@@ -74,6 +75,8 @@ export class WhatsAppTemplateService {
             body: template.body,
             footer: template.footer || undefined,
             variableSamples: template.variableSamples || undefined,
+            quickReplies: savedButtons.filter(b => !b.type).map(b => ({ text: b.text })),
+            ctaButtons: savedButtons.filter(b => b.type).map(b => ({ text: b.text, type: b.type, value: b.value })),
         };
 
         template.status = 'PENDING';
@@ -116,6 +119,35 @@ export class WhatsAppTemplateService {
 
     async findAll(): Promise<WhatsAppTemplate[]> {
         return this.templateRepo.find({ order: { createdAt: 'DESC' } });
+    }
+
+    async delete(id: string): Promise<void> {
+        const template = await this.templateRepo.findOne({ where: { id } });
+        if (!template) throw new NotFoundException(`Template ${id} no encontrado`);
+
+        if (template.plazbotTemplateId) {
+            const { apiKey, workspaceId } = this.getGlobalCreds();
+            try {
+                await this.plazBotAdvanced.deleteTemplate(apiKey, workspaceId, template.plazbotTemplateId);
+                this.logger.log(`[delete] Eliminada en PlazBot templateId=${template.plazbotTemplateId}`);
+            } catch (err: any) {
+                this.logger.warn(`[delete] No se pudo eliminar en PlazBot: ${err.message}. Se elimina solo de la DB.`);
+            }
+        }
+
+        await this.templateRepo.delete(id);
+        this.logger.log(`[delete] Eliminada de DB id=${id}`);
+    }
+
+    async toggle(id: string): Promise<WhatsAppTemplate> {
+        const template = await this.templateRepo.findOne({ where: { id } });
+        if (!template) throw new NotFoundException(`Template ${id} no encontrado`);
+        if (!template.plazbotTemplateId) throw new NotFoundException(`Template ${id} no tiene ID de PlazBot (aún no fue enviado)`);
+
+        const { apiKey, workspaceId } = this.getGlobalCreds();
+        await this.plazBotAdvanced.toggleTemplate(apiKey, workspaceId, template.plazbotTemplateId);
+        this.logger.log(`[toggle] Activado/desactivado templateId=${template.plazbotTemplateId}`);
+        return template;
     }
 
     private async submitToPlazBot(template: WhatsAppTemplate, dto: CreateTemplateDto): Promise<WhatsAppTemplate> {
