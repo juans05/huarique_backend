@@ -13,10 +13,15 @@ import {
     ParseFilePipe,
     MaxFileSizeValidator,
     FileTypeValidator,
+    NotFoundException,
+    ForbiddenException,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 
 import { ApiTags, ApiBearerAuth, ApiOperation, ApiResponse, ApiParam, ApiQuery } from '@nestjs/swagger';
+import { InjectRepository } from '@nestjs/typeorm';
+import { Repository } from 'typeorm';
+import { Place } from './entities/place.entity';
 import { PlacesService } from './places.service';
 import { CreatePlaceSubmissionDto } from './dto/create-place-submission.dto';
 import { CreatePlaceClaimDto } from './dto/create-place-claim.dto';
@@ -28,7 +33,11 @@ import { CurrentUser } from '../../common/decorators/current-user.decorator';
 @ApiTags('places')
 @Controller('places')
 export class PlacesController {
-    constructor(private readonly placesService: PlacesService) { }
+    constructor(
+        private readonly placesService: PlacesService,
+        @InjectRepository(Place)
+        private placesRepo: Repository<Place>,
+    ) { }
 
     @Get()
     @ApiOperation({ summary: 'List active places with optional filters and geolocation' })
@@ -206,6 +215,9 @@ export class PlacesController {
         )
         file: Express.Multer.File,
     ) {
+        const place = await this.placesRepo.findOne({ where: { id } });
+        if (!place) throw new NotFoundException('Local no encontrado');
+        if (place.claimedByUserId !== user.id) throw new ForbiddenException('No tienes permiso para gestionar este local');
         return this.placesService.addVideo(user.id, id, file);
     }
 }

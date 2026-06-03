@@ -15,7 +15,7 @@ export class UbigeoRawController implements OnModuleInit, OnModuleDestroy {
         const dbPassword = this.configService.get('DB_PASSWORD');
         const dbName = this.configService.get('DB_NAME');
 
-        console.log('Initializing pool with:', { dbHost, dbPort, dbUser, dbName });
+        // Pool initialized below (credentials not logged for security)
 
         this.pool = new Pool({
             host: dbHost,

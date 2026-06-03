@@ -8,6 +8,7 @@ import {
     JoinColumn,
 } from 'typeorm';
 import { Place } from '../../places/entities/place.entity';
+import { encryptTransformer } from '../../../common/utils/encryption-transformer';
 
 @Entity('social_accounts')
 export class SocialAccount {
@@ -30,7 +31,7 @@ export class SocialAccount {
     @Column({ name: 'platform_username', nullable: true })
     platformUsername: string;
 
-    @Column({ name: 'access_token', type: 'text', nullable: true })
+    @Column({ name: 'access_token', type: 'text', nullable: true, transformer: encryptTransformer })
     accessToken: string;
 
     @Column({ name: 'token_expires_at', type: 'timestamp', nullable: true })

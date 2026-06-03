@@ -173,7 +173,8 @@ export class ConversationsController {
 
     // Sync existing PlazBot conversations into wuarikes DB
     @Post('sync-plazbot/:placeId')
-    async syncFromPlazbot(@Param('placeId') placeId: string) {
+    async syncFromPlazbot(@CurrentUser() user: any, @Param('placeId') placeId: string) {
+        await this.assertOwner(placeId, user.id);
         const apiKey = process.env.PLAZBOT_API_KEY || '';
         const workspaceId = process.env.PLAZBOT_WORKSPACE_ID || '';
 

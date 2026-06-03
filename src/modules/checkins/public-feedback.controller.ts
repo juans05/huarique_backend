@@ -7,13 +7,17 @@ import {
     Param,
     Query,
     UseGuards,
+    NotFoundException,
+    ForbiddenException,
 } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth, ApiParam, ApiQuery } from '@nestjs/swagger';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, LessThanOrEqual, MoreThanOrEqual } from 'typeorm';
 import { PublicFeedback } from './entities/public-feedback.entity';
+import { Place } from '../places/entities/place.entity';
 import { CreatePublicFeedbackDto } from './dto/create-public-feedback.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { PaginatedResponse } from '../../common/dto/pagination.dto';
 
 @ApiTags('public')
@@ -22,7 +26,15 @@ export class PublicFeedbackController {
     constructor(
         @InjectRepository(PublicFeedback)
         private feedbackRepository: Repository<PublicFeedback>,
+        @InjectRepository(Place)
+        private placesRepo: Repository<Place>,
     ) {}
+
+    private async assertOwner(placeId: string, userId: string) {
+        const place = await this.placesRepo.findOne({ where: { id: placeId } });
+        if (!place) throw new NotFoundException('Local no encontrado');
+        if (place.claimedByUserId !== userId) throw new ForbiddenException('No tienes permiso para gestionar este local');
+    }
 
     // ──────────────────────────────────────────────────
     // PÚBLICO (sin JWT) — Para clientes que escanean NFC
@@ -63,11 +75,13 @@ export class PublicFeedbackController {
     @ApiQuery({ name: 'type', required: false, enum: ['complaint', 'review'] })
     @ApiResponse({ status: 200, description: 'Paginated list of feedback.' })
     async getComplaints(
+        @CurrentUser() user: any,
         @Param('id') placeId: string,
         @Query('page') page = 1,
         @Query('status') status?: string,
         @Query('type') type?: string,
     ): Promise<PaginatedResponse<PublicFeedback>> {
+        await this.assertOwner(placeId, user.id);
         const size = 20;
         const skip = (page - 1) * size;
 
@@ -107,9 +121,11 @@ export class PublicFeedbackController {
     @ApiParam({ name: 'complaintId', description: 'Complaint UUID' })
     @ApiResponse({ status: 200, description: 'Complaint marked as resolved.' })
     async resolveComplaint(
+        @CurrentUser() user: any,
         @Param('id') placeId: string,
         @Param('complaintId') complaintId: string,
     ) {
+        await this.assertOwner(placeId, user.id);
         await this.feedbackRepository.update(
             { id: complaintId, placeId },
             { status: 'resolved', resolvedAt: new Date() },

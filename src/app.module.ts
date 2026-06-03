@@ -1,4 +1,6 @@
 import { Module } from '@nestjs/common';
+import { APP_GUARD } from '@nestjs/core';
+import { ThrottlerGuard } from '@nestjs/throttler';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { ScheduleModule } from '@nestjs/schedule';
 import { TypeOrmModule } from '@nestjs/typeorm';
@@ -58,13 +60,11 @@ import { CreditsModule } from './modules/credits/credits.module';
             useClass: DatabaseConfig,
         }),
 
-        // Rate limiting
-        ThrottlerModule.forRoot([
-            {
-                ttl: parseInt(process.env.THROTTLE_TTL || '60') * 1000,
-                limit: parseInt(process.env.THROTTLE_LIMIT || '100'),
-            },
-        ]),
+        // Rate limiting (30 req/min default)
+        ThrottlerModule.forRoot([{
+            ttl: 60000,
+            limit: 30,
+        }]),
 
         // Global services
         CommonModule,
@@ -96,6 +96,12 @@ import { CreditsModule } from './modules/credits/credits.module';
         ContactsModule,
         AuditLogModule,
         CreditsModule,
+    ],
+    providers: [
+        {
+            provide: APP_GUARD,
+            useClass: ThrottlerGuard,
+        },
     ],
 })
 export class AppModule { }
