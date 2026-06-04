@@ -13,6 +13,12 @@ export class PlaceBotConfig {
   @JoinColumn({ name: 'place_id' })
   place: Place;
 
+  @Column({ nullable: true, name: 'bot_name' })
+  botName: string;
+
+  @Column({ nullable: true, name: 'restaurant_name' })
+  restaurantName: string;
+
   @Column('text', { nullable: true, name: 'system_prompt' })
   systemPrompt: string;
 

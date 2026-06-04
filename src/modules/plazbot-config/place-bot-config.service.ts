@@ -16,7 +16,7 @@ export class PlaceBotConfigService {
 
   async createOrUpdate(
     placeId: string,
-    data: { systemPrompt?: string; tone?: 'professional' | 'casual' | 'friendly'; isActive?: boolean },
+    data: { botName?: string; restaurantName?: string; systemPrompt?: string; tone?: 'professional' | 'casual' | 'friendly'; isActive?: boolean },
   ) {
     let config = await this.repo.findOne({ where: { placeId } });
 

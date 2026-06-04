@@ -42,16 +42,16 @@ export class VectorService {
     }
 
     // Semantic cosine similarity search in memory (100% Postgres compatible)
-    async searchSimilarity(placeId: string, queryText: string, limit = 3): Promise<string[]> {
+    async searchSimilarity(placeId: string, queryText: string, limit = 15): Promise<string[]> {
         let queryEmbedding: number[];
         try {
             queryEmbedding = await this.generateEmbedding(queryText);
         } catch (err) {
-            console.error('[VectorService] Error generando embedding para búsqueda, usando fallback texto completo:', err?.message);
-            return this.fetchAllChunks(placeId, limit);
+            console.error('[VectorService] Error generando embedding, usando fallback texto completo:', err?.message);
+            return this.fetchAllChunks(placeId);
         }
 
-        // 2. Fetch all document chunks of the restaurant
+        // Traer todos los chunks del restaurante
         const chunks = await this.dataSource.query(
             `SELECT chunks.chunk_text, chunks.embedding
              FROM knowledge_base_chunks chunks
@@ -62,59 +62,56 @@ export class VectorService {
 
         if (chunks.length === 0) return [];
 
-        // 3. Compute cosine similarity in memory
         const cosineSimilarity = (vecA: number[], vecB: number[]): number => {
-            let dotProduct = 0.0;
-            let normA = 0.0;
-            let normB = 0.0;
+            let dot = 0, normA = 0, normB = 0;
             for (let i = 0; i < vecA.length; i++) {
-                dotProduct += vecA[i] * vecB[i];
+                dot += vecA[i] * vecB[i];
                 normA += vecA[i] * vecA[i];
                 normB += vecB[i] * vecB[i];
             }
-            if (normA === 0.0 || normB === 0.0) return 0.0;
-            return dotProduct / (Math.sqrt(normA) * Math.sqrt(normB));
+            if (normA === 0 || normB === 0) return 0;
+            return dot / (Math.sqrt(normA) * Math.sqrt(normB));
         };
 
-        // 4. Score all chunks — those with empty/malformed embedding get score 0
-        const rankedChunks = chunks.map((c: any) => {
+        const withEmbedding: { text: string; score: number }[] = [];
+        const withoutEmbedding: string[] = [];
+
+        for (const c of chunks) {
             try {
-                const chunkEmbedding = JSON.parse(c.embedding);
-                if (!Array.isArray(chunkEmbedding) || chunkEmbedding.length === 0) {
-                    return { text: c.chunk_text, score: 0 };
+                const vec = JSON.parse(c.embedding);
+                if (!Array.isArray(vec) || vec.length === 0) {
+                    withoutEmbedding.push(c.chunk_text);
+                } else {
+                    withEmbedding.push({ text: c.chunk_text, score: cosineSimilarity(queryEmbedding, vec) });
                 }
-                const score = cosineSimilarity(queryEmbedding, chunkEmbedding);
-                return { text: c.chunk_text, score };
-            } catch (e) {
-                return { text: c.chunk_text, score: 0 };
+            } catch {
+                withoutEmbedding.push(c.chunk_text);
             }
-        });
+        }
 
-        // 5. Sort descending and return top matches
-        rankedChunks.sort((a, b) => b.score - a.score);
+        // Ordenar por similitud y tomar los top N
+        withEmbedding.sort((a, b) => b.score - a.score);
+        const topSimilar = withEmbedding.slice(0, limit).map(c => c.text);
 
-        // 6. If no chunk scored > 0, return all as fallback
-        const top = rankedChunks.filter(c => c.score > 0).slice(0, limit).map(c => c.text);
-        if (top.length > 0) return top;
-
-        return this.fetchAllChunks(placeId, limit);
+        // Incluir siempre los chunks sin embedding (texto puro) — pueden contener info importante
+        const combined = [...topSimilar, ...withoutEmbedding];
+        return combined.length > 0 ? combined : this.fetchAllChunks(placeId);
     }
 
-    // Fallback: return chunks as plain text without similarity ranking
-    private async fetchAllChunks(placeId: string, limit: number): Promise<string[]> {
+    // Traer todos los chunks sin ranking — usado como fallback cuando no hay embeddings
+    private async fetchAllChunks(placeId: string): Promise<string[]> {
         try {
             const chunks = await this.dataSource.query(
                 `SELECT chunks.chunk_text
                  FROM knowledge_base_chunks chunks
                  INNER JOIN knowledge_bases kb ON chunks.knowledge_base_id = kb.id
                  WHERE kb.place_id = $1
-                 ORDER BY kb.created_at ASC, chunks.id ASC
-                 LIMIT $2`,
-                [placeId, limit]
+                 ORDER BY kb.created_at ASC, chunks.id ASC`,
+                [placeId]
             );
             return chunks.map(c => c.chunk_text).filter(Boolean);
         } catch (err) {
-            console.error('[VectorService] Fallback fetchAllChunks falló:', err?.message);
+            console.error('[VectorService] fetchAllChunks falló:', err?.message);
             return [];
         }
     }

@@ -1,0 +1,3 @@
+ALTER TABLE place_bot_configs
+  ADD COLUMN IF NOT EXISTS bot_name VARCHAR,
+  ADD COLUMN IF NOT EXISTS restaurant_name VARCHAR;
