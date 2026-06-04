@@ -1,7 +1,10 @@
 import { Injectable } from '@nestjs/common';
-import { DataSource } from 'typeorm';
+import { DataSource, Repository } from 'typeorm';
+import { InjectRepository } from '@nestjs/typeorm';
 import OpenAI from 'openai';
 import { ConfigService } from '@nestjs/config';
+import { KnowledgeBase } from './entities/knowledge-base.entity';
+import { KnowledgeBaseChunk } from './entities/knowledge-base-chunk.entity';
 
 @Injectable()
 export class VectorService {
@@ -9,7 +12,11 @@ export class VectorService {
 
     constructor(
         private dataSource: DataSource,
-        private configService: ConfigService
+        private configService: ConfigService,
+        @InjectRepository(KnowledgeBase)
+        private kbRepo: Repository<KnowledgeBase>,
+        @InjectRepository(KnowledgeBaseChunk)
+        private chunkRepo: Repository<KnowledgeBaseChunk>,
     ) {
         // Use OpenRouter configured in Wuarikes for embeddings
         this.openaiClient = new OpenAI({
@@ -51,14 +58,17 @@ export class VectorService {
             return this.fetchAllChunks(placeId);
         }
 
-        // Traer todos los chunks del restaurante
-        const chunks = await this.dataSource.query(
-            `SELECT chunks.chunk_text, chunks.embedding
-             FROM knowledge_base_chunks chunks
-             INNER JOIN knowledge_bases kb ON chunks.knowledge_base_id = kb.id
-             WHERE kb.place_id = $1`,
-            [placeId]
-        );
+        // Traer todos los chunks del restaurante via TypeORM (mismo schema que el save)
+        const kbs = await this.kbRepo.find({ where: { placeId }, select: ['id'] });
+        const kbIds = kbs.map(kb => kb.id);
+        if (kbIds.length === 0) return [];
+
+        const chunks = kbIds.length > 0
+            ? await this.chunkRepo.createQueryBuilder('chunk')
+                .where('chunk.knowledgeBaseId IN (:...ids)', { ids: kbIds })
+                .select(['chunk.chunkText', 'chunk.embedding'])
+                .getMany()
+            : [];
 
         if (chunks.length === 0) return [];
 
@@ -80,12 +90,12 @@ export class VectorService {
             try {
                 const vec = JSON.parse(c.embedding);
                 if (!Array.isArray(vec) || vec.length === 0) {
-                    withoutEmbedding.push(c.chunk_text);
+                    withoutEmbedding.push(c.chunkText);
                 } else {
-                    withEmbedding.push({ text: c.chunk_text, score: cosineSimilarity(queryEmbedding, vec) });
+                    withEmbedding.push({ text: c.chunkText, score: cosineSimilarity(queryEmbedding, vec) });
                 }
             } catch {
-                withoutEmbedding.push(c.chunk_text);
+                withoutEmbedding.push(c.chunkText);
             }
         }
 
@@ -101,15 +111,16 @@ export class VectorService {
     // Traer todos los chunks sin ranking — usado como fallback cuando no hay embeddings
     private async fetchAllChunks(placeId: string): Promise<string[]> {
         try {
-            const chunks = await this.dataSource.query(
-                `SELECT chunks.chunk_text
-                 FROM knowledge_base_chunks chunks
-                 INNER JOIN knowledge_bases kb ON chunks.knowledge_base_id = kb.id
-                 WHERE kb.place_id = $1
-                 ORDER BY kb.created_at ASC, chunks.id ASC`,
-                [placeId]
-            );
-            return chunks.map(c => c.chunk_text).filter(Boolean);
+            const kbs = await this.kbRepo.find({ where: { placeId }, select: ['id'] });
+            const kbIds = kbs.map(kb => kb.id);
+            if (kbIds.length === 0) return [];
+
+            const chunks = await this.chunkRepo.createQueryBuilder('chunk')
+                .where('chunk.knowledgeBaseId IN (:...ids)', { ids: kbIds })
+                .select(['chunk.chunkText'])
+                .getMany();
+
+            return chunks.map(c => c.chunkText).filter(Boolean);
         } catch (err) {
             console.error('[VectorService] fetchAllChunks falló:', err?.message);
             return [];

@@ -118,15 +118,14 @@ export class ChatProcessorService {
     // identity: construida desde los campos del panel (nombre del bot + restaurante + instrucciones extra)
     const botName = botConfig?.botName || 'el asistente virtual';
     const restaurantName = botConfig?.restaurantName || 'el restaurante';
-    const extraInstructions = botConfig?.systemPrompt ? `\n${botConfig.systemPrompt}` : '';
-    const identity = `Eres ${botName}, el asistente virtual del restaurante ${restaurantName}. Atiendes por WhatsApp en español, con un trato amable y cercano como si fueras parte del equipo.${extraInstructions}`;
+    const identity = `Eres ${botName}, el asistente virtual del restaurante ${restaurantName}. Atiendes por WhatsApp en español, con un trato amable y cercano como si fueras parte del equipo.`;
 
-    const behaviorRules = `REGLAS DE COMPORTAMIENTO (siempre aplica estas reglas):
+    const behaviorRules = `REGLAS BASE (siempre aplica estas reglas):
 - Habla como una persona real y cercana, no como un robot.
 - Varía cómo empiezas cada respuesta.
 - Usa emojis con moderación y solo cuando sean naturales.
-- SIEMPRE revisa la información del restaurante antes de decir que no sabes algo.
-- Si el cliente pregunta algo que no está en la información, ofrece conectarlo con el equipo de forma natural.
+- Presenta SIEMPRE lo que sí sabes con confianza. Nunca digas "no tengo el menú completo" ni "mi información es limitada" — simplemente comparte lo que tienes.
+- Si el cliente pregunta algo puntual que no encuentras, ofrece conectarlo con el equipo solo si realmente no tienes esa info específica.
 - No inventes precios ni datos que no tengas.
 - Si el cliente quiere hacer un pedido o reserva, indícale cómo proceder de forma sencilla.
 - Respuestas cortas: máximo 3–4 oraciones salvo que el cliente pida detalle.
@@ -137,9 +136,13 @@ FORMATO OBLIGATORIO PARA WHATSAPP:
 - Para listas usa guiones (–), no asteriscos ni markdown.
 - Prefiere texto corrido y natural sobre listas cuando sea posible.`;
 
+    const customRules = botConfig?.systemPrompt
+      ? `\nINSTRUCCIONES ADICIONALES DEL RESTAURANTE (tienen prioridad sobre las reglas base):\n${botConfig.systemPrompt}`
+      : '';
+
     const systemPrompt = ragContext
-      ? `${identity}\n\n${behaviorRules}\n\nINFORMACIÓN DEL RESTAURANTE (revísala SIEMPRE antes de responder):\n${ragContext}`
-      : `${identity}\n\n${behaviorRules}`;
+      ? `${identity}\n\n${behaviorRules}${customRules}\n\nINFORMACIÓN DEL RESTAURANTE:\n${ragContext}`
+      : `${identity}\n\n${behaviorRules}${customRules}`;
 
     // 7. Historial de conversación desde wuarikes DB (últimos 20 mensajes)
     const recentMessages = await this.messageRepo.find({
