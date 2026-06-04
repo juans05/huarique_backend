@@ -82,6 +82,7 @@ export class AiAgentService {
                 const chunkCount = await this.knowledgeBaseChunkRepo.count({
                     where: { knowledgeBaseId: kb.id }
                 });
+                this.logger.log(`[getKnowledgeBases] kb.id=${kb.id} fileName=${kb.fileName} chunkCount=${chunkCount}`);
                 return {
                     ...kb,
                     chunkCount
