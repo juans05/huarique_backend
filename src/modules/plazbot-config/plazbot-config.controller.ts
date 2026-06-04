@@ -31,6 +31,8 @@ export class PlazbotConfigController {
     const config = placeId ? await this.botConfigService.findByPlaceId(placeId) : null;
     return {
       placeId: placeId || null,
+      botName: config?.botName || null,
+      restaurantName: config?.restaurantName || null,
       systemPrompt: config?.systemPrompt || null,
       tone: config?.tone || 'professional',
       isActive: config?.isActive ?? true,
