@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { KnowledgeBase } from '../ai/entities/knowledge-base.entity';
@@ -7,6 +7,8 @@ import { VectorService } from '../ai/vector.service';
 
 @Injectable()
 export class AiAgentService {
+    private readonly logger = new Logger(AiAgentService.name);
+
     constructor(
         @InjectRepository(KnowledgeBase)
         private knowledgeBaseRepo: Repository<KnowledgeBase>,
@@ -28,26 +30,42 @@ export class AiAgentService {
             throw new Error('No se pudo obtener el ID del knowledge base después de guardarlo');
         }
 
-        // 2. Chunk the text (500 chars with 50 char overlap)
+        this.logger.log(`[createKnowledgeBase] KB creado id=${savedKb.id} rawText.length=${rawText.length}`);
+
+        // 2. Chunk the text
         const chunks = this.chunkText(rawText, 500, 50);
+        this.logger.log(`[createKnowledgeBase] Chunks generados: ${chunks.length}`);
+
+        if (chunks.length === 0) {
+            this.logger.warn(`[createKnowledgeBase] El texto no generó ningún chunk — archivo posiblemente vacío`);
+            return savedKb;
+        }
 
         // 3. Generate embeddings and save chunks usando el repositorio TypeORM
-        // (evita mismatch de schema entre TypeORM y SQL raw)
+        let savedCount = 0;
         for (const chunkText of chunks) {
             let embedding: number[] = [];
             try {
                 embedding = await this.vectorService.generateEmbedding(chunkText);
             } catch (error) {
-                console.error(`Error generando embedding, guardando chunk sin vector:`, error?.message);
+                this.logger.warn(`[createKnowledgeBase] Embedding falló, guardando sin vector: ${error?.message}`);
             }
 
-            const chunk = this.knowledgeBaseChunkRepo.create({
-                knowledgeBaseId: savedKb.id,
-                chunkText,
-                embedding: JSON.stringify(embedding),
-            });
-            await this.knowledgeBaseChunkRepo.save(chunk);
+            try {
+                const chunk = this.knowledgeBaseChunkRepo.create({
+                    knowledgeBaseId: savedKb.id,
+                    chunkText,
+                    embedding: JSON.stringify(embedding),
+                });
+                await this.knowledgeBaseChunkRepo.save(chunk);
+                savedCount++;
+            } catch (error) {
+                this.logger.error(`[createKnowledgeBase] Error guardando chunk: ${error?.message}`);
+                throw new Error(`Error guardando fragmento en la base de datos: ${error?.message}`);
+            }
         }
+
+        this.logger.log(`[createKnowledgeBase] Completado: ${savedCount}/${chunks.length} chunks guardados`);
 
         return savedKb;
     }
