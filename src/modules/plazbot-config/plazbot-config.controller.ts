@@ -41,10 +41,12 @@ export class PlazbotConfigController {
   @Post('configure')
   async configure(
     @CurrentUser() user: any,
-    @Body() dto: { placeId: string; systemPrompt?: string; tone?: 'professional' | 'casual' | 'friendly' },
+    @Body() dto: { placeId: string; botName?: string; restaurantName?: string; systemPrompt?: string; tone?: 'professional' | 'casual' | 'friendly' },
   ) {
     await this.assertOwner(dto.placeId, user.id);
     const saved = await this.botConfigService.createOrUpdate(dto.placeId, {
+      botName: dto.botName,
+      restaurantName: dto.restaurantName,
       systemPrompt: dto.systemPrompt,
       tone: dto.tone,
     });
