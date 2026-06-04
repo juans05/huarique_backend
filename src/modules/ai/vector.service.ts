@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { DataSource, Repository } from 'typeorm';
 import { InjectRepository } from '@nestjs/typeorm';
 import OpenAI from 'openai';
@@ -8,6 +8,7 @@ import { KnowledgeBaseChunk } from './entities/knowledge-base-chunk.entity';
 
 @Injectable()
 export class VectorService {
+    private readonly logger = new Logger(VectorService.name);
     private openaiClient: OpenAI;
 
     constructor(
@@ -61,15 +62,15 @@ export class VectorService {
         // Traer todos los chunks del restaurante via TypeORM (mismo schema que el save)
         const kbs = await this.kbRepo.find({ where: { placeId }, select: ['id'] });
         const kbIds = kbs.map(kb => kb.id);
+        this.logger.log(`[searchSimilarity] placeId=${placeId} → KBs encontrados: ${kbIds.length} ids=${JSON.stringify(kbIds)}`);
         if (kbIds.length === 0) return [];
 
-        const chunks = kbIds.length > 0
-            ? await this.chunkRepo.createQueryBuilder('chunk')
-                .where('chunk.knowledgeBaseId IN (:...ids)', { ids: kbIds })
-                .select(['chunk.chunkText', 'chunk.embedding'])
-                .getMany()
-            : [];
+        const chunks = await this.chunkRepo.createQueryBuilder('chunk')
+            .where('chunk.knowledgeBaseId IN (:...ids)', { ids: kbIds })
+            .select(['chunk.chunkText', 'chunk.embedding'])
+            .getMany();
 
+        this.logger.log(`[searchSimilarity] chunks en BD: ${chunks.length}`);
         if (chunks.length === 0) return [];
 
         const cosineSimilarity = (vecA: number[], vecB: number[]): number => {

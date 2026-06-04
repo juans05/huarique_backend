@@ -94,6 +94,7 @@ export class ChatProcessorService {
     try {
       const chunks = await this.vectorService.searchSimilarity(placeId, messageBody, 15);
       this.logger.log(`[RAG] chunks encontrados: ${chunks.length}`);
+      this.logger.log(`[RAG] contenido: ${JSON.stringify(chunks)}`);
       if (chunks.length > 0) ragContext = chunks.join('\n\n');
     } catch (err) {
       this.logger.warn('RAG search falló, continuando sin contexto:', err);
