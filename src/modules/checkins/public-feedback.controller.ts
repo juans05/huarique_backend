@@ -14,8 +14,9 @@ import {
 } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth, ApiParam, ApiQuery } from '@nestjs/swagger';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, LessThanOrEqual, MoreThanOrEqual } from 'typeorm';
+import { Repository, LessThanOrEqual, MoreThanOrEqual, MoreThan } from 'typeorm';
 import { PublicFeedback } from './entities/public-feedback.entity';
+import { PlaceScan } from './entities/place-scan.entity';
 import { Place } from '../places/entities/place.entity';
 import { CreatePublicFeedbackDto } from './dto/create-public-feedback.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
@@ -30,6 +31,8 @@ export class PublicFeedbackController {
     constructor(
         @InjectRepository(PublicFeedback)
         private feedbackRepository: Repository<PublicFeedback>,
+        @InjectRepository(PlaceScan)
+        private scanRepository: Repository<PlaceScan>,
         @InjectRepository(Place)
         private placesRepo: Repository<Place>,
     ) {}
@@ -68,6 +71,23 @@ export class PublicFeedbackController {
             this.logger.error(`[feedback] Error al guardar para placeId=${dto.placeId}: ${err?.message}`, err?.stack);
             throw new InternalServerErrorException('No se pudo guardar el feedback. Por favor intenta de nuevo.');
         }
+    }
+
+    @Post('public/scan')
+    @ApiOperation({ summary: 'Register a page view from NFC/QR scan (no auth required)' })
+    async recordScan(@Body() dto: { placeId: string; deviceId?: string; source?: 'nfc' | 'qr' | 'direct' }) {
+        try {
+            await this.scanRepository.save(
+                this.scanRepository.create({
+                    placeId: dto.placeId,
+                    deviceId: dto.deviceId || null,
+                    source: dto.source || (dto.deviceId ? 'nfc' : 'qr'),
+                }),
+            );
+        } catch (err) {
+            this.logger.warn(`[scan] No se pudo registrar scan placeId=${dto.placeId}: ${err?.message}`);
+        }
+        return { ok: true };
     }
 
     // ──────────────────────────────────────────────────
@@ -119,6 +139,46 @@ export class PublicFeedbackController {
                 size,
                 totalPages: Math.ceil(total / size),
             },
+        };
+    }
+
+    @Get('business/places/:id/analytics')
+    @UseGuards(JwtAuthGuard)
+    @ApiBearerAuth()
+    @ApiOperation({ summary: 'Get NFC/QR scan analytics and feedback conversion for a place' })
+    @ApiParam({ name: 'id', description: 'Place UUID' })
+    @ApiQuery({ name: 'range', required: false, enum: ['week', 'month', 'quarter'] })
+    async getAnalytics(
+        @CurrentUser() user: any,
+        @Param('id') placeId: string,
+        @Query('range') range: string = 'month',
+    ) {
+        await this.assertOwner(placeId, user.id);
+
+        const days = range === 'week' ? 7 : range === 'quarter' ? 90 : 30;
+        const since = new Date();
+        since.setDate(since.getDate() - days);
+
+        const [totalScans, nfcScans, qrScans, totalFeedback, positiveFeedback, pendingComplaints, resolvedComplaints] =
+            await Promise.all([
+                this.scanRepository.count({ where: { placeId, createdAt: MoreThan(since) } }),
+                this.scanRepository.count({ where: { placeId, source: 'nfc', createdAt: MoreThan(since) } }),
+                this.scanRepository.count({ where: { placeId, source: 'qr', createdAt: MoreThan(since) } }),
+                this.feedbackRepository.count({ where: { placeId, createdAt: MoreThan(since) } }),
+                this.feedbackRepository.count({ where: { placeId, rating: MoreThanOrEqual(4), createdAt: MoreThan(since) } }),
+                this.feedbackRepository.count({ where: { placeId, status: 'pending', rating: LessThanOrEqual(3) } }),
+                this.feedbackRepository.count({ where: { placeId, status: 'resolved', rating: LessThanOrEqual(3) } }),
+            ]);
+
+        const conversionRate = totalScans > 0 ? Math.round((positiveFeedback / totalScans) * 100) : 0;
+        const nfcPercent = totalScans > 0 ? Math.round((nfcScans / totalScans) * 100) : 0;
+        const qrPercent = totalScans > 0 ? Math.round((qrScans / totalScans) * 100) : 0;
+
+        return {
+            scans: { total: totalScans, nfc: nfcScans, qr: qrScans, nfcPercent, qrPercent },
+            feedback: { total: totalFeedback, positive: positiveFeedback, conversionRate },
+            complaints: { pending: pendingComplaints, resolved: resolvedComplaints },
+            range,
         };
     }
 
