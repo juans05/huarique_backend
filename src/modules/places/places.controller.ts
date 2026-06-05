@@ -23,6 +23,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Place } from './entities/place.entity';
 import { PlacesService } from './places.service';
+import { MenuService } from './menu.service';
 import { CreatePlaceSubmissionDto } from './dto/create-place-submission.dto';
 import { CreatePlaceClaimDto } from './dto/create-place-claim.dto';
 import { GetPlacesDto } from './dto/get-places.dto';
@@ -35,6 +36,7 @@ import { CurrentUser } from '../../common/decorators/current-user.decorator';
 export class PlacesController {
     constructor(
         private readonly placesService: PlacesService,
+        private readonly menuService: MenuService,
         @InjectRepository(Place)
         private placesRepo: Repository<Place>,
     ) { }
@@ -91,6 +93,16 @@ export class PlacesController {
     @ApiResponse({ status: 404, description: 'Place not found.' })
     async findOne(@Param('id') id: string) {
         return this.placesService.findOne(id);
+    }
+
+    @Get(':id/menu')
+    @ApiOperation({ summary: 'Get public digital menu (categories and dishes) for a place' })
+    @ApiParam({ name: 'id', description: 'Place UUID' })
+    async getPublicMenu(@Param('id') id: string) {
+        const place = await this.placesRepo.findOne({ where: { id }, select: ['id', 'name', 'coverImageUrl'] });
+        if (!place) throw new NotFoundException('Local no encontrado');
+        const categories = await this.menuService.getMenu(id);
+        return { place, categories };
     }
 
     @Post('submit')

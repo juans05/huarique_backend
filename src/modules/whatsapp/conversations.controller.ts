@@ -253,5 +253,5 @@ export class ConversationsController {
                 this.eventEmitter.off('whatsapp.message.received', handler);
             };
         });
-    } l
+    }
 }

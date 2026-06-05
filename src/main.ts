@@ -18,7 +18,12 @@ async function bootstrap() {
     }
 
     app.setGlobalPrefix('api');
-    app.use(helmet());
+    app.use(
+        helmet({
+            crossOriginResourcePolicy: { policy: 'cross-origin' },
+            referrerPolicy: { policy: 'strict-origin-when-cross-origin' },
+        }),
+    );
     app.use(cookieParser());
 
     app.useGlobalPipes(
@@ -39,7 +44,10 @@ async function bootstrap() {
 
     app.enableCors({
         origin: corsOrigin ? corsOrigin.split(',') : 'http://localhost:3000',
+        methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+        allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept'],
         credentials: true,
+        maxAge: 3600,
     });
 
     if (process.env.NODE_ENV !== 'production') {

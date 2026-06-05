@@ -37,6 +37,85 @@ export class ChatProcessorService {
     private messageRepo: Repository<Message>,
   ) {}
 
+  async processDemoMessage(
+    placeId: string,
+    message: string,
+    history: { role: 'user' | 'assistant'; content: string }[] = [],
+  ): Promise<string> {
+    const botConfig = await this.botConfigService.findByPlaceId(placeId);
+
+    let ragContext = '';
+    try {
+      const chunks = await this.vectorService.searchSimilarity(placeId, message, 15);
+      if (chunks.length > 0) ragContext = chunks.join('\n\n');
+    } catch { /* sin contexto */ }
+
+    try {
+      const menuMarkdown = await this.menuFormatter.formatMenuToMarkdown(placeId);
+      if (menuMarkdown) ragContext = ragContext ? `${ragContext}\n\n${menuMarkdown}` : menuMarkdown;
+    } catch { /* sin menú */ }
+
+    const botName = botConfig?.botName || 'el asistente virtual';
+    const restaurantName = botConfig?.restaurantName || 'el restaurante';
+    const identity = `Eres ${botName}, el asistente virtual del restaurante ${restaurantName}. Atiendes por WhatsApp en español, con un trato amable y cercano como si fueras parte del equipo.`;
+
+    const behaviorRules = `REGLAS BASE (siempre aplica estas reglas):
+- Habla como una persona real y cercana, no como un robot.
+- Varía cómo empiezas cada respuesta.
+- Usa emojis con moderación y solo cuando sean naturales.
+- Presenta SIEMPRE lo que sí sabes con confianza. Nunca digas "no tengo el menú completo" ni "mi información es limitada" — simplemente comparte lo que tienes.
+- Si el cliente pregunta algo puntual que no encuentras, ofrece conectarlo con el equipo solo si realmente no tienes esa info específica.
+- No inventes precios ni datos que no tengas.
+- Si el cliente quiere hacer un pedido o reserva, indícale cómo proceder de forma sencilla.
+- Respuestas cortas: máximo 3–4 oraciones salvo que el cliente pida detalle.
+
+FORMATO OBLIGATORIO PARA WHATSAPP:
+- NUNCA uses ## ni ### — WhatsApp no los renderiza.
+- NUNCA uses ** para negrita — usa *texto* en su lugar.
+- Para listas usa guiones (–), no asteriscos ni markdown.
+- Prefiere texto corrido y natural sobre listas cuando sea posible.`;
+
+    const customRules = botConfig?.systemPrompt
+      ? `\nINSTRUCCIONES ADICIONALES DEL RESTAURANTE (tienen prioridad sobre las reglas base):\n${botConfig.systemPrompt}`
+      : '';
+
+    const systemPrompt = ragContext
+      ? `${identity}\n\n${behaviorRules}${customRules}\n\nMENÚ Y DATOS DEL RESTAURANTE (esta es tu fuente de verdad — úsala COMPLETA para responder, no digas que no tienes información si está aquí):\n${ragContext}`
+      : `${identity}\n\n${behaviorRules}${customRules}`;
+
+    if (this.anthropic) {
+      const response = await this.anthropic.messages.create({
+        model: 'claude-haiku-4-5-20251001',
+        max_tokens: 1024,
+        system: systemPrompt,
+        messages: [...history, { role: 'user', content: message }],
+      });
+      return response.content[0].type === 'text' ? response.content[0].text : '';
+    }
+
+    if (this.grok) {
+      const msgs: OpenAI.Chat.ChatCompletionMessageParam[] = [
+        { role: 'system', content: systemPrompt },
+        ...history.map(m => ({ role: m.role as 'user' | 'assistant', content: m.content })),
+        { role: 'user', content: message },
+      ];
+      const res = await this.grok.chat.completions.create({ model: 'grok-3', max_tokens: 512, messages: msgs });
+      return res.choices[0]?.message?.content || '';
+    }
+
+    if (this.gemini) {
+      const model = this.gemini.getGenerativeModel({ model: 'gemini-1.5-flash' });
+      const chat = model.startChat({
+        history: history.map(m => ({ role: m.role === 'assistant' ? 'model' : 'user', parts: [{ text: m.content }] })),
+        systemInstruction: systemPrompt,
+      });
+      const result = await chat.sendMessage(message);
+      return result.response.text();
+    }
+
+    return 'No hay proveedor de IA configurado.';
+  }
+
   async processIncomingMessage(
     placeId: string,
     contact: { name: string; phone: string },
@@ -142,7 +221,7 @@ FORMATO OBLIGATORIO PARA WHATSAPP:
       : '';
 
     const systemPrompt = ragContext
-      ? `${identity}\n\n${behaviorRules}${customRules}\n\nINFORMACIÓN DEL RESTAURANTE:\n${ragContext}`
+      ? `${identity}\n\n${behaviorRules}${customRules}\n\nMENÚ Y DATOS DEL RESTAURANTE (esta es tu fuente de verdad — úsala COMPLETA para responder, no digas que no tienes información si está aquí):\n${ragContext}`
       : `${identity}\n\n${behaviorRules}${customRules}`;
 
     // 7. Historial de conversación desde wuarikes DB (últimos 20 mensajes)
@@ -172,7 +251,7 @@ FORMATO OBLIGATORIO PARA WHATSAPP:
       this.logger.log(`[${placeId}] Usando Claude`);
       const claudeResponse = await this.anthropic.messages.create({
         model: 'claude-haiku-4-5-20251001',
-        max_tokens: 512,
+        max_tokens: 1024,
         system: systemPrompt,
         messages: [...historyMessages, { role: 'user', content: messageBody }],
       });
@@ -219,6 +298,15 @@ FORMATO OBLIGATORIO PARA WHATSAPP:
         isFromAi: true,
       }),
     );
+
+    // Emitir evento SSE para que el frontend muestre la respuesta del bot
+    this.eventEmitter.emit('whatsapp.message.received', {
+      placeId,
+      conversationId: conversation.id,
+      customerName: conversation.customerName,
+      customerPhone: conversation.customerPhone,
+      messageBody: botResponse,
+    });
 
     // 10. Enviar respuesta via PlazBot
     await this.plazbot.sendMessage(apiKey, workspaceId, contact.phone, botResponse);

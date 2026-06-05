@@ -9,6 +9,8 @@ import {
     UseGuards,
     NotFoundException,
     ForbiddenException,
+    Logger,
+    InternalServerErrorException,
 } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth, ApiParam, ApiQuery } from '@nestjs/swagger';
 import { InjectRepository } from '@nestjs/typeorm';
@@ -23,6 +25,8 @@ import { PaginatedResponse } from '../../common/dto/pagination.dto';
 @ApiTags('public')
 @Controller()
 export class PublicFeedbackController {
+    private readonly logger = new Logger(PublicFeedbackController.name);
+
     constructor(
         @InjectRepository(PublicFeedback)
         private feedbackRepository: Repository<PublicFeedback>,
@@ -45,20 +49,25 @@ export class PublicFeedbackController {
     @ApiResponse({ status: 201, description: 'Feedback saved privately.' })
     async submitFeedback(@Body() dto: CreatePublicFeedbackDto) {
         const now = new Date();
-
-        const feedback = this.feedbackRepository.create({
-            placeId: dto.placeId,
-            rating: dto.rating,
-            comment: dto.comment || null,
-            customerName: dto.customerName || null,
-            customerContact: dto.customerContact || null,
-            deviceId: dto.deviceId || null,
-            marketingConsent: dto.marketingConsent || false,
-            consentTimestamp: dto.marketingConsent ? now : null,
-            status: 'pending',
-        });
-
-        return this.feedbackRepository.save(feedback);
+        try {
+            const feedback = this.feedbackRepository.create({
+                placeId: dto.placeId,
+                rating: dto.rating,
+                comment: dto.comment || null,
+                customerName: dto.customerName || null,
+                customerContact: dto.customerContact || null,
+                deviceId: dto.deviceId || null,
+                marketingConsent: dto.marketingConsent || false,
+                consentTimestamp: dto.marketingConsent ? now : null,
+                status: 'pending',
+            });
+            const saved = await this.feedbackRepository.save(feedback);
+            this.logger.log(`[feedback] Guardado id=${saved.id} placeId=${dto.placeId} rating=${dto.rating}`);
+            return saved;
+        } catch (err) {
+            this.logger.error(`[feedback] Error al guardar para placeId=${dto.placeId}: ${err?.message}`, err?.stack);
+            throw new InternalServerErrorException('No se pudo guardar el feedback. Por favor intenta de nuevo.');
+        }
     }
 
     // ──────────────────────────────────────────────────
