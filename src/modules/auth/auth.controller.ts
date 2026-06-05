@@ -2,6 +2,7 @@ import { Controller, Post, Body, UseGuards, HttpCode, Res, Req, UnauthorizedExce
 import { ApiTags, ApiBearerAuth, ApiOperation, ApiResponse } from '@nestjs/swagger';
 import { Response } from 'express';
 import { ConfigService } from '@nestjs/config';
+import { Throttle } from '@nestjs/throttler';
 import { AuthService } from './auth.service';
 import { RegisterDto } from './dto/register.dto';
 import { LoginDto } from './dto/login.dto';
@@ -41,6 +42,7 @@ export class AuthController {
         });
     }
 
+    @Throttle({ default: { ttl: 60000, limit: 5 } })
     @Post('register')
     @ApiOperation({ summary: 'Register a new user' })
     @ApiResponse({ status: 201, description: 'User registered. Returns tokens + user.' })
@@ -49,6 +51,7 @@ export class AuthController {
         return this.authService.register(registerDto);
     }
 
+    @Throttle({ default: { ttl: 60000, limit: 5 } })
     @Post('login')
     @HttpCode(200)
     @ApiOperation({ summary: 'Login with email and password' })
@@ -74,6 +77,7 @@ export class AuthController {
     }
 
     @IsPublic()
+    @Throttle({ default: { ttl: 60000, limit: 3 } })
     @Post('forgot-password')
     @HttpCode(200)
     @ApiOperation({ summary: 'Request password reset code' })
@@ -90,6 +94,7 @@ export class AuthController {
     }
 
     @IsPublic()
+    @Throttle({ default: { ttl: 60000, limit: 3 } })
     @Post('resend-code')
     @HttpCode(200)
     @ApiOperation({ summary: 'Resend email verification code' })

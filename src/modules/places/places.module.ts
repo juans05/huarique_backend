@@ -50,6 +50,6 @@ import { User } from '../users/entities/user.entity';
 
     controllers: [PlacesController, BusinessPlacesController, GoogleCallbackController],
     providers: [PlacesService, MenuService, MenuFormatterService, GeolocationService, RarityCalculatorService, GoogleMapsService, GoogleBusinessService, WeeklyReportService],
-    exports: [PlacesService, MenuFormatterService, GeolocationService, GoogleMapsService],
+    exports: [PlacesService, MenuService, MenuFormatterService, GeolocationService, GoogleMapsService],
 })
 export class PlacesModule { }
