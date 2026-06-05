@@ -20,9 +20,11 @@ export class DevicesService {
   }
 
   async findOne(id: string, placeId: string): Promise<Device> {
-    return this.devicesRepository.findOne({
-      where: { id, placeId },
-    });
+    return this.devicesRepository.findOne({ where: { id, placeId } });
+  }
+
+  async findById(id: string): Promise<Device | null> {
+    return this.devicesRepository.findOne({ where: { id } });
   }
 
   async create(placeId: string, dto: CreateDeviceDto): Promise<Device> {

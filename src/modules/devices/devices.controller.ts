@@ -21,6 +21,21 @@ import { Place } from '../places/entities/place.entity';
 import { CreateDeviceDto } from './dto/create-device.dto';
 import { UpdateDeviceDto } from './dto/update-device.dto';
 
+// ── Endpoint público para que la página de scan sepa qué acción ejecutar ──
+@ApiTags('devices')
+@Controller('public/device')
+export class PublicDeviceController {
+  constructor(private devicesService: DevicesService) {}
+
+  @Get(':deviceId')
+  @ApiOperation({ summary: 'Get device action and placeId (public, no auth)' })
+  async getPublicDevice(@Param('deviceId') deviceId: string) {
+    const device = await this.devicesService.findById(deviceId);
+    if (!device) throw new NotFoundException('Dispositivo no encontrado');
+    return { action: device.action, placeId: device.placeId, name: device.name };
+  }
+}
+
 @ApiTags('devices')
 @ApiBearerAuth()
 @Controller('business/places/:placeId/devices')
