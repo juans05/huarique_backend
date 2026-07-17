@@ -11,6 +11,63 @@ import { ConfigService } from '@nestjs/config';
 import { Subscription } from './entities/subscription.entity';
 import { Payment } from './entities/payment.entity';
 
+export type SubscriptionTier = 'reputacion' | 'fidelizacion' | 'ia_total';
+
+export const TIER_ORDER: SubscriptionTier[] = ['reputacion', 'fidelizacion', 'ia_total'];
+
+interface TierDefinition {
+    tier: SubscriptionTier;
+    name: string;
+    envPlanIdKey: string;
+    envAmountKey: string;
+    defaultAmount: number; // centavos
+    features: string[];
+}
+
+const TIER_DEFINITIONS: TierDefinition[] = [
+    {
+        tier: 'reputacion',
+        name: 'Wuarike Reputación',
+        envPlanIdKey: 'CULQI_PLAN_ID_REPUTACION',
+        envAmountKey: 'CULQI_PLAN_AMOUNT_REPUTACION',
+        defaultAmount: 7900, // S/.79
+        features: [
+            'Filtro de reputación Google activado',
+            'Instagram IA ilimitado',
+            'Buzón privado de feedback',
+            'Carta digital interactiva',
+        ],
+    },
+    {
+        tier: 'fidelizacion',
+        name: 'Wuarike Fidelización+',
+        envPlanIdKey: 'CULQI_PLAN_ID_FIDELIZACION',
+        envAmountKey: 'CULQI_PLAN_AMOUNT_FIDELIZACION',
+        defaultAmount: 14900, // S/.149
+        features: [
+            'Todo lo de Wuarike Reputación',
+            'Programa de fidelización con sellos o puntos',
+            'Tarjeta digital en Apple Wallet y Google Wallet',
+            'Clientes CRM',
+        ],
+    },
+    {
+        tier: 'ia_total',
+        name: 'Wuarike IA Total',
+        envPlanIdKey: 'CULQI_PLAN_ID_IA',
+        envAmountKey: 'CULQI_PLAN_AMOUNT_IA',
+        defaultAmount: 24900, // S/.249
+        features: [
+            'Todo lo de Wuarike Fidelización+',
+            'PlazBot: bot de WhatsApp con IA',
+            'Chat en vivo',
+            'Campañas de WhatsApp',
+            'Email marketing',
+            'Base de conocimiento IA (RAG)',
+        ],
+    },
+];
+
 @Injectable()
 export class SubscriptionsService {
     private readonly logger = new Logger(SubscriptionsService.name);
@@ -28,12 +85,26 @@ export class SubscriptionsService {
         return this.configService.get<string>('CULQI_SECRET_KEY') || '';
     }
 
-    private get planId() {
-        return this.configService.get<string>('CULQI_PLAN_ID') || '';
+    private tierDefinition(tier: SubscriptionTier): TierDefinition {
+        const def = TIER_DEFINITIONS.find((t) => t.tier === tier);
+        if (!def) throw new BadRequestException(`Plan "${tier}" no existe`);
+        return def;
     }
 
-    private get planAmount() {
-        return parseInt(this.configService.get<string>('CULQI_PLAN_AMOUNT') || '9900');
+    private planIdFor(tier: SubscriptionTier) {
+        return this.configService.get<string>(this.tierDefinition(tier).envPlanIdKey) || '';
+    }
+
+    private planAmountFor(tier: SubscriptionTier) {
+        const def = this.tierDefinition(tier);
+        return parseInt(this.configService.get<string>(def.envAmountKey) || String(def.defaultAmount));
+    }
+
+    /** True if `ownedTier` unlocks features gated at `requiredTier`. */
+    hasTierAccess(ownedTier: string, requiredTier: SubscriptionTier): boolean {
+        const ownedIndex = TIER_ORDER.indexOf(ownedTier as SubscriptionTier);
+        const requiredIndex = TIER_ORDER.indexOf(requiredTier);
+        return ownedIndex !== -1 && ownedIndex >= requiredIndex;
     }
 
     private async culqiRequest(method: string, path: string, body?: any) {
@@ -54,7 +125,7 @@ export class SubscriptionsService {
         return data;
     }
 
-    async createSubscription(userId: string, token: string, userEmail: string) {
+    async createSubscription(userId: string, token: string, userEmail: string, tier: SubscriptionTier) {
         const existing = await this.subscriptionsRepo.findOne({
             where: { userId, status: 'active' },
         });
@@ -62,15 +133,19 @@ export class SubscriptionsService {
             throw new ConflictException('Ya tienes una suscripción activa');
         }
 
-        if (!this.planId) {
-            throw new BadRequestException('Plan de suscripción no configurado. Contacta al administrador.');
+        const def = this.tierDefinition(tier);
+        const planId = this.planIdFor(tier);
+        const planAmount = this.planAmountFor(tier);
+
+        if (!planId) {
+            throw new BadRequestException(`El plan "${def.name}" no está configurado. Contacta al administrador.`);
         }
 
         const culqiSub = await this.culqiRequest('POST', '/subscriptions', {
-            plan_id: this.planId,
+            plan_id: planId,
             token_id: token,
             tyc: true,
-            metadata: { userId, userEmail },
+            metadata: { userId, userEmail, tier },
         });
 
         const periodStart = culqiSub.current_period?.period_start
@@ -85,9 +160,10 @@ export class SubscriptionsService {
                 userId,
                 culqiSubscriptionId: culqiSub.id,
                 culqiCustomerId: culqiSub.customer?.id,
-                culqiPlanId: this.planId,
+                culqiPlanId: planId,
                 status: culqiSub.status || 'active',
-                amount: this.planAmount,
+                tier,
+                amount: planAmount,
                 currency: 'PEN',
                 cardLast4: culqiSub.card?.last_four,
                 cardBrand: culqiSub.card?.brand,
@@ -101,7 +177,7 @@ export class SubscriptionsService {
                 subscriptionId: sub.id,
                 userId,
                 culqiChargeId: culqiSub.charges?.data?.[0]?.id,
-                amount: this.planAmount,
+                amount: planAmount,
                 currency: 'PEN',
                 status: 'paid',
                 paidAt: new Date(),
@@ -175,29 +251,32 @@ export class SubscriptionsService {
             .andWhere('p.created_at >= :start', { start: monthStart })
             .getRawOne();
 
+        const byTier = await this.subscriptionsRepo
+            .createQueryBuilder('s')
+            .select('s.tier', 'tier')
+            .addSelect('COUNT(*)', 'count')
+            .where('s.status = :s', { s: 'active' })
+            .groupBy('s.tier')
+            .getRawMany();
+
         return {
             activeSubscriptions: activeCount,
             canceledSubscriptions: canceledCount,
+            activeByTier: byTier.map((r) => ({ tier: r.tier, count: Number(r.count) })),
             totalRevenue: Math.round((Number(totalRevRaw?.total) || 0) / 100),
             monthlyRevenue: Math.round((Number(monthRevRaw?.total) || 0) / 100),
-            planAmount: Math.round(this.planAmount / 100),
         };
     }
 
-    getPlanInfo() {
-        return {
-            name: 'Warike Pro',
-            price: Math.round(this.planAmount / 100),
+    getPlans() {
+        return TIER_DEFINITIONS.map((def) => ({
+            tier: def.tier,
+            name: def.name,
+            price: Math.round(this.planAmountFor(def.tier) / 100),
             currency: 'PEN',
             interval: 'monthly',
-            features: [
-                'Filtro de reputación Google activado',
-                'Instagram IA ilimitado',
-                'Buzón privado de feedback',
-                'Carta digital interactiva',
-                'Analytics avanzados',
-                'Soporte prioritario',
-            ],
-        };
+            features: def.features,
+            configured: !!this.planIdFor(def.tier),
+        }));
     }
 }

@@ -18,7 +18,7 @@ export class DatabaseConfig implements TypeOrmOptionsFactory {
                 schema: this.configService.get('DB_SCHEMA') || 'wuarike_db',
                 entities: [__dirname + '/../**/*.entity{.ts,.js}'],
                 synchronize,
-                logging: this.configService.get('NODE_ENV') === 'development',
+                logging: this.configService.get('NODE_ENV') === 'development' ? true : ['error'],
                 migrations: [__dirname + '/../database/migrations/*{.ts,.js}'],
                 migrationsRun: false,
                 ssl: this.configService.get('DB_SSL') === 'true' ? {
@@ -37,7 +37,7 @@ export class DatabaseConfig implements TypeOrmOptionsFactory {
             schema: this.configService.get('DB_SCHEMA') || 'wuarike_db',
             entities: [__dirname + '/../**/*.entity{.ts,.js}'],
             synchronize,
-            logging: this.configService.get('NODE_ENV') === 'development',
+            logging: this.configService.get('NODE_ENV') === 'development' ? true : ['error'],
             migrations: [__dirname + '/../database/migrations/*{.ts,.js}'],
             migrationsRun: false,
             ssl: this.configService.get('DB_SSL') === 'true' ? {

@@ -10,6 +10,7 @@ import { Place } from '../places/entities/place.entity';
 import { AuditLogModule } from '../audit-log/audit-log.module';
 import { CreditsModule } from '../credits/credits.module';
 import { WhatsAppModule } from '../whatsapp/whatsapp.module';
+import { SubscriptionsModule } from '../subscriptions/subscriptions.module';
 
 @Module({
     imports: [
@@ -19,7 +20,8 @@ import { WhatsAppModule } from '../whatsapp/whatsapp.module';
         }),
         AuditLogModule,
         CreditsModule,
-        WhatsAppModule
+        WhatsAppModule,
+        SubscriptionsModule,
     ],
     controllers: [BroadcastController],
     providers: [BroadcastService, BroadcastProcessor],

@@ -7,8 +7,11 @@ import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { PlaceBotConfigService } from './place-bot-config.service';
 import { PlazBotAdvancedService } from '../plazbot/plazbot-advanced.service';
 import { WhatsAppTemplateService } from './whatsapp-template.service';
+import { SubscriptionTierGuard } from '../../common/guards/subscription-tier.guard';
+import { RequiresTier } from '../../common/decorators/requires-tier.decorator';
 
-@UseGuards(JwtAuthGuard)
+@UseGuards(JwtAuthGuard, SubscriptionTierGuard)
+@RequiresTier('ia_total')
 @Controller('plazbot-setup')
 export class PlazbotConfigController {
   constructor(

@@ -6,10 +6,13 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Place } from '../places/entities/place.entity';
 import { LoyaltyService } from './loyalty.service';
+import { SubscriptionTierGuard } from '../../common/guards/subscription-tier.guard';
+import { RequiresTier } from '../../common/decorators/requires-tier.decorator';
 
 @ApiTags('loyalty')
 @Controller('business/places/:placeId/loyalty')
-@UseGuards(JwtAuthGuard)
+@UseGuards(JwtAuthGuard, SubscriptionTierGuard)
+@RequiresTier('fidelizacion')
 @ApiBearerAuth()
 export class LoyaltyController {
   constructor(

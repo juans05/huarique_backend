@@ -20,16 +20,16 @@ import { CurrentUser } from '../../common/decorators/current-user.decorator';
 export class SubscriptionsController {
     constructor(private readonly service: SubscriptionsService) { }
 
-    @Get('plan')
-    getPlanInfo() {
-        return this.service.getPlanInfo();
+    @Get('plans')
+    getPlans() {
+        return this.service.getPlans();
     }
 
     @UseGuards(JwtAuthGuard)
     @Post('subscribe')
     @HttpCode(HttpStatus.CREATED)
     subscribe(@CurrentUser() user: any, @Body() dto: CreateSubscriptionDto) {
-        return this.service.createSubscription(user.id, dto.token, user.email);
+        return this.service.createSubscription(user.id, dto.token, user.email, dto.tier);
     }
 
     @UseGuards(JwtAuthGuard)

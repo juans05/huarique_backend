@@ -5,8 +5,11 @@ import { BroadcastService } from './broadcast.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { Place } from '../places/entities/place.entity';
+import { SubscriptionTierGuard } from '../../common/guards/subscription-tier.guard';
+import { RequiresTier } from '../../common/decorators/requires-tier.decorator';
 
-@UseGuards(JwtAuthGuard)
+@UseGuards(JwtAuthGuard, SubscriptionTierGuard)
+@RequiresTier('ia_total')
 @Controller('business/broadcasts')
 export class BroadcastController {
     constructor(

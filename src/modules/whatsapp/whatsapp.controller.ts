@@ -1,4 +1,5 @@
 import { Controller, Get, Post, Body, Query, HttpCode, HttpStatus } from '@nestjs/common';
+import * as Sentry from '@sentry/nestjs';
 import { WhatsappService } from './whatsapp.service';
 import { ConfigService } from '@nestjs/config';
 
@@ -30,9 +31,12 @@ export class WhatsappController {
     @Post('whatsapp')
     @HttpCode(HttpStatus.OK)
     async handleIncomingMessage(@Body() payload: any) {
-        // Run asynchronously to return 200 HTTP code in under 20 seconds to Meta
+        // Run asynchronously to return 200 HTTP code in under 20 seconds to Meta.
+        // Failures are captured in Sentry since they can no longer be reflected
+        // in the HTTP response (it was already sent).
         this.whatsappService.processWebhookPayload(payload).catch(err => {
             console.error('[WhatsApp Webhook Error]', err);
+            Sentry.captureException(err);
         });
         return { success: true };
     }

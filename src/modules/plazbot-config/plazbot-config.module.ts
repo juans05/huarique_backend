@@ -7,11 +7,13 @@ import { PlaceBotConfigService } from './place-bot-config.service';
 import { WhatsAppTemplateService } from './whatsapp-template.service';
 import { PlazbotConfigController } from './plazbot-config.controller';
 import { PlazBotModule } from '../plazbot/plazbot.module';
+import { SubscriptionsModule } from '../subscriptions/subscriptions.module';
 
 @Module({
   imports: [
     TypeOrmModule.forFeature([PlaceBotConfig, WhatsAppTemplate, Place]),
     PlazBotModule,
+    SubscriptionsModule,
   ],
   providers: [PlaceBotConfigService, WhatsAppTemplateService],
   controllers: [PlazbotConfigController],

@@ -24,6 +24,9 @@ export class Contact {
     @Column({ nullable: true })
     email: string;
 
+    @Column({ nullable: true })
+    dni: string;
+
     @Column({ type: 'jsonb', nullable: true })
     customFields: any;
 

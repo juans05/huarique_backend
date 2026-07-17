@@ -17,6 +17,11 @@ export class CreateContactDto {
     @IsString()
     email?: string;
 
+    @ApiPropertyOptional({ description: 'DNI del cliente (opcional)' })
+    @IsOptional()
+    @IsString()
+    dni?: string;
+
     @ApiPropertyOptional()
     @IsOptional()
     @IsObject()

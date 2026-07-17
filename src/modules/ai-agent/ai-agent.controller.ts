@@ -7,6 +7,8 @@ import { Repository } from 'typeorm';
 import { Place } from '../places/entities/place.entity';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+import { SubscriptionTierGuard } from '../../common/guards/subscription-tier.guard';
+import { RequiresTier } from '../../common/decorators/requires-tier.decorator';
 import { AiAgentService } from './ai-agent.service';
 import axios from 'axios';
 import { JSDOM } from 'jsdom';
@@ -27,7 +29,8 @@ const ALLOWED_MIMES = [
     'image/gif',
 ];
 
-@UseGuards(JwtAuthGuard)
+@UseGuards(JwtAuthGuard, SubscriptionTierGuard)
+@RequiresTier('ia_total')
 @Controller('business/knowledge-bases')
 export class AiAgentController {
     private readonly logger = new Logger(AiAgentController.name);

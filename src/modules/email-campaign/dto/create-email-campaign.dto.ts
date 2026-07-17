@@ -1,4 +1,4 @@
-import { IsString, IsOptional, IsUUID } from 'class-validator';
+import { IsString, IsOptional, IsUUID, IsDateString } from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 
 export class CreateEmailCampaignDto {
@@ -17,4 +17,9 @@ export class CreateEmailCampaignDto {
     @ApiProperty({ example: '<h1>Oferta especial</h1><p>Hola {nombre}, ven y disfruta...</p>' })
     @IsString()
     bodyHtml: string;
+
+    @ApiPropertyOptional({ description: 'Fecha/hora futura para enviar la campaña automáticamente (ISO). Si no se envía, queda como DRAFT.' })
+    @IsOptional()
+    @IsDateString()
+    scheduledAt?: string;
 }
