@@ -1,6 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, Between } from 'typeorm';
+import { InjectDataSource, InjectRepository } from '@nestjs/typeorm';
+import { Between, DataSource, Repository } from 'typeorm';
 import { CreditBalance } from './entities/credit-balance.entity';
 import { CreditTransaction } from './entities/credit-transaction.entity';
 import { QueryTransactionDto } from './dto/query-transaction.dto';
@@ -15,6 +15,8 @@ export class CreditsService {
         private balanceRepo: Repository<CreditBalance>,
         @InjectRepository(CreditTransaction)
         private transactionRepo: Repository<CreditTransaction>,
+        @InjectDataSource()
+        private dataSource: DataSource,
     ) {}
 
     async getOrCreateBalance(placeId: string): Promise<CreditBalance> {
@@ -30,42 +32,55 @@ export class CreditsService {
         return this.getOrCreateBalance(placeId);
     }
 
+    // deduct() and add() run both writes (balance + transaction record) inside a
+    // single DB transaction so the balance can never end up out of sync with its
+    // transaction history if the process crashes or a save fails mid-way.
     async deduct(placeId: string, amount: number, referenceType: string, referenceId: string, description?: string): Promise<CreditTransaction> {
-        const balance = await this.getOrCreateBalance(placeId);
+        return this.dataSource.transaction(async (manager) => {
+            let balance = await manager.findOne(CreditBalance, { where: { placeId } });
+            if (!balance) {
+                balance = manager.create(CreditBalance, { placeId });
+            }
 
-        balance.balance -= amount;
-        balance.totalUsed += amount;
-        await this.balanceRepo.save(balance);
+            balance.balance -= amount;
+            balance.totalUsed += amount;
+            await manager.save(balance);
 
-        const transaction = this.transactionRepo.create({
-            placeId,
-            type: 'usage',
-            amount: -amount,
-            balanceAfter: balance.balance,
-            referenceType,
-            referenceId,
-            description: description || `Uso de ${amount} crédito(s)`,
+            const transaction = manager.create(CreditTransaction, {
+                placeId,
+                type: 'usage',
+                amount: -amount,
+                balanceAfter: balance.balance,
+                referenceType,
+                referenceId,
+                description: description || `Uso de ${amount} crédito(s)`,
+            });
+            return manager.save(transaction);
         });
-        return this.transactionRepo.save(transaction);
     }
 
     async add(placeId: string, amount: number, type: 'purchase' | 'bonus' | 'refund', description?: string): Promise<CreditTransaction> {
-        const balance = await this.getOrCreateBalance(placeId);
+        return this.dataSource.transaction(async (manager) => {
+            let balance = await manager.findOne(CreditBalance, { where: { placeId } });
+            if (!balance) {
+                balance = manager.create(CreditBalance, { placeId });
+            }
 
-        balance.balance += amount;
-        if (type === 'purchase') {
-            balance.totalPurchased += amount;
-        }
-        await this.balanceRepo.save(balance);
+            balance.balance += amount;
+            if (type === 'purchase') {
+                balance.totalPurchased += amount;
+            }
+            await manager.save(balance);
 
-        const transaction = this.transactionRepo.create({
-            placeId,
-            type,
-            amount: amount,
-            balanceAfter: balance.balance,
-            description: description || `${type === 'purchase' ? 'Compra' : type === 'bonus' ? 'Bono' : 'Reembolso'} de ${amount} crédito(s)`,
+            const transaction = manager.create(CreditTransaction, {
+                placeId,
+                type,
+                amount: amount,
+                balanceAfter: balance.balance,
+                description: description || `${type === 'purchase' ? 'Compra' : type === 'bonus' ? 'Bono' : 'Reembolso'} de ${amount} crédito(s)`,
+            });
+            return manager.save(transaction);
         });
-        return this.transactionRepo.save(transaction);
     }
 
     async getTransactions(query: QueryTransactionDto): Promise<PaginatedResponse<CreditTransaction>> {

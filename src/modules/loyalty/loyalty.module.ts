@@ -9,9 +9,10 @@ import { WalletService } from './wallet.service';
 import { LoyaltyController } from './loyalty.controller';
 import { LoyaltyPublicController } from './loyalty-public.controller';
 import { Place } from '../places/entities/place.entity';
+import { SubscriptionsModule } from '../subscriptions/subscriptions.module';
 
 @Module({
-  imports: [TypeOrmModule.forFeature([LoyaltyProgram, LoyaltyCard, LoyaltyTransaction, Reward, Place])],
+  imports: [TypeOrmModule.forFeature([LoyaltyProgram, LoyaltyCard, LoyaltyTransaction, Reward, Place]), SubscriptionsModule],
   controllers: [LoyaltyController, LoyaltyPublicController],
   providers: [LoyaltyService, WalletService],
   exports: [LoyaltyService],

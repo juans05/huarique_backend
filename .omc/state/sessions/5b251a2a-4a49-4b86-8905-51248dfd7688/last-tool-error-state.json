@@ -1,0 +1,7 @@
+{
+  "tool_name": "Bash",
+  "tool_input_preview": "{\"command\":\"cd \\\"D:/Github/wuarikes/huarique_backend\\\" && node -e \\\"\\nconst { Client } = require('pg');\\nrequire('dotenv').config();\\nconst client = new Client({ connectionString: process.env.DATABASE...",
+  "error": "Exit code 1\n◇ injected env (46) from .env // tip: ◈ encrypted .env [www.dotenvx.com]\nERR relation \"wuarike_db.contacts\" does not exist",
+  "timestamp": "2026-07-15T04:45:14.233Z",
+  "retry_count": 1
+}

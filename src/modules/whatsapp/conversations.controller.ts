@@ -13,7 +13,12 @@ import { IsPublic } from '../../common/decorators/is-public.decorator';
 import { WhatsappService } from './whatsapp.service';
 import { PlazBotService } from '../plazbot/plazbot.service';
 import { JwtService } from '@nestjs/jwt';
+import { SubscriptionTierGuard } from '../../common/guards/subscription-tier.guard';
+import { RequiresTier } from '../../common/decorators/requires-tier.decorator';
 
+// Note: SubscriptionTierGuard + @RequiresTier are applied per-method below, not at
+// class level — the `stream` SSE endpoint is @IsPublic (auth via query-param token,
+// no `request.user`), so a class-level tier guard would crash on that route.
 @UseGuards(JwtAuthGuard)
 @Controller('business/conversations')
 export class ConversationsController {
@@ -40,6 +45,8 @@ export class ConversationsController {
     }
 
     // List conversations for a place (paginated)
+    @UseGuards(SubscriptionTierGuard)
+    @RequiresTier('ia_total')
     @Get(':placeId')
     async getConversations(
         @Param('placeId') placeId: string,
@@ -86,6 +93,8 @@ export class ConversationsController {
     }
 
     // Get messages for a conversation
+    @UseGuards(SubscriptionTierGuard)
+    @RequiresTier('ia_total')
     @Get(':conversationId/messages')
     async getConversationMessages(
         @Param('conversationId') conversationId: string,
@@ -106,6 +115,8 @@ export class ConversationsController {
     }
 
     // Change conversation mode (bot or human)
+    @UseGuards(SubscriptionTierGuard)
+    @RequiresTier('ia_total')
     @Patch(':conversationId/mode')
     async setConversationMode(
         @Param('conversationId') conversationId: string,
@@ -133,6 +144,8 @@ export class ConversationsController {
     }
 
     // Send manual message from operator
+    @UseGuards(SubscriptionTierGuard)
+    @RequiresTier('ia_total')
     @Post(':conversationId/messages')
     async sendManualMessage(
         @Param('conversationId') conversationId: string,
@@ -172,6 +185,8 @@ export class ConversationsController {
     }
 
     // Sync existing PlazBot conversations into wuarikes DB
+    @UseGuards(SubscriptionTierGuard)
+    @RequiresTier('ia_total')
     @Post('sync-plazbot/:placeId')
     async syncFromPlazbot(@CurrentUser() user: any, @Param('placeId') placeId: string) {
         await this.assertOwner(placeId, user.id);

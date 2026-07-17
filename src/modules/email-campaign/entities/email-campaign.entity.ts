@@ -24,13 +24,22 @@ export class EmailCampaign {
 
     @Column({
         type: 'enum',
-        enum: ['DRAFT', 'SENDING', 'COMPLETED', 'FAILED'],
+        enum: ['DRAFT', 'SCHEDULED', 'SENDING', 'COMPLETED', 'FAILED'],
         default: 'DRAFT'
     })
-    status: 'DRAFT' | 'SENDING' | 'COMPLETED' | 'FAILED';
+    status: 'DRAFT' | 'SCHEDULED' | 'SENDING' | 'COMPLETED' | 'FAILED';
 
     @Column({ name: 'emails_sent', default: 0 })
     emailsSent: number;
+
+    @Column({ name: 'total_recipients', default: 0 })
+    totalRecipients: number;
+
+    @Column({ name: 'scheduled_at', type: 'timestamp', nullable: true })
+    scheduledAt: Date | null;
+
+    @Column({ default: 'America/Lima' })
+    timezone: string;
 
     @CreateDateColumn({ name: 'created_at' })
     createdAt: Date;

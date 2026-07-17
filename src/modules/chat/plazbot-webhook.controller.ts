@@ -1,4 +1,5 @@
 import { Controller, Post, Body, Logger } from '@nestjs/common';
+import * as Sentry from '@sentry/nestjs';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { ChatProcessorService } from './chat-processor.service';
@@ -55,6 +56,8 @@ export class PlazBotWebhookController {
         this.logger.log(`[webhook] Mensaje procesado para placeId=${waNumber.placeId}`);
       } catch (error) {
         this.logger.error(`[webhook] Error procesando mensaje: ${error?.message}`, error?.stack);
+        this.logger.error(`[webhook] Payload que falló (placeId=${waNumber.placeId}): ${JSON.stringify(payload)}`);
+        Sentry.captureException(error);
       }
 
       return { status: 'ok' };
@@ -93,6 +96,8 @@ export class PlazBotWebhookController {
       this.logger.log(`[webhook] Mensaje procesado para placeId=${waNumber.placeId}`);
     } catch (error) {
       this.logger.error(`[webhook] Error procesando mensaje: ${error?.message}`, error?.stack);
+      this.logger.error(`[webhook] Payload que falló (placeId=${waNumber.placeId}): ${JSON.stringify(payload)}`);
+      Sentry.captureException(error);
     }
 
     return { status: 'ok' };

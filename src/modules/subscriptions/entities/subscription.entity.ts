@@ -35,6 +35,9 @@ export class Subscription {
     @Column({ default: 'active' })
     status: string; // 'active' | 'past_due' | 'canceled'
 
+    @Column({ default: 'reputacion' })
+    tier: string; // 'reputacion' | 'fidelizacion' | 'ia_total'
+
     @Column({ name: 'amount', type: 'int', default: 9900 })
     amount: number; // centavos (9900 = S/.99)
 

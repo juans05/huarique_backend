@@ -7,6 +7,7 @@ import { EmailCampaignProcessor } from './email-campaign.processor';
 import { EmailCampaign } from './entities/email-campaign.entity';
 import { Place } from '../places/entities/place.entity';
 import { CommonModule } from '../../common/common.module';
+import { SubscriptionsModule } from '../subscriptions/subscriptions.module';
 
 @Module({
     imports: [
@@ -15,6 +16,7 @@ import { CommonModule } from '../../common/common.module';
             name: 'email-broadcast',
         }),
         CommonModule,
+        SubscriptionsModule,
     ],
     controllers: [EmailCampaignController],
     providers: [EmailCampaignService, EmailCampaignProcessor],

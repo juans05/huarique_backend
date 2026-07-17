@@ -12,6 +12,7 @@ import {
     Logger,
     InternalServerErrorException,
 } from '@nestjs/common';
+import * as Sentry from '@sentry/nestjs';
 import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth, ApiParam, ApiQuery } from '@nestjs/swagger';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, LessThanOrEqual, MoreThanOrEqual, MoreThan } from 'typeorm';
@@ -86,6 +87,7 @@ export class PublicFeedbackController {
             );
         } catch (err) {
             this.logger.warn(`[scan] No se pudo registrar scan placeId=${dto.placeId}: ${err?.message}`);
+            Sentry.captureException(err);
         }
         return { ok: true };
     }

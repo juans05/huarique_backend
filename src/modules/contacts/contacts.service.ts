@@ -141,6 +141,7 @@ export class ContactsService {
                     name: mapped.name || null,
                     phone: mapped.phone || null,
                     email: mapped.email || null,
+                    dni: mapped.dni || null,
                     customFields: this.extractCustomFields(raw, columnMapping),
                     source: 'import',
                     importBatchId: importRecord.id,
@@ -198,6 +199,7 @@ export class ContactsService {
             name: c.name || '',
             phone: c.phone || '',
             email: c.email || '',
+            dni: c.dni || '',
             source: c.source,
             tags: c.tags ? c.tags.join(', ') : '',
             marketingConsent: c.marketingConsent ? 'Si' : 'No',
@@ -231,6 +233,7 @@ export class ContactsService {
                 name: raw.name || raw.Nombre || raw.nombre || raw.NAME || raw.Name || null,
                 phone: raw.phone || raw.Telefono || raw.teléfono || raw.telefono || raw.celular || raw.Celular || raw.PHONE || raw.Phone || null,
                 email: raw.email || raw.Email || raw.EMAIL || raw.Correo || raw.correo || null,
+                dni: raw.dni || raw.DNI || raw.Dni || null,
                 tags: raw.tags || raw.Tags || raw.TAGS || raw.etiquetas || raw.Etiquetas || null,
                 marketingConsent: raw.marketingConsent || raw.consent || raw.Consent || null,
             };
@@ -248,6 +251,7 @@ export class ContactsService {
             'name', 'Nombre', 'nombre', 'NAME', 'Name',
             'phone', 'Telefono', 'teléfono', 'telefono', 'celular', 'Celular', 'PHONE', 'Phone',
             'email', 'Email', 'EMAIL', 'Correo', 'correo',
+            'dni', 'DNI', 'Dni',
             'tags', 'Tags', 'TAGS', 'etiquetas', 'Etiquetas',
             'marketingConsent', 'consent', 'Consent',
         ]);

@@ -3,8 +3,8 @@ import {
     NotFoundException,
     BadRequestException,
 } from '@nestjs/common';
-import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, In } from 'typeorm';
+import { InjectDataSource, InjectRepository } from '@nestjs/typeorm';
+import { DataSource, Repository, In } from 'typeorm';
 import { Checkin } from './entities/checkin.entity';
 import { CheckinLike } from './entities/checkin-like.entity';
 import { CheckinPhoto } from './entities/checkin-photo.entity';
@@ -24,27 +24,35 @@ export class CheckinsService {
         private photosRepository: Repository<CheckinPhoto>,
         private usersService: UsersService,
         private placesService: PlacesService,
+        @InjectDataSource()
+        private dataSource: DataSource,
     ) { }
 
     async create(userId: string, dto: CreateCheckinDto): Promise<Checkin> {
         const place = await this.placesService.findOne(dto.placeId);
 
         const { photos, ...checkinData } = dto;
-        const checkin = this.checkinsRepository.create({
-            ...checkinData,
-            userId,
+
+        // The check-in and its photos must land together: run them in a single
+        // DB transaction so a failed photo insert can't leave an orphaned
+        // check-in with missing photos.
+        const savedCheckin = await this.dataSource.transaction(async (manager) => {
+            const checkin = manager.create(Checkin, {
+                ...checkinData,
+                userId,
+            });
+            const saved = await manager.save(checkin);
+
+            if (dto.photos && dto.photos.length > 0) {
+                const photoEntities = dto.photos.map(url => manager.create(CheckinPhoto, {
+                    checkinId: saved.id,
+                    url,
+                }));
+                await manager.save(photoEntities);
+            }
+
+            return saved;
         });
-
-        const savedCheckin = await this.checkinsRepository.save(checkin);
-
-        // Save multiple photos if provided
-        if (dto.photos && dto.photos.length > 0) {
-            const photos = dto.photos.map(url => this.photosRepository.create({
-                checkinId: savedCheckin.id,
-                url
-            }));
-            await this.photosRepository.save(photos);
-        }
 
         // Update Place Rating
         if (dto.rating && dto.rating > 0) {

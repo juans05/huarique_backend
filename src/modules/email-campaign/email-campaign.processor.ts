@@ -37,6 +37,9 @@ export class EmailCampaignProcessor extends WorkerHost {
             );
 
             campaign.emailsSent += 1;
+            if (campaign.emailsSent >= campaign.totalRecipients) {
+                campaign.status = 'COMPLETED';
+            }
             await this.campaignRepo.save(campaign);
 
             console.log(`[Email Sent] ${campaignId} -> ${to}`);
