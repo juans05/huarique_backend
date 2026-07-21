@@ -79,16 +79,22 @@ export class CheckinsService {
         size = 20,
         district?: string,
         userId?: string,
+        placeId?: string,
     ): Promise<PaginatedResponse<any>> {
         const skip = (page - 1) * size;
 
         const queryBuilder = this.checkinsRepository.createQueryBuilder('checkin')
             .leftJoinAndSelect('checkin.user', 'user')
             .leftJoinAndSelect('checkin.place', 'place')
+            .leftJoinAndSelect('checkin.photos', 'photos')
             .orderBy('checkin.createdAt', 'DESC');
 
         if (district) {
             queryBuilder.andWhere('place.district = :district', { district });
+        }
+
+        if (placeId) {
+            queryBuilder.andWhere('checkin.placeId = :placeId', { placeId });
         }
 
         const [data, total] = await queryBuilder

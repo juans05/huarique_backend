@@ -31,18 +31,20 @@ export class CheckinsController {
     }
 
     @Get('feed')
-    @ApiOperation({ summary: 'Get global feed of recent check-ins' })
+    @ApiOperation({ summary: 'Get global feed of recent check-ins, optionally scoped to a single place' })
     @ApiQuery({ name: 'page', required: false, type: Number, example: 1 })
     @ApiQuery({ name: 'size', required: false, type: Number, example: 20 })
     @ApiQuery({ name: 'district', required: false, type: String, example: 'Miraflores' })
+    @ApiQuery({ name: 'placeId', required: false, type: String, description: 'Filter check-ins/reviews to a single place' })
     @ApiResponse({ status: 200, description: 'Paginated list of recent check-ins.' })
     async getFeed(
         @Query('page') page?: number,
         @Query('size') size?: number,
         @Query('district') district?: string,
+        @Query('placeId') placeId?: string,
         @CurrentUser() user?: any,
     ) {
-        return this.checkinsService.getFeed(page, size, district, user?.id);
+        return this.checkinsService.getFeed(page, size, district, user?.id, placeId);
     }
 
     @Post(':id/like')
