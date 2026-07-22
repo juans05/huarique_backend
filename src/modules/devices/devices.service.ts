@@ -2,14 +2,18 @@ import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Device } from './entities/device.entity';
+import { DeviceRequest, DeviceRequestStatus, TAP_UNIT_PRICE } from './entities/device-request.entity';
 import { CreateDeviceDto } from './dto/create-device.dto';
 import { UpdateDeviceDto } from './dto/update-device.dto';
+import { CreateDeviceRequestDto } from './dto/create-device-request.dto';
 
 @Injectable()
 export class DevicesService {
   constructor(
     @InjectRepository(Device)
     private devicesRepository: Repository<Device>,
+    @InjectRepository(DeviceRequest)
+    private deviceRequestsRepository: Repository<DeviceRequest>,
   ) {}
 
   async findAll(placeId: string): Promise<Device[]> {
@@ -54,5 +58,30 @@ export class DevicesService {
       return this.devicesRepository.save(device);
     }
     return null;
+  }
+
+  async createRequest(placeId: string, dto: CreateDeviceRequestDto): Promise<DeviceRequest> {
+    const unitPrice = TAP_UNIT_PRICE[dto.tapType];
+    const request = this.deviceRequestsRepository.create({
+      placeId,
+      tapType: dto.tapType,
+      quantity: dto.quantity,
+      unitPrice,
+      totalPrice: unitPrice * dto.quantity,
+    });
+    return this.deviceRequestsRepository.save(request);
+  }
+
+  async findRequestsByPlace(placeId: string): Promise<DeviceRequest[]> {
+    return this.deviceRequestsRepository.find({ where: { placeId }, order: { createdAt: 'DESC' } });
+  }
+
+  async findAllRequests(): Promise<DeviceRequest[]> {
+    return this.deviceRequestsRepository.find({ order: { createdAt: 'DESC' } });
+  }
+
+  async updateRequestStatus(id: string, status: DeviceRequestStatus): Promise<DeviceRequest> {
+    await this.deviceRequestsRepository.update({ id }, { status });
+    return this.deviceRequestsRepository.findOne({ where: { id } });
   }
 }

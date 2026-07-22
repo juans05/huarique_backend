@@ -1,0 +1,7 @@
+{
+  "tool_name": "Bash",
+  "tool_input_preview": "{\"command\":\"cd \\\"D:\\\\Github\\\\wuarikes\\\\huarique_backend\\\" && node -e \\\"\\nconst { Client } = require('pg');\\nrequire('dotenv').config();\\nconst c = new Client({ connectionString: process.env.DATABASE_U...",
+  "error": "Exit code 1\n◇ injected env (46) from .env // tip: ⌁ auth for agents [www.vestauth.com]\nERR column \"name\" does not exist",
+  "timestamp": "2026-07-22T11:58:42.764Z",
+  "retry_count": 1
+}
