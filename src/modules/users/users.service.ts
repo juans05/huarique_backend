@@ -45,6 +45,10 @@ export class UsersService {
         return this.usersRepository.findOne({ where: { socialProvider: provider, socialId } });
     }
 
+    async linkSocialAccount(userId: string, provider: string, socialId: string): Promise<void> {
+        await this.usersRepository.update(userId, { socialProvider: provider, socialId });
+    }
+
     async findById(id: string): Promise<User> {
         const user = await this.usersRepository.findOne({ where: { id } });
         if (!user) {

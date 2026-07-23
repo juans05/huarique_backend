@@ -3,7 +3,9 @@ import { JwtService } from '@nestjs/jwt';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, LessThan } from 'typeorm';
 import { ConfigService } from '@nestjs/config';
-import { createHash } from 'crypto';
+import { createHash, randomBytes } from 'crypto';
+import { OAuth2Client } from 'google-auth-library';
+import axios from 'axios';
 import { UsersService } from '../users/users.service';
 import { RefreshToken } from './entities/refresh-token.entity';
 import { RegisterDto } from './dto/register.dto';
@@ -91,9 +93,89 @@ export class AuthService {
     }
 
     async socialLogin(provider: string, token: string, email: string, name?: string, photoUrl?: string) {
-        throw new UnauthorizedException(
-            'Social login requiere verificación de token con el proveedor. Contactar al equipo de desarrollo.'
-        );
+        let verifiedEmail: string;
+        let verifiedName: string | undefined = name;
+        let socialId: string;
+
+        if (provider === 'google') {
+            const clientId = this.configService.get('GOOGLE_CLIENT_ID');
+            const client = new OAuth2Client(clientId);
+            let payload;
+            try {
+                const ticket = await client.verifyIdToken({ idToken: token, audience: clientId });
+                payload = ticket.getPayload();
+            } catch {
+                throw new UnauthorizedException('Token de Google inválido');
+            }
+            if (!payload?.email) {
+                throw new UnauthorizedException('Token de Google inválido');
+            }
+            verifiedEmail = payload.email;
+            verifiedName = payload.name || name;
+            socialId = payload.sub;
+            photoUrl = payload.picture || photoUrl;
+        } else if (provider === 'facebook') {
+            const appId = this.configService.get('FACEBOOK_APP_ID');
+            const appSecret = this.configService.get('FACEBOOK_APP_SECRET');
+            if (!appId || !appSecret) {
+                throw new UnauthorizedException('Login con Facebook no está configurado todavía');
+            }
+            try {
+                const debugRes = await axios.get('https://graph.facebook.com/debug_token', {
+                    params: { input_token: token, access_token: `${appId}|${appSecret}` },
+                });
+                const data = debugRes.data?.data;
+                if (!data?.is_valid || String(data.app_id) !== String(appId)) {
+                    throw new Error('invalid token');
+                }
+                socialId = data.user_id;
+
+                const meRes = await axios.get('https://graph.facebook.com/me', {
+                    params: { fields: 'id,name,email,picture', access_token: token },
+                });
+                if (!meRes.data?.email) {
+                    throw new Error('facebook account has no email');
+                }
+                verifiedEmail = meRes.data.email;
+                verifiedName = meRes.data.name || name;
+                photoUrl = meRes.data.picture?.data?.url || photoUrl;
+            } catch {
+                throw new UnauthorizedException('Token de Facebook inválido');
+            }
+        } else {
+            throw new UnauthorizedException('Proveedor social no soportado');
+        }
+
+        let user = await this.usersService.findBySocialId(provider, socialId);
+        if (!user) {
+            user = await this.usersService.findByEmail(verifiedEmail);
+            if (user) {
+                await this.usersService.linkSocialAccount(user.id, provider, socialId);
+            } else {
+                user = await this.usersService.create(
+                    verifiedEmail,
+                    randomBytes(24).toString('hex'),
+                    verifiedName || verifiedEmail.split('@')[0],
+                    true, // isVerified — the provider already verified this email
+                    undefined,
+                    provider,
+                    socialId,
+                );
+            }
+        }
+
+        await this.usersService.updateLastLogin(user.id);
+        const tokens = await this.generateTokens(user.id, user.email, user.role);
+
+        return {
+            user: {
+                id: user.id,
+                email: user.email,
+                fullName: user.fullName,
+                role: user.role,
+            },
+            ...tokens,
+        };
     }
 
     async forgotPassword(dto: ForgotPasswordDto) {
