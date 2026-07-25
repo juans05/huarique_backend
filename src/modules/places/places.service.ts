@@ -71,7 +71,8 @@ export class PlacesService {
             );
         }
 
-        if (query.latitude && query.longitude) {
+        const hasOrigin = !!(query.latitude && query.longitude);
+        if (hasOrigin) {
             const radiusInMeters = (query.radius || 5) * 1000;
             const origin = {
                 type: 'Point',
@@ -83,23 +84,32 @@ export class PlacesService {
                 { origin: JSON.stringify(origin), radius: radiusInMeters }
             );
 
-            // Add distance for sorting/display
+            // Add distance (in km) for sorting/display
             queryBuilder.addSelect(
-                `ST_Distance(place.location, ST_GeomFromGeoJSON(:origin))`,
+                `ST_Distance(place.location, ST_GeomFromGeoJSON(:origin)) / 1000`,
                 'distance'
             );
             queryBuilder.orderBy('distance', 'ASC');
         }
 
-        const [data, total] = await queryBuilder
-            //.orderBy('place.isVerified', 'DESC')
-            .addOrderBy('place.name', 'ASC')
-            .skip(skip)
-            .take(size)
-            .getManyAndCount();
+        const total = await queryBuilder.getCount();
+
+        queryBuilder.addOrderBy('place.name', 'ASC').skip(skip).take(size);
+
+        // getManyAndCount() would silently drop the raw `distance` addSelect
+        // (it only hydrates entity columns), so use getRawAndEntities() and
+        // reattach distance onto each entity by position.
+        const { entities, raw } = await queryBuilder.getRawAndEntities();
+        if (hasOrigin) {
+            entities.forEach((entity, i) => {
+                if (raw[i]?.distance !== undefined) {
+                    entity.distance = parseFloat(raw[i].distance);
+                }
+            });
+        }
 
         // Transform entities to DTOs
-        const transformedData = plainToInstance(PlaceResponseDto, data, {
+        const transformedData = plainToInstance(PlaceResponseDto, entities, {
             excludeExtraneousValues: true,
         });
 
