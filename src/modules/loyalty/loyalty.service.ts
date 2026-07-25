@@ -67,12 +67,21 @@ export class LoyaltyService {
     pointsEarned: number;
     rewardUnlocked: boolean;
     isNew: boolean;
+    blocked?: boolean;
+    nextEligibleAt?: Date;
   }> {
     const program = await this.programRepo.findOne({ where: { placeId, isActive: true } });
     if (!program) throw new NotFoundException('Este restaurante no tiene programa de fidelización activo');
 
     let card = await this.cardRepo.findOne({ where: { placeId, customerPhone } });
     const isNew = !card;
+
+    if (card?.lastVisitAt && program.minHoursBetweenVisits > 0) {
+      const nextEligibleAt = new Date(card.lastVisitAt.getTime() + program.minHoursBetweenVisits * 3600_000);
+      if (nextEligibleAt > new Date()) {
+        return { card, program, stampsEarned: 0, pointsEarned: 0, rewardUnlocked: false, isNew: false, blocked: true, nextEligibleAt };
+      }
+    }
 
     if (!card) {
       card = this.cardRepo.create({

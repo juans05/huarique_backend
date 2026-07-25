@@ -17,6 +17,9 @@ export class LoyaltyProgram {
   @Column({ name: 'points_per_visit', type: 'int', default: 10 })
   pointsPerVisit: number;
 
+  @Column({ name: 'min_hours_between_visits', type: 'int', default: 24 })
+  minHoursBetweenVisits: number;
+
   @Column({ name: 'reward_title', nullable: true })
   rewardTitle: string;
 
