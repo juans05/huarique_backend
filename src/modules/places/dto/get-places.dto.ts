@@ -1,5 +1,5 @@
-import { IsOptional, IsString, IsNumber } from 'class-validator';
-import { Type } from 'class-transformer';
+import { IsOptional, IsString, IsNumber, IsBoolean } from 'class-validator';
+import { Type, Transform } from 'class-transformer';
 import { ApiPropertyOptional } from '@nestjs/swagger';
 import { PaginationDto } from '../../../common/dto/pagination.dto';
 
@@ -36,4 +36,33 @@ export class GetPlacesDto extends PaginationDto {
     @Type(() => Number)
     @IsNumber()
     radius?: number; // In kilometers
+
+    @ApiPropertyOptional()
+    @IsOptional()
+    @Type(() => Number)
+    @IsNumber()
+    priceMin?: number;
+
+    @ApiPropertyOptional()
+    @IsOptional()
+    @Type(() => Number)
+    @IsNumber()
+    priceMax?: number;
+
+    @ApiPropertyOptional()
+    @IsOptional()
+    @Type(() => Number)
+    @IsNumber()
+    minRating?: number;
+
+    @ApiPropertyOptional({ description: 'Comma-separated amenity slugs; a place must have all of them' })
+    @IsOptional()
+    @IsString()
+    amenities?: string;
+
+    @ApiPropertyOptional()
+    @IsOptional()
+    @Transform(({ value }) => value === 'true' || value === true)
+    @IsBoolean()
+    openNow?: boolean;
 }

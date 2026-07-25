@@ -44,7 +44,7 @@ export class PlacesService {
 
 
     async findAll(query: GetPlacesDto): Promise<PaginatedResponse<PlaceResponseDto>> {
-        const { page, category, district, search } = query;
+        const { page, category, district, search, priceMin, priceMax, minRating, amenities, openNow } = query;
         const size = query.limitOrSize;
         const skip = (page - 1) * size;
 
@@ -69,6 +69,56 @@ export class PlacesService {
                 '(LOWER(place.name) LIKE LOWER(:search) OR LOWER(place.description) LIKE LOWER(:search))',
                 { search: `%${search}%` },
             );
+        }
+
+        if (priceMin != null || priceMax != null) {
+            // A place with no price info can't be confirmed to fit a requested budget.
+            queryBuilder.andWhere('place.price_min IS NOT NULL AND place.price_max IS NOT NULL');
+            if (priceMin != null) queryBuilder.andWhere('place.price_max >= :priceMin', { priceMin });
+            if (priceMax != null) queryBuilder.andWhere('place.price_min <= :priceMax', { priceMax });
+        }
+
+        if (minRating != null) {
+            // Most imported places only have a Google rating (in-app `rating`
+            // stays 0 until they get in-app reviews), so filter on whichever
+            // is higher instead of the in-app one alone.
+            queryBuilder.andWhere(
+                'GREATEST(COALESCE(place.rating, 0), COALESCE(place.google_rating, 0)) >= :minRating',
+                { minRating },
+            );
+        }
+
+        if (amenities) {
+            const slugs = amenities.split(',').map((s) => s.trim()).filter(Boolean);
+            if (slugs.length) {
+                // Place must have ALL requested amenities (not just any one of them).
+                queryBuilder.andWhere(
+                    `place.id IN (
+                        SELECT pa.place_id FROM wuarike_db.place_amenities pa
+                        INNER JOIN wuarike_db.amenities a ON a.id = pa.amenity_id
+                        WHERE a.slug IN (:...slugs)
+                        GROUP BY pa.place_id
+                        HAVING COUNT(DISTINCT a.slug) = :slugCount
+                    )`,
+                    { slugs, slugCount: slugs.length },
+                );
+            }
+        }
+
+        if (openNow) {
+            // ponytail: naive "H:MM AM/PM - H:MM AM/PM" parse of the free-text
+            // open_hours_text column. Doesn't model per-day schedules, holidays,
+            // or text like "24 horas" — places with unparseable hours are
+            // treated as closed. Upgrade to a structured hours table if that
+            // ever matters.
+            const now = `(now() AT TIME ZONE 'America/Lima')::time`;
+            const open = `to_timestamp(trim(split_part(place.open_hours_text, '-', 1)), 'HH12:MI AM')::time`;
+            const close = `to_timestamp(trim(split_part(place.open_hours_text, '-', 2)), 'HH12:MI AM')::time`;
+            queryBuilder
+                .andWhere(`place.open_hours_text ~* '^\\s*[0-9]{1,2}:[0-9]{2}\\s*(AM|PM)\\s*-\\s*[0-9]{1,2}:[0-9]{2}\\s*(AM|PM)\\s*$'`)
+                .andWhere(
+                    `((${open} <= ${close} AND ${now} BETWEEN ${open} AND ${close}) OR (${open} > ${close} AND (${now} >= ${open} OR ${now} < ${close})))`,
+                );
         }
 
         const hasOrigin = !!(query.latitude && query.longitude);
