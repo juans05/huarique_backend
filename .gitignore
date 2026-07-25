@@ -11,3 +11,6 @@ coverage
 backend.rar
 output.log
 generate-hash.js
+src/scripts/import-scraped-places.ts
+src/scripts/import-google-places.ts
+scratch/restaurantes-lima.csv
