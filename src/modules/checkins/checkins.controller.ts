@@ -8,6 +8,8 @@ import {
     Query,
     UseGuards,
     HttpCode,
+    DefaultValuePipe,
+    ParseIntPipe,
 } from '@nestjs/common';
 import { ApiTags, ApiBearerAuth, ApiOperation, ApiResponse, ApiParam, ApiQuery } from '@nestjs/swagger';
 import { CheckinsService } from './checkins.service';
@@ -38,8 +40,8 @@ export class CheckinsController {
     @ApiQuery({ name: 'placeId', required: false, type: String, description: 'Filter check-ins/reviews to a single place' })
     @ApiResponse({ status: 200, description: 'Paginated list of recent check-ins.' })
     async getFeed(
-        @Query('page') page?: number,
-        @Query('size') size?: number,
+        @Query('page', new DefaultValuePipe(1), ParseIntPipe) page: number,
+        @Query('size', new DefaultValuePipe(20), ParseIntPipe) size: number,
         @Query('district') district?: string,
         @Query('placeId') placeId?: string,
         @CurrentUser() user?: any,
