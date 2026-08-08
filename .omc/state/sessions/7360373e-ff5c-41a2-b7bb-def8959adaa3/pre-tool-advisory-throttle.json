@@ -1,0 +1,22 @@
+{
+  "version": 1,
+  "entries": {
+    "459c54e5f35d6a58dcd90d2aecc21fa6d1f35d241bc5b134c506f87dc7b6d67b": {
+      "last_emitted_at_ms": 1786163890653,
+      "message": "Combine searches in parallel when investigating multiple patterns."
+    },
+    "466399dafa2d20f60587180bad0a07358eb7f2bce724df0ff682f038ad33f5ad": {
+      "last_emitted_at_ms": 1786163573932,
+      "message": "Read multiple files in parallel when possible for faster analysis."
+    },
+    "79a93d4a2f8f50b95f852280616242fee1855dc99a3c75211917f55e72e95fae": {
+      "last_emitted_at_ms": 1786163558403,
+      "message": "Use parallel execution for independent tasks. Use run_in_background for long operations (npm install, builds, tests)."
+    },
+    "cb106dfc27cd8efad69a223b6606961d4b81564f2f5fe0ba0a4e0d05a51d4a30": {
+      "last_emitted_at_ms": 1786163549811,
+      "message": "Spawning agent: Explore (inherit) | Task: Explore marketingDigitalBackend auth and social accounts"
+    }
+  },
+  "updated_at": "2026-08-08T04:38:10.653Z"
+}

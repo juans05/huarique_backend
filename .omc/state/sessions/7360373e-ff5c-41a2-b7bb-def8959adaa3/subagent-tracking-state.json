@@ -1,0 +1,206 @@
+{
+  "agents": [
+    {
+      "agent_id": "a8d723265342f0054",
+      "agent_type": "unknown",
+      "started_at": "2026-08-06T17:48:42.035Z",
+      "parent_mode": "none",
+      "status": "completed",
+      "completed_at": "2026-08-06T17:48:42.035Z",
+      "duration_ms": 0
+    },
+    {
+      "agent_id": "afefb89a85db66e11",
+      "agent_type": "unknown",
+      "started_at": "2026-08-06T17:49:00.774Z",
+      "parent_mode": "none",
+      "status": "completed",
+      "completed_at": "2026-08-06T17:49:00.774Z",
+      "duration_ms": 0
+    },
+    {
+      "agent_id": "a03453d734d0eaf5e",
+      "agent_type": "unknown",
+      "started_at": "2026-08-06T17:50:08.138Z",
+      "parent_mode": "none",
+      "status": "completed",
+      "completed_at": "2026-08-06T17:50:08.138Z",
+      "duration_ms": 0
+    },
+    {
+      "agent_id": "aeb9b47248cc57877",
+      "agent_type": "unknown",
+      "started_at": "2026-08-06T17:50:15.544Z",
+      "parent_mode": "none",
+      "status": "completed",
+      "completed_at": "2026-08-06T17:50:15.544Z",
+      "duration_ms": 0
+    },
+    {
+      "agent_id": "a6c672f18f9bd75b5",
+      "agent_type": "unknown",
+      "started_at": "2026-08-06T17:51:06.415Z",
+      "parent_mode": "none",
+      "status": "completed",
+      "completed_at": "2026-08-06T17:51:06.415Z",
+      "duration_ms": 0
+    },
+    {
+      "agent_id": "add4fa057020daa14",
+      "agent_type": "unknown",
+      "started_at": "2026-08-06T18:11:22.565Z",
+      "parent_mode": "none",
+      "status": "completed",
+      "completed_at": "2026-08-06T18:11:22.565Z",
+      "duration_ms": 0
+    },
+    {
+      "agent_id": "a00cdf9cbc2084c17",
+      "agent_type": "unknown",
+      "started_at": "2026-08-06T18:14:24.537Z",
+      "parent_mode": "none",
+      "status": "completed",
+      "completed_at": "2026-08-06T18:14:24.537Z",
+      "duration_ms": 0
+    },
+    {
+      "agent_id": "aa18c6a364ee98017",
+      "agent_type": "unknown",
+      "started_at": "2026-08-06T18:35:11.907Z",
+      "parent_mode": "none",
+      "status": "completed",
+      "completed_at": "2026-08-06T18:35:11.907Z",
+      "duration_ms": 0
+    },
+    {
+      "agent_id": "a1fb83c1eb924d3cd",
+      "agent_type": "unknown",
+      "started_at": "2026-08-06T19:22:51.938Z",
+      "parent_mode": "none",
+      "status": "completed",
+      "completed_at": "2026-08-06T19:22:51.938Z",
+      "duration_ms": 0
+    },
+    {
+      "agent_id": "a2f9c4d1adff2233e",
+      "agent_type": "unknown",
+      "started_at": "2026-08-06T19:34:42.046Z",
+      "parent_mode": "none",
+      "status": "completed",
+      "completed_at": "2026-08-06T19:34:42.046Z",
+      "duration_ms": 0
+    },
+    {
+      "agent_id": "afa82175caea4d7a3",
+      "agent_type": "unknown",
+      "started_at": "2026-08-06T19:50:46.753Z",
+      "parent_mode": "none",
+      "status": "completed",
+      "completed_at": "2026-08-06T19:50:46.753Z",
+      "duration_ms": 0
+    },
+    {
+      "agent_id": "ac3258cc4722522bb",
+      "agent_type": "unknown",
+      "started_at": "2026-08-06T20:48:43.134Z",
+      "parent_mode": "none",
+      "status": "completed",
+      "completed_at": "2026-08-06T20:48:43.134Z",
+      "duration_ms": 0
+    },
+    {
+      "agent_id": "af6327dbefb1d2632",
+      "agent_type": "unknown",
+      "started_at": "2026-08-06T21:04:40.003Z",
+      "parent_mode": "none",
+      "status": "completed",
+      "completed_at": "2026-08-06T21:04:40.003Z",
+      "duration_ms": 0
+    },
+    {
+      "agent_id": "a8d819434d001eb62",
+      "agent_type": "unknown",
+      "started_at": "2026-08-06T21:54:05.023Z",
+      "parent_mode": "none",
+      "status": "completed",
+      "completed_at": "2026-08-06T21:54:05.023Z",
+      "duration_ms": 0
+    },
+    {
+      "agent_id": "a094f5189b7e49fd2",
+      "agent_type": "unknown",
+      "started_at": "2026-08-06T21:57:04.216Z",
+      "parent_mode": "none",
+      "status": "completed",
+      "completed_at": "2026-08-06T21:57:04.216Z",
+      "duration_ms": 0
+    },
+    {
+      "agent_id": "a606b563782e68484",
+      "agent_type": "unknown",
+      "started_at": "2026-08-06T23:33:37.379Z",
+      "parent_mode": "none",
+      "status": "completed",
+      "completed_at": "2026-08-06T23:33:37.379Z",
+      "duration_ms": 0
+    },
+    {
+      "agent_id": "a02d76d4475951d26",
+      "agent_type": "unknown",
+      "started_at": "2026-08-06T23:36:41.308Z",
+      "parent_mode": "none",
+      "status": "completed",
+      "completed_at": "2026-08-06T23:36:41.308Z",
+      "duration_ms": 0
+    },
+    {
+      "agent_id": "a3ac468e9a9a5f13f",
+      "agent_type": "unknown",
+      "started_at": "2026-08-07T03:03:15.116Z",
+      "parent_mode": "none",
+      "status": "completed",
+      "completed_at": "2026-08-07T03:03:15.116Z",
+      "duration_ms": 0
+    },
+    {
+      "agent_id": "a225fa53c1b7fcdbf",
+      "agent_type": "unknown",
+      "started_at": "2026-08-08T04:26:40.739Z",
+      "parent_mode": "none",
+      "status": "completed",
+      "completed_at": "2026-08-08T04:26:40.739Z",
+      "duration_ms": 0
+    },
+    {
+      "agent_id": "a0d8cc26794d36299",
+      "agent_type": "unknown",
+      "started_at": "2026-08-08T04:29:44.060Z",
+      "parent_mode": "none",
+      "status": "completed",
+      "completed_at": "2026-08-08T04:29:44.060Z",
+      "duration_ms": 0
+    },
+    {
+      "agent_id": "ae92aed3e7b2bf3c5",
+      "agent_type": "Explore",
+      "started_at": "2026-08-08T04:32:33.276Z",
+      "parent_mode": "none",
+      "status": "completed",
+      "completed_at": "2026-08-08T04:34:11.314Z",
+      "duration_ms": 98038
+    },
+    {
+      "agent_id": "a022c554d61298fc9",
+      "agent_type": "unknown",
+      "started_at": "2026-08-08T04:34:39.665Z",
+      "parent_mode": "none",
+      "status": "completed",
+      "completed_at": "2026-08-08T04:34:39.665Z",
+      "duration_ms": 0
+    }
+  ],
+  "total_spawned": 1,
+  "total_completed": 22,
+  "total_failed": 0,
+  "last_updated": "2026-08-08T04:34:40.284Z"
+}

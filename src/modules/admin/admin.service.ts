@@ -210,7 +210,6 @@ export class AdminService {
 
     async getUsers(page: number = 1, limit: number = 10, search?: string) {
         const query = this.usersRepository.createQueryBuilder('user')
-            .where('user.role != :adminRole', { adminRole: 'admin' })
             .orderBy('user.createdAt', 'DESC')
             .skip((page - 1) * limit)
             .take(limit);
@@ -253,7 +252,8 @@ export class AdminService {
         if (role && role !== 'user') {
             await this.usersService.updateRole(user.id, role);
         }
-        return user;
+        const { passwordHash, ...safeUser } = user;
+        return safeUser;
     }
 
     // --- Place Management ---
