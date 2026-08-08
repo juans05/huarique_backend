@@ -9,8 +9,15 @@ import { PlazBotService } from '../plazbot/plazbot.service';
 import { VectorService } from '../ai/vector.service';
 import { MenuFormatterService } from '../places/menu-formatter.service';
 import { PlaceBotConfigService } from '../plazbot-config/place-bot-config.service';
+import { PlaceBotConfig } from '../plazbot-config/entities/place-bot-config.entity';
 import { Conversation } from '../whatsapp/entities/conversation.entity';
 import { Message } from '../whatsapp/entities/message.entity';
+
+const TONE_INSTRUCTIONS: Record<string, string> = {
+  professional: 'Tono profesional: lenguaje formal y correcto, sin emojis ni jerga, oraciones completas y precisas.',
+  casual: 'Tono casual: lenguaje relajado y coloquial, como hablando con un amigo — contracciones y expresiones informales están bien.',
+  friendly: 'Tono amistoso: cálido y cercano, usa emojis con moderación, transmite buena onda sin perder claridad.',
+};
 
 @Injectable()
 export class ChatProcessorService {
@@ -37,6 +44,38 @@ export class ChatProcessorService {
     private messageRepo: Repository<Message>,
   ) {}
 
+  private buildSystemPrompt(botConfig: PlaceBotConfig | null, ragContext: string): string {
+    const botName = botConfig?.botName || 'el asistente virtual';
+    const restaurantName = botConfig?.restaurantName || 'el restaurante';
+    const identity = `Eres ${botName}, el asistente virtual del restaurante ${restaurantName}. Atiendes por WhatsApp en español, como si fueras parte del equipo.`;
+
+    const toneInstruction = TONE_INSTRUCTIONS[botConfig?.tone || 'professional'];
+
+    const behaviorRules = `REGLAS BASE (siempre aplica estas reglas):
+- ${toneInstruction}
+- Habla como una persona real, no como un robot.
+- Varía cómo empiezas cada respuesta.
+- Presenta SIEMPRE lo que sí sabes con confianza. Nunca digas "no tengo el menú completo" ni "mi información es limitada" — simplemente comparte lo que tienes.
+- Si el cliente pregunta algo puntual que no encuentras, ofrece conectarlo con el equipo solo si realmente no tienes esa info específica.
+- No inventes precios ni datos que no tengas.
+- Si el cliente quiere hacer un pedido o reserva, indícale cómo proceder de forma sencilla.
+- Respuestas cortas: máximo 3–4 oraciones salvo que el cliente pida detalle.
+
+FORMATO OBLIGATORIO PARA WHATSAPP:
+- NUNCA uses ## ni ### — WhatsApp no los renderiza.
+- NUNCA uses ** para negrita — usa *texto* en su lugar.
+- Para listas usa guiones (–), no asteriscos ni markdown.
+- Prefiere texto corrido y natural sobre listas cuando sea posible.`;
+
+    const customRules = botConfig?.systemPrompt
+      ? `\nINSTRUCCIONES ADICIONALES DEL RESTAURANTE (tienen prioridad sobre las reglas base):\n${botConfig.systemPrompt}`
+      : '';
+
+    return ragContext
+      ? `${identity}\n\n${behaviorRules}${customRules}\n\nMENÚ Y DATOS DEL RESTAURANTE (esta es tu fuente de verdad — úsala COMPLETA para responder, no digas que no tienes información si está aquí):\n${ragContext}`
+      : `${identity}\n\n${behaviorRules}${customRules}`;
+  }
+
   async processDemoMessage(
     placeId: string,
     message: string,
@@ -55,33 +94,7 @@ export class ChatProcessorService {
       if (menuMarkdown) ragContext = ragContext ? `${ragContext}\n\n${menuMarkdown}` : menuMarkdown;
     } catch { /* sin menú */ }
 
-    const botName = botConfig?.botName || 'el asistente virtual';
-    const restaurantName = botConfig?.restaurantName || 'el restaurante';
-    const identity = `Eres ${botName}, el asistente virtual del restaurante ${restaurantName}. Atiendes por WhatsApp en español, con un trato amable y cercano como si fueras parte del equipo.`;
-
-    const behaviorRules = `REGLAS BASE (siempre aplica estas reglas):
-- Habla como una persona real y cercana, no como un robot.
-- Varía cómo empiezas cada respuesta.
-- Usa emojis con moderación y solo cuando sean naturales.
-- Presenta SIEMPRE lo que sí sabes con confianza. Nunca digas "no tengo el menú completo" ni "mi información es limitada" — simplemente comparte lo que tienes.
-- Si el cliente pregunta algo puntual que no encuentras, ofrece conectarlo con el equipo solo si realmente no tienes esa info específica.
-- No inventes precios ni datos que no tengas.
-- Si el cliente quiere hacer un pedido o reserva, indícale cómo proceder de forma sencilla.
-- Respuestas cortas: máximo 3–4 oraciones salvo que el cliente pida detalle.
-
-FORMATO OBLIGATORIO PARA WHATSAPP:
-- NUNCA uses ## ni ### — WhatsApp no los renderiza.
-- NUNCA uses ** para negrita — usa *texto* en su lugar.
-- Para listas usa guiones (–), no asteriscos ni markdown.
-- Prefiere texto corrido y natural sobre listas cuando sea posible.`;
-
-    const customRules = botConfig?.systemPrompt
-      ? `\nINSTRUCCIONES ADICIONALES DEL RESTAURANTE (tienen prioridad sobre las reglas base):\n${botConfig.systemPrompt}`
-      : '';
-
-    const systemPrompt = ragContext
-      ? `${identity}\n\n${behaviorRules}${customRules}\n\nMENÚ Y DATOS DEL RESTAURANTE (esta es tu fuente de verdad — úsala COMPLETA para responder, no digas que no tienes información si está aquí):\n${ragContext}`
-      : `${identity}\n\n${behaviorRules}${customRules}`;
+    const systemPrompt = this.buildSystemPrompt(botConfig, ragContext);
 
     if (this.anthropic) {
       const response = await this.anthropic.messages.create({
@@ -194,35 +207,8 @@ FORMATO OBLIGATORIO PARA WHATSAPP:
       this.logger.warn('Error al obtener carta digital:', err);
     }
 
-    // 6. Construir system prompt
-    // identity: construida desde los campos del panel (nombre del bot + restaurante + instrucciones extra)
-    const botName = botConfig?.botName || 'el asistente virtual';
-    const restaurantName = botConfig?.restaurantName || 'el restaurante';
-    const identity = `Eres ${botName}, el asistente virtual del restaurante ${restaurantName}. Atiendes por WhatsApp en español, con un trato amable y cercano como si fueras parte del equipo.`;
-
-    const behaviorRules = `REGLAS BASE (siempre aplica estas reglas):
-- Habla como una persona real y cercana, no como un robot.
-- Varía cómo empiezas cada respuesta.
-- Usa emojis con moderación y solo cuando sean naturales.
-- Presenta SIEMPRE lo que sí sabes con confianza. Nunca digas "no tengo el menú completo" ni "mi información es limitada" — simplemente comparte lo que tienes.
-- Si el cliente pregunta algo puntual que no encuentras, ofrece conectarlo con el equipo solo si realmente no tienes esa info específica.
-- No inventes precios ni datos que no tengas.
-- Si el cliente quiere hacer un pedido o reserva, indícale cómo proceder de forma sencilla.
-- Respuestas cortas: máximo 3–4 oraciones salvo que el cliente pida detalle.
-
-FORMATO OBLIGATORIO PARA WHATSAPP:
-- NUNCA uses ## ni ### — WhatsApp no los renderiza.
-- NUNCA uses ** para negrita — usa *texto* en su lugar.
-- Para listas usa guiones (–), no asteriscos ni markdown.
-- Prefiere texto corrido y natural sobre listas cuando sea posible.`;
-
-    const customRules = botConfig?.systemPrompt
-      ? `\nINSTRUCCIONES ADICIONALES DEL RESTAURANTE (tienen prioridad sobre las reglas base):\n${botConfig.systemPrompt}`
-      : '';
-
-    const systemPrompt = ragContext
-      ? `${identity}\n\n${behaviorRules}${customRules}\n\nMENÚ Y DATOS DEL RESTAURANTE (esta es tu fuente de verdad — úsala COMPLETA para responder, no digas que no tienes información si está aquí):\n${ragContext}`
-      : `${identity}\n\n${behaviorRules}${customRules}`;
+    // 6. Construir system prompt (nombre del bot + restaurante + tono + instrucciones extra)
+    const systemPrompt = this.buildSystemPrompt(botConfig, ragContext);
 
     // 7. Historial de conversación desde wuarikes DB (últimos 20 mensajes)
     const recentMessages = await this.messageRepo.find({
