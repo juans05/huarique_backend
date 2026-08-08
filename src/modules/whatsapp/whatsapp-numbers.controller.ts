@@ -1,4 +1,4 @@
-import { Controller, Post, Get, Delete, Param, Body, UseGuards, Logger, NotFoundException, ForbiddenException } from '@nestjs/common';
+import { Controller, Post, Get, Delete, Param, Body, UseGuards, NotFoundException, ForbiddenException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Place } from '../places/entities/place.entity';
@@ -7,19 +7,29 @@ import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../../common/guards/roles.guard';
 import { Roles } from '../../common/decorators/roles.decorator';
-import { PlazBotService } from '../plazbot/plazbot.service';
+
+// PlazBot no expone un endpoint REST para registrar webhooks (confirmado en
+// docs/plazbot-pendientes.md tras revisar su openapi.json completo — solo existe
+// como comando CLI). Hay que pegarla a mano en su dashboard/CLI.
+function getPlazbotWebhookUrl(): string {
+    const base = process.env.BACKEND_URL || 'https://backendwarike-production.up.railway.app';
+    return `${base}/api/webhooks/plazbot`;
+}
+
+// Meta/PlazBot mandan el número del webhook entrante solo con dígitos (sin "+" ni espacios) —
+// si acá se guarda con otro formato, la búsqueda por match exacto en el webhook nunca encuentra la fila.
+function normalizePhone(phoneNumber: string): string {
+    return (phoneNumber || '').replace(/\D/g, '');
+}
 
 @UseGuards(JwtAuthGuard)
 @Controller('business/whatsapp-numbers')
 export class WhatsAppNumbersController {
-    private readonly logger = new Logger(WhatsAppNumbersController.name);
-
     constructor(
         @InjectRepository(WhatsAppNumber)
         private whatsappNumberRepo: Repository<WhatsAppNumber>,
         @InjectRepository(Place)
         private placesRepo: Repository<Place>,
-        private plazbotService: PlazBotService,
     ) { }
 
     private async assertOwner(placeId: string, userId: string) {
@@ -33,7 +43,7 @@ export class WhatsAppNumbersController {
         await this.assertOwner(data.placeId, user.id);
         const number = this.whatsappNumberRepo.create({
             placeId: data.placeId,
-            phoneNumber: data.phoneNumber,
+            phoneNumber: normalizePhone(data.phoneNumber),
             phoneNumberId: data.phoneNumberId,
             whatsappApiToken: data.whatsappApiToken,
             isActive: true,
@@ -42,33 +52,17 @@ export class WhatsAppNumbersController {
 
         const saved = await this.whatsappNumberRepo.save(number);
 
-        // Registrar webhook en PlazBot automáticamente
-        const apiKey = process.env.PLAZBOT_API_KEY;
-        const workspaceId = process.env.PLAZBOT_WORKSPACE_ID;
-
-        if (apiKey && workspaceId) {
-            try {
-                await this.plazbotService.registerWebhook(apiKey, workspaceId, saved.phoneNumber);
-                this.logger.log(`Webhook PlazBot registrado para ${saved.phoneNumber}`);
-            } catch (err) {
-                // No bloquear el registro del número si falla el webhook
-                this.logger.error(`Error registrando webhook en PlazBot para ${saved.phoneNumber}:`, err.message);
-            }
-        } else {
-            this.logger.warn('PLAZBOT_API_KEY o PLAZBOT_WORKSPACE_ID no configurados — webhook no registrado');
-        }
-
         return {
             id: saved.id,
             phoneNumber: saved.phoneNumber,
-            status: 'Número registrado. Webhook configurado en PlazBot automáticamente.',
+            webhookUrl: getPlazbotWebhookUrl(),
+            status: 'Número registrado. Configura el webhook manualmente en el dashboard de PlazBot.',
         };
     }
 
     @Get(':placeId')
     async getWhatsAppNumbers(@CurrentUser() user: any, @Param('placeId') placeId: string) {
         await this.assertOwner(placeId, user.id);
-        console.log('----------------------->', placeId);
         const numbers = await this.whatsappNumberRepo.find({
             where: { placeId },
             order: { createdAt: 'DESC' },
@@ -84,26 +78,8 @@ export class WhatsAppNumbersController {
                 createdAt: n.createdAt,
             })),
             total: numbers.length,
+            webhookUrl: getPlazbotWebhookUrl(),
         };
-    }
-
-    @Post(':numberId/register-webhook')
-    async registerWebhook(@Param('numberId') numberId: string) {
-        const number = await this.whatsappNumberRepo.findOne({ where: { id: numberId } });
-
-        if (!number) {
-            return { error: 'Número no encontrado' };
-        }
-
-        const apiKey = process.env.PLAZBOT_API_KEY;
-        const workspaceId = process.env.PLAZBOT_WORKSPACE_ID;
-
-        if (!apiKey || !workspaceId) {
-            return { error: 'PLAZBOT_API_KEY o PLAZBOT_WORKSPACE_ID no configurados' };
-        }
-
-        await this.plazbotService.registerWebhook(apiKey, workspaceId, number.phoneNumber);
-        return { message: `Webhook re-registrado para ${number.phoneNumber}` };
     }
 
     @Delete(':numberId')
@@ -121,14 +97,11 @@ export class WhatsAppNumbersController {
 @Roles('admin')
 @Controller('admin/whatsapp-numbers')
 export class AdminWhatsAppNumbersController {
-    private readonly logger = new Logger(AdminWhatsAppNumbersController.name);
-
     constructor(
         @InjectRepository(WhatsAppNumber)
         private whatsappNumberRepo: Repository<WhatsAppNumber>,
         @InjectRepository(Place)
         private placesRepo: Repository<Place>,
-        private plazbotService: PlazBotService,
     ) { }
 
     @Post()
@@ -138,7 +111,7 @@ export class AdminWhatsAppNumbersController {
 
         const number = this.whatsappNumberRepo.create({
             placeId: data.placeId,
-            phoneNumber: data.phoneNumber,
+            phoneNumber: normalizePhone(data.phoneNumber),
             phoneNumberId: data.phoneNumberId,
             whatsappApiToken: data.whatsappApiToken,
             isActive: true,
@@ -147,24 +120,11 @@ export class AdminWhatsAppNumbersController {
 
         const saved = await this.whatsappNumberRepo.save(number);
 
-        const apiKey = process.env.PLAZBOT_API_KEY;
-        const workspaceId = process.env.PLAZBOT_WORKSPACE_ID;
-
-        if (apiKey && workspaceId) {
-            try {
-                await this.plazbotService.registerWebhook(apiKey, workspaceId, saved.phoneNumber);
-                this.logger.log(`Webhook PlazBot registrado para ${saved.phoneNumber}`);
-            } catch (err) {
-                this.logger.error(`Error registrando webhook en PlazBot para ${saved.phoneNumber}:`, err.message);
-            }
-        } else {
-            this.logger.warn('PLAZBOT_API_KEY o PLAZBOT_WORKSPACE_ID no configurados — webhook no registrado');
-        }
-
         return {
             id: saved.id,
             phoneNumber: saved.phoneNumber,
-            status: 'Número registrado. Webhook configurado en PlazBot automáticamente.',
+            webhookUrl: getPlazbotWebhookUrl(),
+            status: 'Número registrado. Configura el webhook manualmente en el dashboard de PlazBot.',
         };
     }
 
@@ -185,6 +145,7 @@ export class AdminWhatsAppNumbersController {
                 createdAt: n.createdAt,
             })),
             total: numbers.length,
+            webhookUrl: getPlazbotWebhookUrl(),
         };
     }
 
