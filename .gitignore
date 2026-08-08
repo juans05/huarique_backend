@@ -14,3 +14,9 @@ generate-hash.js
 src/scripts/import-scraped-places.ts
 src/scripts/import-google-places.ts
 scratch/restaurantes-lima.csv
+.omc/state/agent-replay-7b625abf-c9b5-49f6-9976-58450db4b58a.jsonl
+.omc/state/agent-replay-775cc132-050f-4658-a3e2-4eb9f01cf0ec.jsonl
+.omc/state/agent-replay-7360373e-ff5c-41a2-b7bb-def8959adaa3.jsonl
+.omc/state/agent-replay-b969f443-d519-46e7-a266-24ac6373819e.jsonl
+migrations/make_whatsapp_token_optional.sql
+migrations/add_provider_to_social_accounts.sql

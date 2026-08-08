@@ -15,14 +15,20 @@ const AppDataSource = new DataSource({
 
 async function resetPassword() {
     try {
+        const newPassword = process.env.NEW_ADMIN_PASSWORD;
+        if (!newPassword) {
+            console.error('Set NEW_ADMIN_PASSWORD before running this script, e.g.:');
+            console.error('  NEW_ADMIN_PASSWORD=your-new-password node scratch/reset_admin_password.js');
+            process.exit(1);
+        }
+
         await AppDataSource.initialize();
-        const newPassword = 'admin.wuarike.2024';
         const salt = await bcrypt.genSalt(10);
         const hash = await bcrypt.hash(newPassword, salt);
 
         const result = await AppDataSource.query(
-            'UPDATE wuarike_db.users SET password_hash = $1 WHERE email = $2',
-            [hash, 'admin@wuarike.com']
+            'UPDATE wuarike_db.users SET password_hash = $1, role = $2 WHERE email = $3',
+            [hash, 'admin', 'admin@wuarike.com']
         );
 
         console.log('Password updated successfully for admin@wuarike.com');

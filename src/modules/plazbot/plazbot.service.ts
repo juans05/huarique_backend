@@ -189,6 +189,10 @@ export class PlazBotService {
         }
       );
       this.logger.log(`[registerWebhook] Respuesta status=${response.status} data=${JSON.stringify(response.data)}`);
+      // Plazbot devuelve 200 incluso cuando falla — el fallo real viene en el body, no en el status HTTP.
+      if (response.data?.success === false) {
+        throw new Error(`Plazbot rechazó el registro del webhook: [${response.data.errorCode}] ${response.data.message}`);
+      }
       this.logger.log(`[registerWebhook] Webhook registrado para número ${phoneNumber}: ${webhookUrl}`);
     } catch (error) {
       this.logger.error(`[registerWebhook] Error status=${error?.response?.status} body=${JSON.stringify(error?.response?.data)}`, error?.message);

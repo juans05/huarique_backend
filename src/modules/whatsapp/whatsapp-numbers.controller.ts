@@ -5,6 +5,8 @@ import { Place } from '../places/entities/place.entity';
 import { WhatsAppNumber } from './entities/whatsapp-number.entity';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+import { RolesGuard } from '../../common/guards/roles.guard';
+import { Roles } from '../../common/decorators/roles.decorator';
 import { PlazBotService } from '../plazbot/plazbot.service';
 
 @UseGuards(JwtAuthGuard)
@@ -102,6 +104,88 @@ export class WhatsAppNumbersController {
 
         await this.plazbotService.registerWebhook(apiKey, workspaceId, number.phoneNumber);
         return { message: `Webhook re-registrado para ${number.phoneNumber}` };
+    }
+
+    @Delete(':numberId')
+    async deleteWhatsAppNumber(@Param('numberId') numberId: string) {
+        await this.whatsappNumberRepo.delete({ id: numberId });
+        return { message: 'Número de WhatsApp eliminado' };
+    }
+}
+
+/**
+ * Gestión del número de WhatsApp por parte del superAdmin, para cualquier local
+ * (a diferencia de WhatsAppNumbersController, que solo permite al dueño gestionar el suyo).
+ */
+@UseGuards(JwtAuthGuard, RolesGuard)
+@Roles('admin')
+@Controller('admin/whatsapp-numbers')
+export class AdminWhatsAppNumbersController {
+    private readonly logger = new Logger(AdminWhatsAppNumbersController.name);
+
+    constructor(
+        @InjectRepository(WhatsAppNumber)
+        private whatsappNumberRepo: Repository<WhatsAppNumber>,
+        @InjectRepository(Place)
+        private placesRepo: Repository<Place>,
+        private plazbotService: PlazBotService,
+    ) { }
+
+    @Post()
+    async createWhatsAppNumber(@Body() data: any) {
+        const place = await this.placesRepo.findOne({ where: { id: data.placeId } });
+        if (!place) throw new NotFoundException('Local no encontrado');
+
+        const number = this.whatsappNumberRepo.create({
+            placeId: data.placeId,
+            phoneNumber: data.phoneNumber,
+            phoneNumberId: data.phoneNumberId,
+            whatsappApiToken: data.whatsappApiToken,
+            isActive: true,
+            verificationStatus: 'UNVERIFIED',
+        });
+
+        const saved = await this.whatsappNumberRepo.save(number);
+
+        const apiKey = process.env.PLAZBOT_API_KEY;
+        const workspaceId = process.env.PLAZBOT_WORKSPACE_ID;
+
+        if (apiKey && workspaceId) {
+            try {
+                await this.plazbotService.registerWebhook(apiKey, workspaceId, saved.phoneNumber);
+                this.logger.log(`Webhook PlazBot registrado para ${saved.phoneNumber}`);
+            } catch (err) {
+                this.logger.error(`Error registrando webhook en PlazBot para ${saved.phoneNumber}:`, err.message);
+            }
+        } else {
+            this.logger.warn('PLAZBOT_API_KEY o PLAZBOT_WORKSPACE_ID no configurados — webhook no registrado');
+        }
+
+        return {
+            id: saved.id,
+            phoneNumber: saved.phoneNumber,
+            status: 'Número registrado. Webhook configurado en PlazBot automáticamente.',
+        };
+    }
+
+    @Get(':placeId')
+    async getWhatsAppNumbers(@Param('placeId') placeId: string) {
+        const numbers = await this.whatsappNumberRepo.find({
+            where: { placeId },
+            order: { createdAt: 'DESC' },
+        });
+
+        return {
+            data: numbers.map(n => ({
+                id: n.id,
+                phoneNumber: n.phoneNumber,
+                phoneNumberId: n.phoneNumberId,
+                isActive: n.isActive,
+                verificationStatus: n.verificationStatus,
+                createdAt: n.createdAt,
+            })),
+            total: numbers.length,
+        };
     }
 
     @Delete(':numberId')

@@ -25,6 +25,9 @@ export class SocialAccount {
     @Column({ default: 'instagram' })
     platform: 'instagram' | 'facebook' | 'tiktok';
 
+    @Column({ default: 'meta_direct' })
+    provider: 'meta_direct' | 'zernio';
+
     @Column({ name: 'platform_user_id', nullable: true })
     platformUserId: string;
 

@@ -92,6 +92,12 @@ export class WhatsappService {
     }
 
     private async generateAndSendBotResponse(conversation: Conversation, userMsg: string, waNumber: WhatsAppNumber) {
+        if (!waNumber.whatsappApiToken) {
+            // Número sin token directo de Meta (ej: gestionado por Plazbot) — este envío directo no aplica.
+            console.warn(`[WhatsApp] Número ${waNumber.phoneNumber} sin whatsappApiToken, se omite el envío directo`);
+            return;
+        }
+
         let systemPrompt = '';
 
         try {

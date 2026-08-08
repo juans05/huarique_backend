@@ -86,6 +86,9 @@ export class Place {
     @Column({ name: 'is_verified', default: false })
     isVerified: boolean;
 
+    @Column({ name: 'is_featured', default: false })
+    isFeatured: boolean;
+
     @Column({ name: 'verified_at', type: 'timestamp', nullable: true })
     verifiedAt: Date | null;
 

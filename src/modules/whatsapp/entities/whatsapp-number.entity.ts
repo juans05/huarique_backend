@@ -19,8 +19,8 @@ export class WhatsAppNumber {
     @Column({ name: 'phone_number_id' })
     phoneNumberId: string;
 
-    @Column({ name: 'whatsapp_api_token', type: 'text' })
-    whatsappApiToken: string;
+    @Column({ name: 'whatsapp_api_token', type: 'text', nullable: true })
+    whatsappApiToken: string | null;
 
     @Column({ name: 'is_active', default: true })
     isActive: boolean;

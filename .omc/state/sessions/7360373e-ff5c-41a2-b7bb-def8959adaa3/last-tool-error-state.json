@@ -1,0 +1,7 @@
+{
+  "tool_name": "Bash",
+  "tool_input_preview": "{\"command\":\"cd \\\"D:/Github/marketingDigitalBackend\\\" && echo \\\"--- src top ---\\\" && ls src && echo \\\"--- middleware ---\\\" && ls src/middleware 2>&1 && echo \\\"--- models ---\\\" && ls src/models 2>&1 && ...",
+  "error": "Exit code 2\n--- src top ---\napp.js\nconfig\ncontrollers\njobs\nlib\nmiddleware\nroutes\nservices\nworkers\n--- middleware ---\nauthMiddleware.js\n--- models ---\nls: cannot access 'src/models': No such file or directory",
+  "timestamp": "2026-08-08T04:32:44.926Z",
+  "retry_count": 1
+}
