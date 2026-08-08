@@ -52,6 +52,7 @@ import { CreditsModule } from './modules/credits/credits.module';
             useFactory: (config: ConfigService) => ({
                 connection: {
                     url: config.get<string>('REDIS_URL') || 'redis://localhost:6379',
+                    maxRetriesPerRequest: null,
                 },
             }),
             inject: [ConfigService],
