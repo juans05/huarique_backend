@@ -44,6 +44,58 @@ export class ChatProcessorService {
     private messageRepo: Repository<Message>,
   ) {}
 
+  // Prueba los proveedores en orden y pasa al siguiente si uno falla (key inválida, caído, etc.)
+  // en vez de tirar toda la respuesta abajo apenas el proveedor preferido (Claude) tiene un problema.
+  private async generateReply(
+    systemPrompt: string,
+    history: { role: 'user' | 'assistant'; content: string }[],
+    message: string,
+  ): Promise<string> {
+    if (this.anthropic) {
+      try {
+        const response = await this.anthropic.messages.create({
+          model: 'claude-haiku-4-5-20251001',
+          max_tokens: 1024,
+          system: systemPrompt,
+          messages: [...history, { role: 'user', content: message }] as Anthropic.MessageParam[],
+        });
+        return response.content[0].type === 'text' ? response.content[0].text : '';
+      } catch (err) {
+        this.logger.warn(`Claude falló, probando siguiente proveedor: ${err.message}`);
+      }
+    }
+
+    if (this.grok) {
+      try {
+        const msgs: OpenAI.Chat.ChatCompletionMessageParam[] = [
+          { role: 'system', content: systemPrompt },
+          ...history.map(m => ({ role: m.role, content: m.content })),
+          { role: 'user', content: message },
+        ];
+        const res = await this.grok.chat.completions.create({ model: 'grok-3', max_tokens: 1024, messages: msgs });
+        return res.choices[0]?.message?.content || '';
+      } catch (err) {
+        this.logger.warn(`Grok falló, probando siguiente proveedor: ${err.message}`);
+      }
+    }
+
+    if (this.gemini) {
+      try {
+        // systemInstruction va en getGenerativeModel(), no en startChat() — la API lo rechaza ahí.
+        const model = this.gemini.getGenerativeModel({ model: 'gemini-2.0-flash', systemInstruction: systemPrompt });
+        const chat = model.startChat({
+          history: history.map(m => ({ role: m.role === 'assistant' ? 'model' : 'user', parts: [{ text: m.content }] })),
+        });
+        const result = await chat.sendMessage(message);
+        return result.response.text();
+      } catch (err) {
+        this.logger.warn(`Gemini falló: ${err.message}`);
+      }
+    }
+
+    throw new Error('Ningún proveedor de IA (Claude, Grok, Gemini) pudo responder — revisa las API keys.');
+  }
+
   private buildSystemPrompt(botConfig: PlaceBotConfig | null, ragContext: string): string {
     const botName = botConfig?.botName || 'el asistente virtual';
     const restaurantName = botConfig?.restaurantName || 'el restaurante';
@@ -96,37 +148,8 @@ FORMATO OBLIGATORIO PARA WHATSAPP:
 
     const systemPrompt = this.buildSystemPrompt(botConfig, ragContext);
 
-    if (this.anthropic) {
-      const response = await this.anthropic.messages.create({
-        model: 'claude-haiku-4-5-20251001',
-        max_tokens: 1024,
-        system: systemPrompt,
-        messages: [...history, { role: 'user', content: message }],
-      });
-      return response.content[0].type === 'text' ? response.content[0].text : '';
-    }
-
-    if (this.grok) {
-      const msgs: OpenAI.Chat.ChatCompletionMessageParam[] = [
-        { role: 'system', content: systemPrompt },
-        ...history.map(m => ({ role: m.role as 'user' | 'assistant', content: m.content })),
-        { role: 'user', content: message },
-      ];
-      const res = await this.grok.chat.completions.create({ model: 'grok-3', max_tokens: 512, messages: msgs });
-      return res.choices[0]?.message?.content || '';
-    }
-
-    if (this.gemini) {
-      const model = this.gemini.getGenerativeModel({ model: 'gemini-1.5-flash' });
-      const chat = model.startChat({
-        history: history.map(m => ({ role: m.role === 'assistant' ? 'model' : 'user', parts: [{ text: m.content }] })),
-        systemInstruction: systemPrompt,
-      });
-      const result = await chat.sendMessage(message);
-      return result.response.text();
-    }
-
-    return 'No hay proveedor de IA configurado.';
+    if (!this.anthropic && !this.grok && !this.gemini) return 'No hay proveedor de IA configurado.';
+    return this.generateReply(systemPrompt, history, message);
   }
 
   async processIncomingMessage(
@@ -230,46 +253,21 @@ FORMATO OBLIGATORIO PARA WHATSAPP:
         return acc;
       }, []);
 
-    // 8. Llamar a Claude o Grok según disponibilidad
-    let botResponse = '';
-
-    if (this.anthropic) {
-      this.logger.log(`[${placeId}] Usando Claude`);
-      const claudeResponse = await this.anthropic.messages.create({
-        model: 'claude-haiku-4-5-20251001',
-        max_tokens: 1024,
-        system: systemPrompt,
-        messages: [...historyMessages, { role: 'user', content: messageBody }],
-      });
-      botResponse = claudeResponse.content[0].type === 'text' ? claudeResponse.content[0].text : '';
-    } else if (this.grok) {
-      this.logger.log(`[${placeId}] Claude no disponible, usando Grok`);
-      const grokMessages: OpenAI.Chat.ChatCompletionMessageParam[] = [
-        { role: 'system', content: systemPrompt },
-        ...historyMessages.map(m => ({ role: m.role as 'user' | 'assistant', content: m.content as string })),
-        { role: 'user', content: messageBody },
-      ];
-      const grokResponse = await this.grok.chat.completions.create({
-        model: 'grok-3',
-        max_tokens: 512,
-        messages: grokMessages,
-      });
-      botResponse = grokResponse.choices[0]?.message?.content || '';
-    } else if (this.gemini) {
-      this.logger.log(`[${placeId}] Claude y Grok no disponibles, usando Gemini`);
-      const model = this.gemini.getGenerativeModel({ model: 'gemini-1.5-flash' });
-      const history = historyMessages.map(m => ({
-        role: m.role === 'assistant' ? 'model' : 'user',
-        parts: [{ text: m.content as string }],
-      }));
-      const chat = model.startChat({
-        history,
-        systemInstruction: systemPrompt,
-      });
-      const result = await chat.sendMessage(messageBody);
-      botResponse = result.response.text();
-    } else {
+    // 8. Generar respuesta — prueba Claude, Grok y Gemini en orden, sigue al siguiente si uno falla
+    if (!this.anthropic && !this.grok && !this.gemini) {
       this.logger.error(`[${placeId}] No hay API key configurada (ANTHROPIC_API_KEY, XAI_API_KEY o GEMINI_API_KEY)`);
+      return { success: false };
+    }
+
+    let botResponse: string;
+    try {
+      botResponse = await this.generateReply(
+        systemPrompt,
+        historyMessages.map(m => ({ role: m.role as 'user' | 'assistant', content: m.content as string })),
+        messageBody,
+      );
+    } catch (err) {
+      this.logger.error(`[${placeId}] Todos los proveedores de IA fallaron: ${err.message}`);
       return { success: false };
     }
 
