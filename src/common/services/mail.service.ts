@@ -102,4 +102,36 @@ export class MailService {
             throw new InternalServerErrorException('Error al enviar código de verificación');
         }
     }
+
+    async sendTeamMemberCredentials(email: string, fullName: string, password: string, placeName: string, role: string) {
+        try {
+            const { data, error } = await this.resend.emails.send({
+                from: 'Wuarike <auth@resend.dev>',
+                to: [email],
+                subject: `Te sumaron al equipo de ${placeName} en Wuarike`,
+                html: `
+                    <div style="font-family: 'Inter', sans-serif; max-width: 600px; margin: 0 auto; background-color: #ffffff; padding: 40px; border-radius: 20px; border: 1px solid #eee;">
+                        <h1 style="color: #111827; font-size: 22px; font-weight: 900; margin-bottom: 10px;">¡Hola ${fullName}!</h1>
+                        <p style="color: #4b5563; font-size: 15px; margin-bottom: 20px;">
+                            Te agregaron al equipo de <strong>${placeName}</strong> en Wuarike con el rol de <strong>${role}</strong>.
+                            Ya podés ingresar al panel con estas credenciales:
+                        </p>
+                        <div style="background: #f3f4f6; padding: 20px; border-radius: 12px; margin-bottom: 20px;">
+                            <p style="margin: 0 0 8px 0; font-size: 13px; color: #6b7280;">Email</p>
+                            <p style="margin: 0 0 16px 0; font-size: 16px; font-weight: 700; color: #111827;">${email}</p>
+                            <p style="margin: 0 0 8px 0; font-size: 13px; color: #6b7280;">Contraseña temporal</p>
+                            <p style="margin: 0; font-size: 16px; font-weight: 700; color: #111827; font-family: monospace;">${password}</p>
+                        </div>
+                        <p style="color: #9ca3af; font-size: 12px;">Te recomendamos cambiar la contraseña después de tu primer ingreso.</p>
+                    </div>
+                `,
+            });
+
+            if (error) throw error;
+            return data;
+        } catch (error) {
+            console.error('Error sending team member credentials:', error);
+            throw new InternalServerErrorException('Error al enviar el correo de credenciales');
+        }
+    }
 }
