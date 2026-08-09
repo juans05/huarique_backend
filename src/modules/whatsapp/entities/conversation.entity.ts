@@ -2,6 +2,8 @@ import { Entity, PrimaryGeneratedColumn, Column, ManyToOne, JoinColumn, OneToMan
 import { Place } from '../../places/entities/place.entity';
 import { Message } from './message.entity';
 
+export type ConversationStatus = 'abierto' | 'pendiente' | 'cerrado';
+
 @Entity('conversations')
 export class Conversation {
     @PrimaryGeneratedColumn('uuid')
@@ -14,6 +16,9 @@ export class Conversation {
     @JoinColumn({ name: 'place_id' })
     place: Place;
 
+    @Column({ name: 'whatsapp_number_id', nullable: true })
+    whatsappNumberId: string | null;
+
     @Column({ name: 'customer_phone' })
     customerPhone: string;
 
@@ -22,6 +27,15 @@ export class Conversation {
 
     @Column({ default: 'bot' })
     mode: 'bot' | 'human';
+
+    @Column({ default: 'abierto' })
+    status: ConversationStatus;
+
+    @Column({ name: 'assigned_to_user_id', nullable: true })
+    assignedToUserId: string | null;
+
+    @Column({ name: 'closed_at', type: 'timestamptz', nullable: true })
+    closedAt: Date | null;
 
     @OneToMany(() => Message, (message) => message.conversation)
     messages: Message[];
