@@ -49,12 +49,21 @@ import { CreditsModule } from './modules/credits/credits.module';
         ScheduleModule.forRoot(),
         BullModule.forRootAsync({
             imports: [ConfigModule],
-            useFactory: (config: ConfigService) => ({
-                connection: {
-                    url: config.get<string>('REDIS_URL') || 'redis://localhost:6379',
-                    maxRetriesPerRequest: null,
-                },
-            }),
+            useFactory: (config: ConfigService) => {
+                const redisUrl = new URL(config.get<string>('REDIS_URL') || 'redis://localhost:6379');
+                return {
+                    connection: {
+                        host: redisUrl.hostname,
+                        port: Number(redisUrl.port) || 6379,
+                        username: redisUrl.username || undefined,
+                        password: redisUrl.password || undefined,
+                        // Railway's *.railway.internal es IPv6-only en varios entornos; ioredis por
+                        // defecto solo resuelve IPv4 y tira ENOTFOUND. family:0 = lookup dual-stack.
+                        family: 0,
+                        maxRetriesPerRequest: null,
+                    },
+                };
+            },
             inject: [ConfigService],
         }),
         EventEmitterModule.forRoot(),
