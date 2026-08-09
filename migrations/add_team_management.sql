@@ -3,7 +3,7 @@
 
 BEGIN;
 
-CREATE TABLE wuarike_db.place_team_members (
+CREATE TABLE IF NOT EXISTS wuarike_db.place_team_members (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     user_id UUID NOT NULL REFERENCES wuarike_db.users(id) ON DELETE CASCADE,
     place_id UUID NOT NULL REFERENCES wuarike_db.places(id) ON DELETE CASCADE,
@@ -15,10 +15,10 @@ CREATE TABLE wuarike_db.place_team_members (
     UNIQUE (user_id, place_id)
 );
 
-CREATE INDEX idx_team_members_user ON wuarike_db.place_team_members (user_id);
-CREATE INDEX idx_team_members_place ON wuarike_db.place_team_members (place_id);
+CREATE INDEX IF NOT EXISTS idx_team_members_user ON wuarike_db.place_team_members (user_id);
+CREATE INDEX IF NOT EXISTS idx_team_members_place ON wuarike_db.place_team_members (place_id);
 
-CREATE TABLE wuarike_db.team_member_whatsapp_access (
+CREATE TABLE IF NOT EXISTS wuarike_db.team_member_whatsapp_access (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     team_member_id UUID NOT NULL REFERENCES wuarike_db.place_team_members(id) ON DELETE CASCADE,
     whatsapp_number_id UUID NOT NULL REFERENCES wuarike_db.whatsapp_numbers(id) ON DELETE CASCADE,
@@ -26,21 +26,21 @@ CREATE TABLE wuarike_db.team_member_whatsapp_access (
     UNIQUE (team_member_id, whatsapp_number_id)
 );
 
-CREATE INDEX idx_whatsapp_access_member ON wuarike_db.team_member_whatsapp_access (team_member_id);
-CREATE INDEX idx_whatsapp_access_number ON wuarike_db.team_member_whatsapp_access (whatsapp_number_id);
+CREATE INDEX IF NOT EXISTS idx_whatsapp_access_member ON wuarike_db.team_member_whatsapp_access (team_member_id);
+CREATE INDEX IF NOT EXISTS idx_whatsapp_access_number ON wuarike_db.team_member_whatsapp_access (whatsapp_number_id);
 
 ALTER TABLE wuarike_db.conversations
-    ADD COLUMN whatsapp_number_id UUID REFERENCES wuarike_db.whatsapp_numbers(id) ON DELETE SET NULL,
-    ADD COLUMN status VARCHAR(20) NOT NULL DEFAULT 'abierto'
+    ADD COLUMN IF NOT EXISTS whatsapp_number_id UUID REFERENCES wuarike_db.whatsapp_numbers(id) ON DELETE SET NULL,
+    ADD COLUMN IF NOT EXISTS status VARCHAR(20) NOT NULL DEFAULT 'abierto'
         CHECK (status IN ('abierto', 'pendiente', 'cerrado')),
-    ADD COLUMN assigned_to_user_id UUID REFERENCES wuarike_db.users(id) ON DELETE SET NULL,
-    ADD COLUMN closed_at TIMESTAMPTZ;
+    ADD COLUMN IF NOT EXISTS assigned_to_user_id UUID REFERENCES wuarike_db.users(id) ON DELETE SET NULL,
+    ADD COLUMN IF NOT EXISTS closed_at TIMESTAMPTZ;
 
-CREATE INDEX idx_conversations_active
+CREATE INDEX IF NOT EXISTS idx_conversations_active
     ON wuarike_db.conversations (place_id, whatsapp_number_id, status, assigned_to_user_id)
     WHERE status != 'cerrado';
 
-CREATE INDEX idx_conversations_active_by_phone
+CREATE INDEX IF NOT EXISTS idx_conversations_active_by_phone
     ON wuarike_db.conversations (place_id, customer_phone, status)
     WHERE status != 'cerrado';
 
