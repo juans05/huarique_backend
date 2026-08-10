@@ -25,6 +25,7 @@ import { SubscriptionsModule } from './modules/subscriptions/subscriptions.modul
 import { LoyaltyModule } from './modules/loyalty/loyalty.module';
 import { DevicesModule } from './modules/devices/devices.module';
 import { WhatsAppModule } from './modules/whatsapp/whatsapp.module';
+import { TeamModule } from './modules/team/team.module';
 import { BroadcastModule } from './modules/broadcast/broadcast.module';
 import { EmailCampaignModule } from './modules/email-campaign/email-campaign.module';
 import { AiAgentModule } from './modules/ai-agent/ai-agent.module';
@@ -98,6 +99,7 @@ import { CreditsModule } from './modules/credits/credits.module';
         LoyaltyModule,
         DevicesModule,
         WhatsAppModule,
+        TeamModule,
         BroadcastModule,
         EmailCampaignModule,
         AiAgentModule,
