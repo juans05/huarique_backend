@@ -77,14 +77,17 @@ export class ConversationsController {
 
         if (status) qb.andWhere('c.status = :status', { status });
 
-        const effectiveFilter = filter ?? (req.placeTeamMember.role === 'agente' ? 'unassigned' : 'all');
+        const requestedFilter = filter ?? (req.placeTeamMember.role === 'agente' ? 'unassigned' : 'all');
+        // Un agente nunca puede pedir 'all' vía query param — solo Admin/Supervisor tienen
+        // visibilidad sin restricción de asignación. No confiamos en que el frontend oculte
+        // la opción (mismo tipo de gap que el IDOR de Task 6).
+        const effectiveFilter = req.placeTeamMember.role === 'agente' && requestedFilter === 'all' ? 'unassigned' : requestedFilter;
         if (effectiveFilter === 'mine') {
             qb.andWhere('c.assigned_to_user_id = :userId', { userId: user.id });
         } else if (effectiveFilter === 'unassigned') {
             qb.andWhere('(c.assigned_to_user_id IS NULL OR c.assigned_to_user_id = :userId)', { userId: user.id });
         }
-        // 'all' — sin filtro extra de asignación (solo Admin/Supervisor deberían pedir esto; no se
-        // fuerza acá porque el frontend ya oculta la opción para Agente)
+        // 'all' (solo Admin/Supervisor) — sin filtro extra de asignación
 
         qb.orderBy('c.created_at', 'DESC').skip(skip).take(limitNum);
 
@@ -256,6 +259,11 @@ export class ConversationsController {
         @Body() body: { userId: string },
     ) {
         const { conversation } = await this.assertConversationAccess(conversationId, user.id, 'supervisor');
+
+        const targetMember = await this.placeTeamService.getMembership(body.userId, conversation.placeId);
+        if (!targetMember) {
+            throw new BadRequestException('El usuario destino no es parte del equipo de esta sede');
+        }
 
         conversation.assignedToUserId = body.userId;
         conversation.status = 'pendiente';
