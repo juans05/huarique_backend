@@ -1,6 +1,6 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
-import { ConflictException, ForbiddenException } from '@nestjs/common';
+import { BadRequestException, ConflictException, ForbiddenException } from '@nestjs/common';
 import { ConversationsController } from './conversations.controller';
 import { Conversation } from './entities/conversation.entity';
 import { Message } from './entities/message.entity';
@@ -29,6 +29,7 @@ describe('ConversationsController.claim', () => {
         conversationRepo = {
             createQueryBuilder: jest.fn(() => queryBuilderMock),
             findOne: jest.fn(),
+            save: jest.fn((c) => Promise.resolve(c)),
         };
         placeTeamService = {
             getMembership: jest.fn().mockResolvedValue({ id: 'm1', role: 'agente' }),
@@ -81,5 +82,17 @@ describe('ConversationsController.claim', () => {
         placeTeamService.getMembership.mockResolvedValueOnce(null);
 
         await expect(controller.claim('c1', { id: 'u1' })).rejects.toThrow(ForbiddenException);
+    });
+
+    it('reassign throws 400 when the target user has no membership in the place (fix round 1)', async () => {
+        conversationRepo.findOne.mockResolvedValueOnce({ id: 'c1', placeId: 'p1', whatsappNumberId: null });
+        placeTeamService.getMembership
+            .mockResolvedValueOnce({ id: 'm1', role: 'supervisor' }) // dentro de assertConversationAccess (caller)
+            .mockResolvedValueOnce(null); // chequeo del userId destino
+
+        await expect(
+            controller.reassign('c1', { id: 'caller1' }, { userId: 'ghost-user' }),
+        ).rejects.toThrow(BadRequestException);
+        expect(conversationRepo.save).not.toHaveBeenCalled();
     });
 });
