@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Patch, Param, Body, UseGuards, Query, Sse, Req, BadRequestException, NotFoundException, ForbiddenException } from '@nestjs/common';
+import { Controller, Get, Post, Patch, Param, Body, UseGuards, Query, Sse, Req, BadRequestException, NotFoundException, ForbiddenException, ConflictException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Observable } from 'rxjs';
@@ -15,6 +15,10 @@ import { PlazBotService } from '../plazbot/plazbot.service';
 import { JwtService } from '@nestjs/jwt';
 import { SubscriptionTierGuard } from '../../common/guards/subscription-tier.guard';
 import { RequiresTier } from '../../common/decorators/requires-tier.decorator';
+import { PlaceRoleGuard, ROLE_RANK } from '../../common/guards/place-role.guard';
+import { RequiresPlaceRole } from '../../common/decorators/requires-place-role.decorator';
+import { PlaceTeamService } from '../team/place-team.service';
+import { PlaceTeamMember, PlaceTeamRole } from '../team/entities/place-team-member.entity';
 
 // Note: SubscriptionTierGuard + @RequiresTier are applied per-method below, not at
 // class level — the `stream` SSE endpoint is @IsPublic (auth via query-param token,
@@ -34,7 +38,8 @@ export class ConversationsController {
         private whatsappService: WhatsappService,
         private plazbotService: PlazBotService,
         private eventEmitter: EventEmitter2,
-        private jwtService: JwtService
+        private jwtService: JwtService,
+        private placeTeamService: PlaceTeamService,
     ) { }
 
     private async assertOwner(placeId: string, userId: string) {
@@ -44,29 +49,47 @@ export class ConversationsController {
         return place;
     }
 
-    // List conversations for a place (paginated)
-    @UseGuards(SubscriptionTierGuard)
+    // List conversations for a place (paginated, filtrado por rol y números visibles)
+    @UseGuards(SubscriptionTierGuard, PlaceRoleGuard)
     @RequiresTier('ia_total')
+    @RequiresPlaceRole('agente')
     @Get(':placeId')
     async getConversations(
         @Param('placeId') placeId: string,
         @Query('page') page: string = '1',
         @Query('limit') limit: string = '20',
+        @Query('status') status: string | undefined,
+        @Query('filter') filter: 'mine' | 'unassigned' | 'all' | undefined,
         @CurrentUser() user: any,
+        @Req() req: any,
     ) {
-        await this.assertOwner(placeId, user.id);
         const pageNum = parseInt(page) || 1;
         const limitNum = parseInt(limit) || 20;
         const skip = (pageNum - 1) * limitNum;
 
-        const [conversations, total] = await this.conversationRepo.findAndCount({
-            where: { placeId },
-            order: { createdAt: 'DESC' },
-            skip,
-            take: limitNum
-        });
+        const qb = this.conversationRepo.createQueryBuilder('c').where('c.place_id = :placeId', { placeId });
 
-        // Add last message preview to each conversation
+        const accessibleNumbers = req.accessibleWhatsappNumberIds as string[] | 'all';
+        if (accessibleNumbers !== 'all') {
+            if (accessibleNumbers.length === 0) return { data: [], meta: { total: 0, page: pageNum, limit: limitNum, totalPages: 0 } };
+            qb.andWhere('c.whatsapp_number_id IN (:...ids)', { ids: accessibleNumbers });
+        }
+
+        if (status) qb.andWhere('c.status = :status', { status });
+
+        const effectiveFilter = filter ?? (req.placeTeamMember.role === 'agente' ? 'unassigned' : 'all');
+        if (effectiveFilter === 'mine') {
+            qb.andWhere('c.assigned_to_user_id = :userId', { userId: user.id });
+        } else if (effectiveFilter === 'unassigned') {
+            qb.andWhere('(c.assigned_to_user_id IS NULL OR c.assigned_to_user_id = :userId)', { userId: user.id });
+        }
+        // 'all' — sin filtro extra de asignación (solo Admin/Supervisor deberían pedir esto; no se
+        // fuerza acá porque el frontend ya oculta la opción para Agente)
+
+        qb.orderBy('c.created_at', 'DESC').skip(skip).take(limitNum);
+
+        const [conversations, total] = await qb.getManyAndCount();
+
         const withLastMessage = await Promise.all(
             conversations.map(async (conv) => {
                 const lastMessage = await this.messageRepo.findOne({
@@ -83,13 +106,39 @@ export class ConversationsController {
 
         return {
             data: withLastMessage,
-            meta: {
-                total,
-                page: pageNum,
-                limit: limitNum,
-                totalPages: Math.ceil(total / limitNum)
-            }
+            meta: { total, page: pageNum, limit: limitNum, totalPages: Math.ceil(total / limitNum) },
         };
+    }
+
+    /**
+     * Resuelve la conversación + la membresía del usuario en su sede, valida rol mínimo y
+     * acceso al número de WhatsApp de la conversación. Único punto de autorización para
+     * todas las rutas de :conversationId — evita que un agente lea/actúe sobre una
+     * conversación de un número al que no tiene acceso, o de una sede en la que no está.
+     */
+    private async assertConversationAccess(
+        conversationId: string,
+        userId: string,
+        minRole?: PlaceTeamRole,
+    ): Promise<{ conversation: Conversation; member: PlaceTeamMember }> {
+        const conversation = await this.conversationRepo.findOne({ where: { id: conversationId } });
+        if (!conversation) throw new NotFoundException('Conversation not found');
+
+        const member = await this.placeTeamService.getMembership(userId, conversation.placeId);
+        if (!member) throw new ForbiddenException('No tenés acceso a esta sede');
+
+        if (minRole && ROLE_RANK[member.role] < ROLE_RANK[minRole]) {
+            throw new ForbiddenException('No tenés el rol necesario para esta acción');
+        }
+
+        if (conversation.whatsappNumberId && member.role === 'agente') {
+            const accessibleIds = await this.placeTeamService.getAccessibleWhatsappNumberIds(member);
+            if (accessibleIds !== 'all' && !accessibleIds.includes(conversation.whatsappNumberId)) {
+                throw new ForbiddenException('No tenés acceso a este número de WhatsApp');
+            }
+        }
+
+        return { conversation, member };
     }
 
     // Get messages for a conversation
@@ -98,8 +147,10 @@ export class ConversationsController {
     @Get(':conversationId/messages')
     async getConversationMessages(
         @Param('conversationId') conversationId: string,
-        @Query('limit') limit: string = '100'
+        @Query('limit') limit: string = '100',
+        @CurrentUser() user: any,
     ) {
+        await this.assertConversationAccess(conversationId, user.id);
         const limitNum = parseInt(limit) || 100;
 
         const messages = await this.messageRepo.find({
@@ -108,10 +159,7 @@ export class ConversationsController {
             take: limitNum
         });
 
-        return {
-            data: messages,
-            total: messages.length
-        };
+        return { data: messages, total: messages.length };
     }
 
     // Change conversation mode (bot or human)
@@ -120,27 +168,18 @@ export class ConversationsController {
     @Patch(':conversationId/mode')
     async setConversationMode(
         @Param('conversationId') conversationId: string,
+        @CurrentUser() user: any,
         @Body() body: { mode: 'bot' | 'human' }
     ) {
         if (!['bot', 'human'].includes(body.mode)) {
             throw new BadRequestException('mode must be "bot" or "human"');
         }
 
-        const conversation = await this.conversationRepo.findOne({
-            where: { id: conversationId }
-        });
-
-        if (!conversation) {
-            throw new NotFoundException('Conversation not found');
-        }
-
+        const { conversation } = await this.assertConversationAccess(conversationId, user.id);
         conversation.mode = body.mode;
         await this.conversationRepo.save(conversation);
 
-        return {
-            data: conversation,
-            message: `Conversation mode changed to ${body.mode}`
-        };
+        return { data: conversation, message: `Conversation mode changed to ${body.mode}` };
     }
 
     // Send manual message from operator
@@ -149,22 +188,15 @@ export class ConversationsController {
     @Post(':conversationId/messages')
     async sendManualMessage(
         @Param('conversationId') conversationId: string,
+        @CurrentUser() user: any,
         @Body() body: { text: string }
     ) {
         if (!body.text || body.text.trim().length === 0) {
             throw new BadRequestException('text is required and cannot be empty');
         }
 
-        const conversation = await this.conversationRepo.findOne({
-            where: { id: conversationId },
-            relations: ['place']
-        });
+        const { conversation } = await this.assertConversationAccess(conversationId, user.id);
 
-        if (!conversation) {
-            throw new NotFoundException('Conversation not found');
-        }
-
-        // Save outgoing message (from operator, not AI)
         const message = this.messageRepo.create({
             conversationId: conversation.id,
             messageType: 'OUTGOING',
@@ -173,15 +205,79 @@ export class ConversationsController {
         });
         await this.messageRepo.save(message);
 
-        // Enviar via PlazBot (canal WhatsApp de wuarikes)
         const apiKey = process.env.PLAZBOT_API_KEY || '';
         const workspaceId = process.env.PLAZBOT_WORKSPACE_ID || '';
         await this.plazbotService.sendMessage(apiKey, workspaceId, conversation.customerPhone, body.text);
 
-        return {
-            data: message,
-            message: 'Message sent successfully'
-        };
+        return { data: message, message: 'Message sent successfully' };
+    }
+
+    // Reclamar una conversación sin asignar — UPDATE atómico, 409 si ya la tomó otro
+    @UseGuards(SubscriptionTierGuard)
+    @RequiresTier('ia_total')
+    @Post(':conversationId/claim')
+    async claim(@Param('conversationId') conversationId: string, @CurrentUser() user: any) {
+        await this.assertConversationAccess(conversationId, user.id);
+
+        const result = await this.conversationRepo
+            .createQueryBuilder()
+            .update(Conversation)
+            .set({ assignedToUserId: user.id, status: 'pendiente', mode: 'human' })
+            .where('id = :id AND assigned_to_user_id IS NULL', { id: conversationId })
+            .execute();
+
+        if (result.affected === 0) {
+            throw new ConflictException('Esta conversación ya fue reclamada por otro agente');
+        }
+
+        return this.conversationRepo.findOne({ where: { id: conversationId } });
+    }
+
+    // Soltar una conversación (vuelve a sin asignar) — solo Supervisor/Admin
+    @UseGuards(SubscriptionTierGuard)
+    @RequiresTier('ia_total')
+    @Post(':conversationId/release')
+    async release(@Param('conversationId') conversationId: string, @CurrentUser() user: any) {
+        const { conversation } = await this.assertConversationAccess(conversationId, user.id, 'supervisor');
+
+        conversation.assignedToUserId = null;
+        conversation.status = 'abierto';
+        await this.conversationRepo.save(conversation);
+        return conversation;
+    }
+
+    // Reasignar a otro agente — solo Supervisor/Admin
+    @UseGuards(SubscriptionTierGuard)
+    @RequiresTier('ia_total')
+    @Post(':conversationId/reassign')
+    async reassign(
+        @Param('conversationId') conversationId: string,
+        @CurrentUser() user: any,
+        @Body() body: { userId: string },
+    ) {
+        const { conversation } = await this.assertConversationAccess(conversationId, user.id, 'supervisor');
+
+        conversation.assignedToUserId = body.userId;
+        conversation.status = 'pendiente';
+        await this.conversationRepo.save(conversation);
+        return conversation;
+    }
+
+    // Cerrar — cualquier rol, pero un Agente solo si es la suya
+    @UseGuards(SubscriptionTierGuard)
+    @RequiresTier('ia_total')
+    @Post(':conversationId/close')
+    async close(@Param('conversationId') conversationId: string, @CurrentUser() user: any) {
+        const { conversation, member } = await this.assertConversationAccess(conversationId, user.id);
+
+        if (member.role === 'agente' && conversation.assignedToUserId !== user.id) {
+            throw new ForbiddenException('Solo podés cerrar tus propias conversaciones');
+        }
+
+        conversation.status = 'cerrado';
+        conversation.closedAt = new Date();
+        await this.conversationRepo.save(conversation);
+        return conversation;
     }
 
     // Sync existing PlazBot conversations into wuarikes DB

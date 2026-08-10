@@ -13,6 +13,7 @@ import { AiModule } from '../ai/ai.module';
 import { AuthModule } from '../auth/auth.module';
 import { PlazBotModule } from '../plazbot/plazbot.module';
 import { SubscriptionsModule } from '../subscriptions/subscriptions.module';
+import { TeamModule } from '../team/team.module';
 
 @Module({
     imports: [
@@ -22,6 +23,7 @@ import { SubscriptionsModule } from '../subscriptions/subscriptions.module';
         AuthModule,
         PlazBotModule,
         SubscriptionsModule,
+        TeamModule,
     ],
     controllers: [WhatsappController, ConversationsController, WhatsAppNumbersController, AdminWhatsAppNumbersController],
     providers: [WhatsappService],
