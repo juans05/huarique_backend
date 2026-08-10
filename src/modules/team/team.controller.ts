@@ -103,15 +103,31 @@ export class TeamController {
             );
         }
 
-        await this.mailService.sendTeamMemberCredentials(
-            dto.email,
-            dto.fullName,
-            existingUser ? '(usá tu contraseña existente de Wuarike)' : tempPassword,
-            place.name,
-            dto.role,
-        );
+        const credentialsMessage = existingUser ? '(usá tu contraseña existente de Wuarike)' : tempPassword;
+        let emailSent = true;
+        try {
+            await this.mailService.sendTeamMemberCredentials(
+                dto.email,
+                dto.fullName,
+                credentialsMessage,
+                place.name,
+                dto.role,
+            );
+        } catch (error) {
+            // El envío de correo es un efecto secundario, no la operación principal: la cuenta
+            // y la membresía ya quedaron guardadas arriba. Si falla (ej. dominio de Resend sin
+            // verificar), no tiramos abajo la creación — devolvemos la contraseña temporal para
+            // que el Admin se la pase manualmente.
+            emailSent = false;
+        }
 
-        return { id: member.id, userId: user.id, role: member.role };
+        return {
+            id: member.id,
+            userId: user.id,
+            role: member.role,
+            emailSent,
+            temporaryPassword: existingUser ? null : tempPassword,
+        };
     }
 
     @Put(':memberId')
