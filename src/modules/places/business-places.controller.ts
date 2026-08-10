@@ -25,6 +25,7 @@ import { Amenity } from './entities/amenity.entity';
 import { Repository, ILike, IsNull, In } from 'typeorm';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { CreateOnboardingPlaceDto } from './dto/create-onboarding-place.dto';
+import { PlaceTeamMember } from '../team/entities/place-team-member.entity';
 
 import { GoogleReview } from './entities/google-review.entity';
 
@@ -45,6 +46,8 @@ export class BusinessPlacesController {
         private amenityRepo: Repository<Amenity>,
         @InjectRepository(GoogleReview)
         private googleReviewsRepo: Repository<GoogleReview>,
+        @InjectRepository(PlaceTeamMember)
+        private teamMemberRepo: Repository<PlaceTeamMember>,
     ) { }
 
     @Get('onboarding/search')
@@ -151,13 +154,26 @@ export class BusinessPlacesController {
     }
 
     @Get('my-places')
-    @ApiOperation({ summary: 'List places owned by the authenticated business user' })
+    @ApiOperation({ summary: 'List places owned or team-accessible by the authenticated user' })
     async getMyPlaces(@CurrentUser() user: any) {
-        const places = await this.placesRepo.find({
+        const ownedPlaces = await this.placesRepo.find({
             where: { claimedByUserId: user.id },
             relations: ['category', 'claimedBy'],
         });
-        return places.map(p => ({
+
+        const memberships = await this.teamMemberRepo.find({ where: { userId: user.id } });
+        const teamOnlyPlaceIds = memberships
+            .map(m => m.placeId)
+            .filter(id => !ownedPlaces.some(p => p.id === id));
+
+        const teamPlaces = teamOnlyPlaceIds.length > 0
+            ? await this.placesRepo.find({
+                where: { id: In(teamOnlyPlaceIds) },
+                relations: ['category', 'claimedBy'],
+            })
+            : [];
+
+        return [...ownedPlaces, ...teamPlaces].map(p => ({
             id: p.id,
             name: p.name,
             coverImageUrl: p.coverImageUrl,
