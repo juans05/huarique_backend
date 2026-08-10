@@ -50,6 +50,7 @@ export class PlazBotWebhookController {
       try {
         await this.chatProcessor.processIncomingMessage(
           waNumber.placeId,
+          waNumber.id,
           { name: senderName, phone: senderPhone },
           messageBody,
         );
@@ -90,6 +91,7 @@ export class PlazBotWebhookController {
     try {
       await this.chatProcessor.processIncomingMessage(
         waNumber.placeId,
+        waNumber.id,
         { name: contact?.name || 'Cliente', phone: contact?.phone || '' },
         message?.body || '',
       );

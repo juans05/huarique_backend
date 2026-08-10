@@ -1,6 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { Repository, Not } from 'typeorm';
 import { Anthropic } from '@anthropic-ai/sdk';
 import OpenAI from 'openai';
 import { GoogleGenerativeAI } from '@google/generative-ai';
@@ -154,6 +154,7 @@ FORMATO OBLIGATORIO PARA WHATSAPP:
 
   async processIncomingMessage(
     placeId: string,
+    whatsappNumberId: string | null,
     contact: { name: string; phone: string },
     messageBody: string,
   ) {
@@ -163,16 +164,20 @@ FORMATO OBLIGATORIO PARA WHATSAPP:
     const apiKey = process.env.PLAZBOT_API_KEY!;
     const workspaceId = process.env.PLAZBOT_WORKSPACE_ID!;
 
-    // 1. Buscar o crear conversación en wuarikes DB
+    // 1. Buscar la conversación ACTIVA de este cliente (no cerrada) — si la última
+    // está cerrada, se crea una nueva: cada caso cerrado queda como historial aparte.
     let conversation = await this.conversationRepo.findOne({
-      where: { placeId, customerPhone: contact.phone },
+      where: { placeId, customerPhone: contact.phone, status: Not('cerrado') as any },
+      order: { createdAt: 'DESC' },
     });
     if (!conversation) {
       conversation = this.conversationRepo.create({
         placeId,
+        whatsappNumberId,
         customerPhone: contact.phone,
         customerName: contact.name,
         mode: 'bot',
+        status: 'abierto',
       });
       await this.conversationRepo.save(conversation);
     }
