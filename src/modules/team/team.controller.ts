@@ -117,10 +117,11 @@ export class TeamController {
     @Put(':memberId')
     @RequiresPlaceRole('admin')
     async update(
+        @Param('placeId') placeId: string,
         @Param('memberId') memberId: string,
         @Body() dto: { role?: PlaceTeamRole; whatsappNumberIds?: string[] },
     ) {
-        const member = await this.memberRepo.findOne({ where: { id: memberId } });
+        const member = await this.memberRepo.findOne({ where: { id: memberId, placeId } });
         if (!member) throw new NotFoundException('Miembro no encontrado');
 
         if (dto.role) {
@@ -144,7 +145,9 @@ export class TeamController {
 
     @Delete(':memberId')
     @RequiresPlaceRole('admin')
-    async remove(@Param('memberId') memberId: string) {
+    async remove(@Param('placeId') placeId: string, @Param('memberId') memberId: string) {
+        const member = await this.memberRepo.findOne({ where: { id: memberId, placeId } });
+        if (!member) throw new NotFoundException('Miembro no encontrado');
         await this.memberRepo.delete({ id: memberId });
         return { message: 'Miembro eliminado del equipo' };
     }
