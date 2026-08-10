@@ -26,6 +26,7 @@ import { GoogleBusinessService } from './services/google-business.service';
 import { WeeklyReportService } from './services/weekly-report.service';
 import { GoogleCallbackController } from './google-callback.controller';
 import { User } from '../users/entities/user.entity';
+import { TeamModule } from '../team/team.module';
 
 
 @Module({
@@ -46,6 +47,7 @@ import { User } from '../users/entities/user.entity';
             User,
         ]),
         UploadModule,
+        TeamModule,
     ],
 
     controllers: [PlacesController, BusinessPlacesController, GoogleCallbackController],
