@@ -13,7 +13,6 @@ import {
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { randomBytes } from 'crypto';
-import * as bcrypt from 'bcryptjs';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { PlaceRoleGuard } from '../../common/guards/place-role.guard';
 import { RequiresPlaceRole } from '../../common/decorators/requires-place-role.decorator';
@@ -72,31 +71,35 @@ export class TeamController {
         if (!place) throw new NotFoundException('Local no encontrado');
 
         const existingUser = await this.usersService.findByEmail(dto.email);
-        const tempPassword = randomBytes(6).toString('hex');
 
-        const user = existingUser ?? await this.usersService.create(
-            dto.email,
-            tempPassword,
-            dto.fullName,
-            true, // isVerified: cuenta creada por un admin, no necesita confirmar email
-        );
-
-        // Si ya existía la cuenta (ej. era cliente de la app), igual se le asigna esta
-        // contraseña nueva y se le manda por correo — el Admin no tiene forma de conocer
-        // ni comunicar la contraseña anterior del usuario.
+        // Validar ANTES de cualquier efecto secundario (crear cuenta, resetear contraseña) —
+        // así un pedido que termina en 409 nunca deja una mutación a medio camino.
         if (existingUser) {
-            await this.usersService.updatePassword(user.id, await bcrypt.hash(tempPassword, 10));
+            const existingMembership = await this.memberRepo.findOne({
+                where: { userId: existingUser.id, placeId },
+            });
+            if (existingMembership) {
+                throw new ConflictException('Este usuario ya es parte del equipo de esta sede');
+            }
+        }
+
+        let tempPassword: string | null = null;
+        let user = existingUser;
+
+        if (!user) {
+            tempPassword = randomBytes(6).toString('hex');
+            user = await this.usersService.create(
+                dto.email,
+                tempPassword,
+                dto.fullName,
+                true, // isVerified: cuenta creada por un admin, no necesita confirmar email
+            );
         }
 
         // warike_administrativo solo deja entrar a role 'admin' | 'business' (chequeo global,
         // no por-sede) — sin esto, un agente nuevo (role default 'user') no podría loguearse.
         if (user.role === 'user') {
             await this.usersService.updateRole(user.id, 'business');
-        }
-
-        const existingMembership = await this.memberRepo.findOne({ where: { userId: user.id, placeId } });
-        if (existingMembership) {
-            throw new ConflictException('Este usuario ya es parte del equipo de esta sede');
         }
 
         const member = await this.memberRepo.save(
@@ -113,18 +116,28 @@ export class TeamController {
 
         let emailSent = true;
         try {
-            await this.mailService.sendTeamMemberCredentials(
-                dto.email,
-                dto.fullName,
-                tempPassword,
-                place.name,
-                dto.role,
-            );
+            if (existingUser) {
+                // Nunca elegimos ni conocemos la contraseña de una cuenta que ya existía —
+                // eso permitiría a un Admin tomar control de la cuenta de cualquier persona
+                // con solo saber su email. En su lugar, disparamos el mismo flujo de
+                // "olvidé mi contraseña": solo quien tiene acceso a esa casilla puede
+                // convertir el código en una contraseña nueva.
+                const resetCode = Math.floor(100000 + Math.random() * 900000).toString();
+                await this.usersService.setVerificationCode(user.id, resetCode);
+                await this.mailService.sendVerificationCode(dto.email, resetCode);
+            } else {
+                await this.mailService.sendTeamMemberCredentials(
+                    dto.email,
+                    dto.fullName,
+                    tempPassword!,
+                    place.name,
+                    dto.role,
+                );
+            }
         } catch (error) {
             // El envío de correo es un efecto secundario, no la operación principal: la cuenta
             // y la membresía ya quedaron guardadas arriba. Si falla (ej. dominio de Resend sin
-            // verificar), no tiramos abajo la creación — devolvemos la contraseña temporal para
-            // que el Admin se la pase manualmente.
+            // verificar), no tiramos abajo la creación.
             emailSent = false;
         }
 
@@ -133,7 +146,10 @@ export class TeamController {
             userId: user.id,
             role: member.role,
             emailSent,
-            temporaryPassword: tempPassword,
+            isExistingAccount: !!existingUser,
+            // Solo para cuentas nuevas: es la única contraseña que el sistema controla y puede
+            // mostrarle al Admin como respaldo si el correo no llegó.
+            temporaryPassword: existingUser ? null : tempPassword,
         };
     }
 
