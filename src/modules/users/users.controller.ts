@@ -1,13 +1,15 @@
-import { Controller, Get, Patch, Body, Query, UseGuards, ParseIntPipe, DefaultValuePipe, Post, UseInterceptors, UploadedFile, ParseFilePipe, MaxFileSizeValidator, FileTypeValidator, Logger } from '@nestjs/common';
+import { Controller, Get, Patch, Body, Query, UseGuards, ParseIntPipe, DefaultValuePipe, Post, UseInterceptors, UploadedFile, ParseFilePipe, MaxFileSizeValidator, FileTypeValidator, Logger, BadRequestException } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags, ApiOperation, ApiQuery, ApiConsumes, ApiResponse, ApiBody } from '@nestjs/swagger';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
+import * as bcrypt from 'bcryptjs';
 import { Place } from '../places/entities/place.entity';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { UsersService } from './users.service';
 import { UpdateProfileDto } from './dto/update-profile.dto';
+import { ChangePasswordDto } from './dto/change-password.dto';
 import { CloudinaryService } from '../../common/services/cloudinary.service';
 
 @ApiTags('users')
@@ -44,6 +46,22 @@ export class UsersController {
         this.logger.log(`Update profile for user ${user.id}`);
         await this.usersService.updateProfile(user.id, updateProfileDto);
         return { message: 'Perfil actualizado exitosamente' };
+    }
+
+    @Patch('me/password')
+    @ApiOperation({ summary: 'Change the current user password (requires the current one)' })
+    @ApiResponse({ status: 200, description: 'Password updated.' })
+    @ApiResponse({ status: 400, description: 'Current password is wrong.' })
+    async changeMyPassword(@CurrentUser() user: any, @Body() dto: ChangePasswordDto) {
+        const fullUser = await this.usersService.findById(user.id);
+        const isValid = await this.usersService.validatePassword(fullUser, dto.currentPassword);
+        // BadRequestException (400), no UnauthorizedException — el interceptor del frontend
+        // trata cualquier 401 como "sesión expirada" y desloguea automáticamente.
+        if (!isValid) throw new BadRequestException('La contraseña actual no es correcta');
+
+        const newHash = await bcrypt.hash(dto.newPassword, 10);
+        await this.usersService.updatePassword(user.id, newHash);
+        return { message: 'Contraseña actualizada' };
     }
 
     @Post('me/avatar')
