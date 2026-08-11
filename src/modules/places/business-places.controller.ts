@@ -28,6 +28,7 @@ import { CreateOnboardingPlaceDto } from './dto/create-onboarding-place.dto';
 import { PlaceTeamMember } from '../team/entities/place-team-member.entity';
 import { PlaceTeamService } from '../team/place-team.service';
 import { SubscriptionsService } from '../subscriptions/subscriptions.service';
+import { CreateSubscriptionDto } from '../subscriptions/dto/create-subscription.dto';
 
 import { GoogleReview } from './entities/google-review.entity';
 
@@ -185,16 +186,60 @@ export class BusinessPlacesController {
         }));
     }
 
-    // El plan pago es de la sede (lo paga el dueño), no del usuario que consulta —
-    // así un Agente/Supervisor puede saber qué funciones tiene habilitadas la sede
-    // en la que trabaja sin tener suscripción propia.
+    // El plan pago es de la SEDE, no del usuario que consulta — así un
+    // Agente/Supervisor puede saber qué funciones tiene habilitadas la sede en la
+    // que trabaja sin tener suscripción propia.
     @Get('places/:id/subscription-tier')
-    @ApiOperation({ summary: 'Get the active subscription tier for a place (via its owner), for any team member' })
+    @ApiOperation({ summary: 'Get the active subscription tier for a place, for any team member' })
     @ApiParam({ name: 'id', description: 'Place UUID' })
     async getSubscriptionTier(@Param('id') id: string, @CurrentUser() user: any) {
         await this.placeTeamService.assertAccess(user.id, id);
         const subscription = await this.subscriptionsService.getSubscriptionForPlace(id);
         return { tier: subscription?.status === 'active' ? subscription.tier : null };
+    }
+
+    // Gestión de la suscripción — solo Admin de la sede (maneja la tarjeta/facturación
+    // de todo el equipo, no algo que un Agente/Supervisor deba tocar).
+    private async assertPlaceAdmin(placeId: string, userId: string) {
+        const member = await this.placeTeamService.getMembership(userId, placeId);
+        if (!member) throw new ForbiddenException('No tenés acceso a esta sede');
+        if (member.role !== 'admin') throw new ForbiddenException('Solo un Admin puede gestionar la suscripción de esta sede');
+    }
+
+    @Get('places/:id/subscription')
+    @ApiOperation({ summary: 'Get this place\'s subscription details (card, period, payments)' })
+    @ApiParam({ name: 'id', description: 'Place UUID' })
+    async getSubscription(@Param('id') id: string, @CurrentUser() user: any) {
+        await this.assertPlaceAdmin(id, user.id);
+        return this.subscriptionsService.getSubscriptionForPlace(id);
+    }
+
+    @Get('places/:id/subscription/payments')
+    @ApiOperation({ summary: 'Get payment history for this place\'s subscription' })
+    @ApiParam({ name: 'id', description: 'Place UUID' })
+    async getSubscriptionPayments(@Param('id') id: string, @CurrentUser() user: any) {
+        await this.assertPlaceAdmin(id, user.id);
+        return this.subscriptionsService.getPaymentsForPlace(id);
+    }
+
+    @Post('places/:id/subscription/subscribe')
+    @ApiOperation({ summary: 'Subscribe this place to a plan' })
+    @ApiParam({ name: 'id', description: 'Place UUID' })
+    async subscribePlace(
+        @Param('id') id: string,
+        @CurrentUser() user: any,
+        @Body() dto: CreateSubscriptionDto,
+    ) {
+        await this.assertPlaceAdmin(id, user.id);
+        return this.subscriptionsService.createSubscription(id, user.id, dto.token, user.email, dto.tier);
+    }
+
+    @Delete('places/:id/subscription')
+    @ApiOperation({ summary: 'Cancel this place\'s active subscription' })
+    @ApiParam({ name: 'id', description: 'Place UUID' })
+    async cancelPlaceSubscription(@Param('id') id: string, @CurrentUser() user: any) {
+        await this.assertPlaceAdmin(id, user.id);
+        return this.subscriptionsService.cancelSubscription(id);
     }
 
     @Get('places/:id/profile')

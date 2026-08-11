@@ -6,7 +6,7 @@ import {
     Logger,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { Repository, In } from 'typeorm';
 import { ConfigService } from '@nestjs/config';
 import { Subscription } from './entities/subscription.entity';
 import { Payment } from './entities/payment.entity';
@@ -128,12 +128,12 @@ export class SubscriptionsService {
         return data;
     }
 
-    async createSubscription(userId: string, token: string, userEmail: string, tier: SubscriptionTier) {
+    async createSubscription(placeId: string, userId: string, token: string, userEmail: string, tier: SubscriptionTier) {
         const existing = await this.subscriptionsRepo.findOne({
-            where: { userId, status: 'active' },
+            where: { placeId, status: 'active' },
         });
         if (existing) {
-            throw new ConflictException('Ya tienes una suscripción activa');
+            throw new ConflictException('Esta sede ya tiene una suscripción activa');
         }
 
         const def = this.tierDefinition(tier);
@@ -158,22 +158,33 @@ export class SubscriptionsService {
             ? new Date(culqiSub.current_period.period_end * 1000)
             : new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
 
-        const sub = await this.subscriptionsRepo.save(
-            this.subscriptionsRepo.create({
-                userId,
-                culqiSubscriptionId: culqiSub.id,
-                culqiCustomerId: culqiSub.customer?.id,
-                culqiPlanId: planId,
-                status: culqiSub.status || 'active',
-                tier,
-                amount: planAmount,
-                currency: 'PEN',
-                cardLast4: culqiSub.card?.last_four,
-                cardBrand: culqiSub.card?.brand,
-                currentPeriodStart: periodStart,
-                currentPeriodEnd: periodEnd,
-            }),
-        );
+        let sub: Subscription;
+        try {
+            sub = await this.subscriptionsRepo.save(
+                this.subscriptionsRepo.create({
+                    placeId,
+                    userId,
+                    culqiSubscriptionId: culqiSub.id,
+                    culqiCustomerId: culqiSub.customer?.id,
+                    culqiPlanId: planId,
+                    status: culqiSub.status || 'active',
+                    tier,
+                    amount: planAmount,
+                    currency: 'PEN',
+                    cardLast4: culqiSub.card?.last_four,
+                    cardBrand: culqiSub.card?.brand,
+                    currentPeriodStart: periodStart,
+                    currentPeriodEnd: periodEnd,
+                }),
+            );
+        } catch (error) {
+            // El índice único parcial (place_id WHERE status='active') es el backstop real
+            // contra una carrera de dos "Suscribirme" simultáneos — el chequeo de arriba
+            // solo evita el caso común. Si la DB lo rechaza, devolvemos el mismo 409 en vez
+            // de un 500 crudo.
+            this.logger.error(`Error saving subscription for place ${placeId}: ${error.message}`);
+            throw new ConflictException('Esta sede ya tiene una suscripción activa');
+        }
 
         await this.paymentsRepo.save(
             this.paymentsRepo.create({
@@ -190,37 +201,42 @@ export class SubscriptionsService {
         return sub;
     }
 
-    async getMySubscription(userId: string) {
+    /** El plan de una SEDE — todo el equipo de esa sede lo hereda por igual. */
+    async getSubscriptionForPlace(placeId: string) {
         return this.subscriptionsRepo.findOne({
-            where: { userId },
+            where: { placeId },
             order: { createdAt: 'DESC' },
             relations: ['payments'],
         });
     }
 
     /**
-     * Resuelve el plan de una SEDE en vez de un usuario — el plan lo paga el dueño
-     * histórico (Place.claimedByUserId), pero un Agente/Supervisor de esa sede lo
-     * hereda igual, sin tener suscripción propia.
+     * Solo para PlazBot Setup: templates/campañas del workspace compartido no son
+     * por sede, así que se gatean por "¿el usuario dueño de al menos una sede con
+     * el plan pedido?" en vez de por una sede puntual.
      */
-    async getSubscriptionForPlace(placeId: string) {
-        const place = await this.placesRepo.findOne({ where: { id: placeId } });
-        if (!place?.claimedByUserId) return null;
-        return this.getMySubscription(place.claimedByUserId);
+    async hasAnyPlaceWithTier(userId: string, requiredTier: SubscriptionTier): Promise<boolean> {
+        const ownedPlaces = await this.placesRepo.find({ where: { claimedByUserId: userId } });
+        if (ownedPlaces.length === 0) return false;
+
+        const subs = await this.subscriptionsRepo.find({
+            where: { placeId: In(ownedPlaces.map((p) => p.id)), status: 'active' },
+        });
+        return subs.some((s) => this.hasTierAccess(s.tier, requiredTier));
     }
 
-    async getMyPayments(userId: string) {
+    async getPaymentsForPlace(placeId: string) {
         return this.paymentsRepo.find({
-            where: { userId },
+            where: { subscription: { placeId } },
             order: { createdAt: 'DESC' },
         });
     }
 
-    async cancelSubscription(userId: string) {
+    async cancelSubscription(placeId: string) {
         const sub = await this.subscriptionsRepo.findOne({
-            where: { userId, status: 'active' },
+            where: { placeId, status: 'active' },
         });
-        if (!sub) throw new NotFoundException('No tienes una suscripción activa');
+        if (!sub) throw new NotFoundException('Esta sede no tiene una suscripción activa');
 
         if (sub.culqiSubscriptionId) {
             await this.culqiRequest('DELETE', `/subscriptions/${sub.culqiSubscriptionId}`).catch((err) =>
@@ -235,7 +251,7 @@ export class SubscriptionsService {
 
     async getAllSubscriptions(page = 1, limit = 20) {
         const [data, total] = await this.subscriptionsRepo.findAndCount({
-            relations: ['user'],
+            relations: ['user', 'place'],
             order: { createdAt: 'DESC' },
             skip: (page - 1) * limit,
             take: limit,
