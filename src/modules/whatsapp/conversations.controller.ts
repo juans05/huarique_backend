@@ -6,23 +6,17 @@ import { EventEmitter2 } from '@nestjs/event-emitter';
 import { Conversation } from './entities/conversation.entity';
 import { Message } from './entities/message.entity';
 import { WhatsAppNumber } from './entities/whatsapp-number.entity';
-import { Place } from '../places/entities/place.entity';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { IsPublic } from '../../common/decorators/is-public.decorator';
 import { WhatsappService } from './whatsapp.service';
 import { PlazBotService } from '../plazbot/plazbot.service';
 import { JwtService } from '@nestjs/jwt';
-import { SubscriptionTierGuard } from '../../common/guards/subscription-tier.guard';
-import { RequiresTier } from '../../common/decorators/requires-tier.decorator';
 import { PlaceRoleGuard, ROLE_RANK } from '../../common/guards/place-role.guard';
 import { RequiresPlaceRole } from '../../common/decorators/requires-place-role.decorator';
 import { PlaceTeamService } from '../team/place-team.service';
 import { PlaceTeamMember, PlaceTeamRole } from '../team/entities/place-team-member.entity';
 
-// Note: SubscriptionTierGuard + @RequiresTier are applied per-method below, not at
-// class level — the `stream` SSE endpoint is @IsPublic (auth via query-param token,
-// no `request.user`), so a class-level tier guard would crash on that route.
 @UseGuards(JwtAuthGuard)
 @Controller('business/conversations')
 export class ConversationsController {
@@ -33,8 +27,6 @@ export class ConversationsController {
         private messageRepo: Repository<Message>,
         @InjectRepository(WhatsAppNumber)
         private whatsappNumberRepo: Repository<WhatsAppNumber>,
-        @InjectRepository(Place)
-        private placesRepository: Repository<Place>,
         private whatsappService: WhatsappService,
         private plazbotService: PlazBotService,
         private eventEmitter: EventEmitter2,
@@ -42,16 +34,8 @@ export class ConversationsController {
         private placeTeamService: PlaceTeamService,
     ) { }
 
-    private async assertOwner(placeId: string, userId: string) {
-        const place = await this.placesRepository.findOne({ where: { id: placeId } });
-        if (!place) throw new NotFoundException('Local no encontrado');
-        if (place.claimedByUserId !== userId) throw new ForbiddenException('No tienes permiso para gestionar este local');
-        return place;
-    }
-
     // List conversations for a place (paginated, filtrado por rol y números visibles)
-    @UseGuards(SubscriptionTierGuard, PlaceRoleGuard)
-    @RequiresTier('ia_total')
+    @UseGuards(PlaceRoleGuard)
     @RequiresPlaceRole('agente')
     @Get(':placeId')
     async getConversations(
@@ -63,6 +47,8 @@ export class ConversationsController {
         @CurrentUser() user: any,
         @Req() req: any,
     ) {
+        await this.placeTeamService.assertPlaceTier(placeId, 'ia_total');
+
         const pageNum = parseInt(page) || 1;
         const limitNum = parseInt(limit) || 20;
         const skip = (pageNum - 1) * limitNum;
@@ -130,6 +116,8 @@ export class ConversationsController {
         const member = await this.placeTeamService.getMembership(userId, conversation.placeId);
         if (!member) throw new ForbiddenException('No tenés acceso a esta sede');
 
+        await this.placeTeamService.assertPlaceTier(conversation.placeId, 'ia_total');
+
         if (minRole && ROLE_RANK[member.role] < ROLE_RANK[minRole]) {
             throw new ForbiddenException('No tenés el rol necesario para esta acción');
         }
@@ -145,8 +133,6 @@ export class ConversationsController {
     }
 
     // Get messages for a conversation
-    @UseGuards(SubscriptionTierGuard)
-    @RequiresTier('ia_total')
     @Get(':conversationId/messages')
     async getConversationMessages(
         @Param('conversationId') conversationId: string,
@@ -166,8 +152,6 @@ export class ConversationsController {
     }
 
     // Change conversation mode (bot or human)
-    @UseGuards(SubscriptionTierGuard)
-    @RequiresTier('ia_total')
     @Patch(':conversationId/mode')
     async setConversationMode(
         @Param('conversationId') conversationId: string,
@@ -186,8 +170,6 @@ export class ConversationsController {
     }
 
     // Send manual message from operator
-    @UseGuards(SubscriptionTierGuard)
-    @RequiresTier('ia_total')
     @Post(':conversationId/messages')
     async sendManualMessage(
         @Param('conversationId') conversationId: string,
@@ -216,8 +198,6 @@ export class ConversationsController {
     }
 
     // Reclamar una conversación sin asignar — UPDATE atómico, 409 si ya la tomó otro
-    @UseGuards(SubscriptionTierGuard)
-    @RequiresTier('ia_total')
     @Post(':conversationId/claim')
     async claim(@Param('conversationId') conversationId: string, @CurrentUser() user: any) {
         await this.assertConversationAccess(conversationId, user.id);
@@ -237,8 +217,6 @@ export class ConversationsController {
     }
 
     // Soltar una conversación (vuelve a sin asignar) — solo Supervisor/Admin
-    @UseGuards(SubscriptionTierGuard)
-    @RequiresTier('ia_total')
     @Post(':conversationId/release')
     async release(@Param('conversationId') conversationId: string, @CurrentUser() user: any) {
         const { conversation } = await this.assertConversationAccess(conversationId, user.id, 'supervisor');
@@ -250,8 +228,6 @@ export class ConversationsController {
     }
 
     // Reasignar a otro agente — solo Supervisor/Admin
-    @UseGuards(SubscriptionTierGuard)
-    @RequiresTier('ia_total')
     @Post(':conversationId/reassign')
     async reassign(
         @Param('conversationId') conversationId: string,
@@ -272,8 +248,6 @@ export class ConversationsController {
     }
 
     // Cerrar — cualquier rol, pero un Agente solo si es la suya
-    @UseGuards(SubscriptionTierGuard)
-    @RequiresTier('ia_total')
     @Post(':conversationId/close')
     async close(@Param('conversationId') conversationId: string, @CurrentUser() user: any) {
         const { conversation, member } = await this.assertConversationAccess(conversationId, user.id);
@@ -289,11 +263,9 @@ export class ConversationsController {
     }
 
     // Sync existing PlazBot conversations into wuarikes DB
-    @UseGuards(SubscriptionTierGuard)
-    @RequiresTier('ia_total')
     @Post('sync-plazbot/:placeId')
     async syncFromPlazbot(@CurrentUser() user: any, @Param('placeId') placeId: string) {
-        await this.assertOwner(placeId, user.id);
+        await this.placeTeamService.assertAccess(user.id, placeId, 'ia_total');
         const apiKey = process.env.PLAZBOT_API_KEY || '';
         const workspaceId = process.env.PLAZBOT_WORKSPACE_ID || '';
 

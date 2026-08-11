@@ -1,33 +1,24 @@
-import { Controller, Post, Get, Patch, Delete, Param, Body, HttpCode, HttpStatus, UseGuards, ForbiddenException, NotFoundException } from '@nestjs/common';
-import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { Controller, Post, Get, Patch, Delete, Param, Body, HttpCode, HttpStatus, UseGuards } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
 import { EmailCampaignService } from './email-campaign.service';
 import { CreateEmailCampaignDto } from './dto/create-email-campaign.dto';
 import { UpdateEmailCampaignDto } from './dto/update-email-campaign.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
-import { Place } from '../places/entities/place.entity';
-import { SubscriptionTierGuard } from '../../common/guards/subscription-tier.guard';
-import { RequiresTier } from '../../common/decorators/requires-tier.decorator';
+import { PlaceTeamService } from '../team/place-team.service';
 
 @ApiTags('email-campaigns')
-@UseGuards(JwtAuthGuard, SubscriptionTierGuard)
-@RequiresTier('ia_total')
+@UseGuards(JwtAuthGuard)
 @ApiBearerAuth()
 @Controller('business/email-campaigns')
 export class EmailCampaignController {
     constructor(
         private readonly campaignService: EmailCampaignService,
-        @InjectRepository(Place)
-        private readonly placesRepository: Repository<Place>,
+        private placeTeamService: PlaceTeamService,
     ) {}
 
     private async assertOwner(placeId: string, userId: string) {
-        const place = await this.placesRepository.findOne({ where: { id: placeId } });
-        if (!place) throw new NotFoundException('Local no encontrado');
-        if (place.claimedByUserId !== userId) throw new ForbiddenException('No tienes permiso para gestionar este local');
-        return place;
+        await this.placeTeamService.assertAccess(userId, placeId, 'ia_total');
     }
 
     @Post()

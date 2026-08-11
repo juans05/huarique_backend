@@ -9,7 +9,6 @@ import { Place } from '../places/entities/place.entity';
 import { WhatsappService } from './whatsapp.service';
 import { PlazBotService } from '../plazbot/plazbot.service';
 import { PlaceTeamService } from '../team/place-team.service';
-import { SubscriptionsService } from '../subscriptions/subscriptions.service';
 import { JwtService } from '@nestjs/jwt';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 
@@ -17,7 +16,7 @@ describe('ConversationsController.claim', () => {
     let controller: ConversationsController;
     let queryBuilderMock: any;
     let conversationRepo: any;
-    let placeTeamService: { getMembership: jest.Mock; getAccessibleWhatsappNumberIds: jest.Mock };
+    let placeTeamService: { getMembership: jest.Mock; getAccessibleWhatsappNumberIds: jest.Mock; assertPlaceTier: jest.Mock };
 
     beforeEach(async () => {
         queryBuilderMock = {
@@ -34,6 +33,10 @@ describe('ConversationsController.claim', () => {
         placeTeamService = {
             getMembership: jest.fn().mockResolvedValue({ id: 'm1', role: 'agente' }),
             getAccessibleWhatsappNumberIds: jest.fn().mockResolvedValue('all'),
+            // Por defecto la sede tiene un plan activo — assertPlaceTier vive (y se
+            // testea) en PlaceTeamService; acá solo probamos que se llama y que su
+            // rechazo se propaga (ver el test de "sin suscripción activa" abajo).
+            assertPlaceTier: jest.fn().mockResolvedValue(undefined),
         };
 
         const module: TestingModule = await Test.createTestingModule({
@@ -46,7 +49,6 @@ describe('ConversationsController.claim', () => {
                 { provide: WhatsappService, useValue: {} },
                 { provide: PlazBotService, useValue: {} },
                 { provide: PlaceTeamService, useValue: placeTeamService },
-                { provide: SubscriptionsService, useValue: { getMySubscription: jest.fn() } },
                 { provide: EventEmitter2, useValue: { on: jest.fn(), off: jest.fn() } },
                 { provide: JwtService, useValue: { verify: jest.fn() } },
             ],
@@ -80,6 +82,13 @@ describe('ConversationsController.claim', () => {
     it('throws 403 when the user has no membership in the conversation place', async () => {
         conversationRepo.findOne.mockResolvedValueOnce({ id: 'c1', placeId: 'p1', whatsappNumberId: null });
         placeTeamService.getMembership.mockResolvedValueOnce(null);
+
+        await expect(controller.claim('c1', { id: 'u1' })).rejects.toThrow(ForbiddenException);
+    });
+
+    it("throws 403 when the place's subscription doesn't cover the required tier", async () => {
+        conversationRepo.findOne.mockResolvedValueOnce({ id: 'c1', placeId: 'p1', whatsappNumberId: null });
+        placeTeamService.assertPlaceTier.mockRejectedValueOnce(new ForbiddenException('Esta sede necesita una suscripción activa.'));
 
         await expect(controller.claim('c1', { id: 'u1' })).rejects.toThrow(ForbiddenException);
     });

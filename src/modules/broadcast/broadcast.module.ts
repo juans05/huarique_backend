@@ -6,15 +6,15 @@ import { BroadcastService } from './broadcast.service';
 import { BroadcastProcessor } from './broadcast.processor';
 import { Broadcast } from './entities/broadcast.entity';
 import { Contact } from '../contacts/entities/contact.entity';
-import { Place } from '../places/entities/place.entity';
 import { AuditLogModule } from '../audit-log/audit-log.module';
 import { CreditsModule } from '../credits/credits.module';
 import { WhatsAppModule } from '../whatsapp/whatsapp.module';
 import { SubscriptionsModule } from '../subscriptions/subscriptions.module';
+import { TeamModule } from '../team/team.module';
 
 @Module({
     imports: [
-        TypeOrmModule.forFeature([Broadcast, Contact, Place]),
+        TypeOrmModule.forFeature([Broadcast, Contact]),
         BullModule.registerQueue({
             name: 'whatsapp-broadcast'
         }),
@@ -22,6 +22,7 @@ import { SubscriptionsModule } from '../subscriptions/subscriptions.module';
         CreditsModule,
         WhatsAppModule,
         SubscriptionsModule,
+        TeamModule,
     ],
     controllers: [BroadcastController],
     providers: [BroadcastService, BroadcastProcessor],

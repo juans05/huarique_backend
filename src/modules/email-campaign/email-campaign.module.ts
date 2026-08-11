@@ -5,18 +5,19 @@ import { EmailCampaignController } from './email-campaign.controller';
 import { EmailCampaignService } from './email-campaign.service';
 import { EmailCampaignProcessor } from './email-campaign.processor';
 import { EmailCampaign } from './entities/email-campaign.entity';
-import { Place } from '../places/entities/place.entity';
 import { CommonModule } from '../../common/common.module';
 import { SubscriptionsModule } from '../subscriptions/subscriptions.module';
+import { TeamModule } from '../team/team.module';
 
 @Module({
     imports: [
-        TypeOrmModule.forFeature([EmailCampaign, Place]),
+        TypeOrmModule.forFeature([EmailCampaign]),
         BullModule.registerQueue({
             name: 'email-broadcast',
         }),
         CommonModule,
         SubscriptionsModule,
+        TeamModule,
     ],
     controllers: [EmailCampaignController],
     providers: [EmailCampaignService, EmailCampaignProcessor],
