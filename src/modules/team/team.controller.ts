@@ -13,6 +13,7 @@ import {
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { randomBytes } from 'crypto';
+import * as bcrypt from 'bcryptjs';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { PlaceRoleGuard } from '../../common/guards/place-role.guard';
 import { RequiresPlaceRole } from '../../common/decorators/requires-place-role.decorator';
@@ -80,6 +81,13 @@ export class TeamController {
             true, // isVerified: cuenta creada por un admin, no necesita confirmar email
         );
 
+        // Si ya existía la cuenta (ej. era cliente de la app), igual se le asigna esta
+        // contraseña nueva y se le manda por correo — el Admin no tiene forma de conocer
+        // ni comunicar la contraseña anterior del usuario.
+        if (existingUser) {
+            await this.usersService.updatePassword(user.id, await bcrypt.hash(tempPassword, 10));
+        }
+
         // warike_administrativo solo deja entrar a role 'admin' | 'business' (chequeo global,
         // no por-sede) — sin esto, un agente nuevo (role default 'user') no podría loguearse.
         if (user.role === 'user') {
@@ -103,13 +111,12 @@ export class TeamController {
             );
         }
 
-        const credentialsMessage = existingUser ? '(usá tu contraseña existente de Wuarike)' : tempPassword;
         let emailSent = true;
         try {
             await this.mailService.sendTeamMemberCredentials(
                 dto.email,
                 dto.fullName,
-                credentialsMessage,
+                tempPassword,
                 place.name,
                 dto.role,
             );
@@ -126,7 +133,7 @@ export class TeamController {
             userId: user.id,
             role: member.role,
             emailSent,
-            temporaryPassword: existingUser ? null : tempPassword,
+            temporaryPassword: tempPassword,
         };
     }
 
