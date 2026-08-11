@@ -16,7 +16,7 @@ export class MailService {
     async sendWeeklyReport(email: string, chefName: string, stats: { reviews: number, visibilityChange: number }) {
         try {
             const { data, error } = await this.resend.emails.send({
-                from: 'Wuarike <reports@resend.dev>',
+                from: 'Wuarike <reports@wuarikes.com>',
                 to: [email],
                 subject: '📊 ¡Tu Reporte Semanal de Wuarike!',
                 html: `
@@ -63,7 +63,7 @@ export class MailService {
     async sendMarketingEmail(to: string[], subject: string, htmlContent: string) {
         try {
             const { data, error } = await this.resend.emails.send({
-                from: 'Wuarike Promociones <promociones@resend.dev>',
+                from: 'Wuarike Promociones <promociones@wuarikes.com>',
                 to,
                 subject,
                 html: htmlContent,
@@ -80,7 +80,7 @@ export class MailService {
     async sendVerificationCode(email: string, code: string) {
         try {
             const { data, error } = await this.resend.emails.send({
-                from: 'Wuarike <auth@resend.dev>',
+                from: 'Wuarike <auth@wuarikes.com>',
                 to: [email],
                 subject: 'Tu código de verificación de Wuarike',
                 html: `
@@ -106,7 +106,7 @@ export class MailService {
     async sendTeamMemberCredentials(email: string, fullName: string, password: string, placeName: string, role: string) {
         try {
             const { data, error } = await this.resend.emails.send({
-                from: 'Wuarike <auth@resend.dev>',
+                from: 'Wuarike <auth@wuarikes.com>',
                 to: [email],
                 subject: `Te sumaron al equipo de ${placeName} en Wuarike`,
                 html: `
