@@ -27,6 +27,7 @@ import { WeeklyReportService } from './services/weekly-report.service';
 import { GoogleCallbackController } from './google-callback.controller';
 import { User } from '../users/entities/user.entity';
 import { TeamModule } from '../team/team.module';
+import { SubscriptionsModule } from '../subscriptions/subscriptions.module';
 
 
 @Module({
@@ -48,6 +49,7 @@ import { TeamModule } from '../team/team.module';
         ]),
         UploadModule,
         TeamModule,
+        SubscriptionsModule,
     ],
 
     controllers: [PlacesController, BusinessPlacesController, GoogleCallbackController],

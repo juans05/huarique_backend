@@ -1,14 +1,13 @@
-import { Controller, Post, Get, Delete, Param, Body, UseGuards, UseInterceptors, UploadedFile, BadRequestException, NotFoundException, ForbiddenException, HttpException, Logger } from '@nestjs/common';
+import { Controller, Post, Get, Delete, Param, Body, UseGuards, UseInterceptors, UploadedFile, BadRequestException, NotFoundException, HttpException, Logger } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { memoryStorage } from 'multer';
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
-import { Place } from '../places/entities/place.entity';
+import { KnowledgeBase } from '../ai/entities/knowledge-base.entity';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
-import { SubscriptionTierGuard } from '../../common/guards/subscription-tier.guard';
-import { RequiresTier } from '../../common/decorators/requires-tier.decorator';
+import { PlaceTeamService } from '../team/place-team.service';
 import { AiAgentService } from './ai-agent.service';
 import axios from 'axios';
 import { JSDOM } from 'jsdom';
@@ -29,8 +28,7 @@ const ALLOWED_MIMES = [
     'image/gif',
 ];
 
-@UseGuards(JwtAuthGuard, SubscriptionTierGuard)
-@RequiresTier('ia_total')
+@UseGuards(JwtAuthGuard)
 @Controller('business/knowledge-bases')
 export class AiAgentController {
     private readonly logger = new Logger(AiAgentController.name);
@@ -40,15 +38,10 @@ export class AiAgentController {
 
     constructor(
         private aiAgentService: AiAgentService,
-        @InjectRepository(Place)
-        private placesRepo: Repository<Place>,
+        private placeTeamService: PlaceTeamService,
+        @InjectRepository(KnowledgeBase)
+        private knowledgeBaseRepo: Repository<KnowledgeBase>,
     ) { }
-
-    private async assertOwner(placeId: string, userId: string) {
-        const place = await this.placesRepo.findOne({ where: { id: placeId } });
-        if (!place) throw new NotFoundException('Local no encontrado');
-        if (place.claimedByUserId !== userId) throw new ForbiddenException('No tienes permiso para gestionar este local');
-    }
 
     @Post(':placeId/upload')
     @UseInterceptors(
@@ -74,7 +67,7 @@ export class AiAgentController {
         try {
             this.logger.log(`[upload] comienzo`);
 
-            await this.assertOwner(placeId, user.id);
+            await this.placeTeamService.assertAccess(user.id, placeId, 'ia_total');
             if (!file) throw new BadRequestException('No se proporcionó archivo');
 
             const fileName = body.fileName || file.originalname;
@@ -109,7 +102,7 @@ export class AiAgentController {
     @Get(':placeId')
     async getKnowledgeBases(@CurrentUser() user: any, @Param('placeId') placeId: string) {
         console.log('*/**********');
-        await this.assertOwner(placeId, user.id);
+        await this.placeTeamService.assertAccess(user.id, placeId, 'ia_total');
         const bases = await this.aiAgentService.getKnowledgeBases(placeId);
         return { data: bases, total: bases.length };
     }
@@ -120,7 +113,7 @@ export class AiAgentController {
         @Param('placeId') placeId: string,
         @Body() body: { url: string; fileName?: string }
     ) {
-        await this.assertOwner(placeId, user.id);
+        await this.placeTeamService.assertAccess(user.id, placeId, 'ia_total');
         if (!body.url) throw new BadRequestException('URL requerida');
 
         let url: URL;
@@ -172,7 +165,13 @@ export class AiAgentController {
     }
 
     @Delete(':kbId')
-    async deleteKnowledgeBase(@Param('kbId') kbId: string) {
+    async deleteKnowledgeBase(@CurrentUser() user: any, @Param('kbId') kbId: string) {
+        // Esta ruta nunca había validado acceso — cualquier usuario autenticado podía
+        // borrar cualquier base de conocimiento de cualquier sede con solo saber el id.
+        const kb = await this.knowledgeBaseRepo.findOne({ where: { id: kbId } });
+        if (!kb) throw new NotFoundException('Base de conocimiento no encontrada');
+        await this.placeTeamService.assertAccess(user.id, kb.placeId, 'ia_total');
+
         await this.aiAgentService.deleteKnowledgeBase(kbId);
         return { message: 'Base de conocimiento eliminada' };
     }

@@ -26,6 +26,8 @@ import { Repository, ILike, IsNull, In } from 'typeorm';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { CreateOnboardingPlaceDto } from './dto/create-onboarding-place.dto';
 import { PlaceTeamMember } from '../team/entities/place-team-member.entity';
+import { PlaceTeamService } from '../team/place-team.service';
+import { SubscriptionsService } from '../subscriptions/subscriptions.service';
 
 import { GoogleReview } from './entities/google-review.entity';
 
@@ -48,6 +50,8 @@ export class BusinessPlacesController {
         private googleReviewsRepo: Repository<GoogleReview>,
         @InjectRepository(PlaceTeamMember)
         private teamMemberRepo: Repository<PlaceTeamMember>,
+        private placeTeamService: PlaceTeamService,
+        private subscriptionsService: SubscriptionsService,
     ) { }
 
     @Get('onboarding/search')
@@ -179,6 +183,18 @@ export class BusinessPlacesController {
             coverImageUrl: p.coverImageUrl,
             category: p.category,
         }));
+    }
+
+    // El plan pago es de la sede (lo paga el dueño), no del usuario que consulta —
+    // así un Agente/Supervisor puede saber qué funciones tiene habilitadas la sede
+    // en la que trabaja sin tener suscripción propia.
+    @Get('places/:id/subscription-tier')
+    @ApiOperation({ summary: 'Get the active subscription tier for a place (via its owner), for any team member' })
+    @ApiParam({ name: 'id', description: 'Place UUID' })
+    async getSubscriptionTier(@Param('id') id: string, @CurrentUser() user: any) {
+        await this.placeTeamService.assertAccess(user.id, id);
+        const subscription = await this.subscriptionsService.getSubscriptionForPlace(id);
+        return { tier: subscription?.status === 'active' ? subscription.tier : null };
     }
 
     @Get('places/:id/profile')

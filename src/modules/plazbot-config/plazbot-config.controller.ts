@@ -1,7 +1,4 @@
-import { Controller, Post, Get, Put, Delete, Body, Query, Param, UseGuards, HttpCode, NotFoundException, ForbiddenException } from '@nestjs/common';
-import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
-import { Place } from '../places/entities/place.entity';
+import { Controller, Post, Get, Put, Delete, Body, Query, Param, UseGuards, HttpCode } from '@nestjs/common';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { PlaceBotConfigService } from './place-bot-config.service';
@@ -9,28 +6,26 @@ import { PlazBotAdvancedService } from '../plazbot/plazbot-advanced.service';
 import { WhatsAppTemplateService } from './whatsapp-template.service';
 import { SubscriptionTierGuard } from '../../common/guards/subscription-tier.guard';
 import { RequiresTier } from '../../common/decorators/requires-tier.decorator';
+import { PlaceTeamService } from '../team/place-team.service';
 
-@UseGuards(JwtAuthGuard, SubscriptionTierGuard)
-@RequiresTier('ia_total')
+// `config`/`configure` son por sede — el plan se resuelve vía la sede (dueño o
+// equipo), no vía el guard genérico. El resto de las rutas de este controller
+// (templates, campañas, envío) son configuración GLOBAL del workspace de
+// WhatsApp compartido, sin concepto de sede — esas sí siguen gateadas por el
+// plan propio del usuario que llama, con el guard de siempre a nivel método.
+@UseGuards(JwtAuthGuard)
 @Controller('plazbot-setup')
 export class PlazbotConfigController {
   constructor(
     private botConfigService: PlaceBotConfigService,
     private plazBotAdvanced: PlazBotAdvancedService,
     private templateService: WhatsAppTemplateService,
-    @InjectRepository(Place)
-    private placesRepo: Repository<Place>,
+    private placeTeamService: PlaceTeamService,
   ) {}
-
-  private async assertOwner(placeId: string, userId: string) {
-    const place = await this.placesRepo.findOne({ where: { id: placeId } });
-    if (!place) throw new NotFoundException('Local no encontrado');
-    if (place.claimedByUserId !== userId) throw new ForbiddenException('No tienes permiso para gestionar este local');
-  }
 
   @Get('config')
   async getConfig(@CurrentUser() user: any, @Query('placeId') placeId: string) {
-    if (placeId) await this.assertOwner(placeId, user.id);
+    if (placeId) await this.placeTeamService.assertAccess(user.id, placeId, 'ia_total');
     const config = placeId ? await this.botConfigService.findByPlaceId(placeId) : null;
     return {
       placeId: placeId || null,
@@ -48,7 +43,7 @@ export class PlazbotConfigController {
     @CurrentUser() user: any,
     @Body() dto: { placeId: string; botName?: string; restaurantName?: string; systemPrompt?: string; tone?: 'professional' | 'casual' | 'friendly' },
   ) {
-    await this.assertOwner(dto.placeId, user.id);
+    await this.placeTeamService.assertAccess(user.id, dto.placeId, 'ia_total');
     const saved = await this.botConfigService.createOrUpdate(dto.placeId, {
       botName: dto.botName,
       restaurantName: dto.restaurantName,
@@ -58,6 +53,8 @@ export class PlazbotConfigController {
     return { ...saved, webhookUrl: this.getWebhookUrl() };
   }
 
+  @UseGuards(SubscriptionTierGuard)
+  @RequiresTier('ia_total')
   @Get('status')
   getStatus() {
     const apiKey = process.env.PLAZBOT_API_KEY;
@@ -69,6 +66,8 @@ export class PlazbotConfigController {
     };
   }
 
+  @UseGuards(SubscriptionTierGuard)
+  @RequiresTier('ia_total')
   @Get('metrics')
   async getMetrics() {
     const { apiKey, workspaceId } = this.getGlobalCreds();
@@ -77,11 +76,15 @@ export class PlazbotConfigController {
 
   // ── Templates (guardados en DB + enviados a PlazBot) ──
 
+  @UseGuards(SubscriptionTierGuard)
+  @RequiresTier('ia_total')
   @Get('templates')
   async getTemplates() {
     return this.templateService.findAll();
   }
 
+  @UseGuards(SubscriptionTierGuard)
+  @RequiresTier('ia_total')
   @Post('template')
   async createTemplate(
     @Body() dto: {
@@ -99,27 +102,37 @@ export class PlazbotConfigController {
     return this.templateService.createAndSubmit(dto);
   }
 
+  @UseGuards(SubscriptionTierGuard)
+  @RequiresTier('ia_total')
   @Post('templates/:id/resend')
   async resendTemplate(@Param('id') id: string) {
     return this.templateService.resend(id);
   }
 
+  @UseGuards(SubscriptionTierGuard)
+  @RequiresTier('ia_total')
   @Post('templates/sync')
   async syncTemplates() {
     return this.templateService.syncStatuses();
   }
 
+  @UseGuards(SubscriptionTierGuard)
+  @RequiresTier('ia_total')
   @Delete('templates/:id')
   @HttpCode(204)
   async deleteTemplate(@Param('id') id: string) {
     await this.templateService.delete(id);
   }
 
+  @UseGuards(SubscriptionTierGuard)
+  @RequiresTier('ia_total')
   @Post('templates/:id/toggle')
   async toggleTemplate(@Param('id') id: string) {
     return this.templateService.toggle(id);
   }
 
+  @UseGuards(SubscriptionTierGuard)
+  @RequiresTier('ia_total')
   @Put('templates/:id')
   async updateTemplate(
     @Param('id') id: string,
@@ -141,6 +154,8 @@ export class PlazbotConfigController {
 
   // ── Envío de mensajes ──
 
+  @UseGuards(SubscriptionTierGuard)
+  @RequiresTier('ia_total')
   @Post('send-template')
   async sendTemplate(
     @Body() dto: { template: string; destination: string; variablesBody?: { variable: string; value: string }[] },
@@ -149,6 +164,8 @@ export class PlazbotConfigController {
     return this.plazBotAdvanced.sendTemplateMessage(apiKey, workspaceId, dto);
   }
 
+  @UseGuards(SubscriptionTierGuard)
+  @RequiresTier('ia_total')
   @Post('campaign')
   async createCampaign(
     @Body() dto: { name: string; templateId: string; contacts: string[] },

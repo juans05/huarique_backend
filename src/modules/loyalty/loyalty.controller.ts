@@ -1,30 +1,22 @@
-import { Controller, Get, Post, Put, Delete, Param, Body, Query, UseGuards, ForbiddenException } from '@nestjs/common';
+import { Controller, Get, Post, Put, Delete, Param, Body, Query, UseGuards } from '@nestjs/common';
 import { ApiTags, ApiBearerAuth, ApiOperation } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
-import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
-import { Place } from '../places/entities/place.entity';
 import { LoyaltyService } from './loyalty.service';
-import { SubscriptionTierGuard } from '../../common/guards/subscription-tier.guard';
-import { RequiresTier } from '../../common/decorators/requires-tier.decorator';
+import { PlaceTeamService } from '../team/place-team.service';
 
 @ApiTags('loyalty')
 @Controller('business/places/:placeId/loyalty')
-@UseGuards(JwtAuthGuard, SubscriptionTierGuard)
-@RequiresTier('fidelizacion')
+@UseGuards(JwtAuthGuard)
 @ApiBearerAuth()
 export class LoyaltyController {
   constructor(
     private readonly loyaltyService: LoyaltyService,
-    @InjectRepository(Place) private placesRepo: Repository<Place>,
+    private placeTeamService: PlaceTeamService,
   ) {}
 
   private async assertOwner(placeId: string, userId: string) {
-    const place = await this.placesRepo.findOne({ where: { id: placeId } });
-    if (!place || place.claimedByUserId !== userId) {
-      throw new ForbiddenException('No tienes permiso');
-    }
+    await this.placeTeamService.assertAccess(userId, placeId, 'fidelizacion');
   }
 
   // ── PROGRAMA ──────────────────────────────────────────────────────────

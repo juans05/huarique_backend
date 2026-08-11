@@ -10,6 +10,7 @@ import { Repository } from 'typeorm';
 import { ConfigService } from '@nestjs/config';
 import { Subscription } from './entities/subscription.entity';
 import { Payment } from './entities/payment.entity';
+import { Place } from '../places/entities/place.entity';
 
 export type SubscriptionTier = 'reputacion' | 'fidelizacion' | 'ia_total';
 
@@ -78,6 +79,8 @@ export class SubscriptionsService {
         private subscriptionsRepo: Repository<Subscription>,
         @InjectRepository(Payment)
         private paymentsRepo: Repository<Payment>,
+        @InjectRepository(Place)
+        private placesRepo: Repository<Place>,
         private configService: ConfigService,
     ) { }
 
@@ -193,6 +196,17 @@ export class SubscriptionsService {
             order: { createdAt: 'DESC' },
             relations: ['payments'],
         });
+    }
+
+    /**
+     * Resuelve el plan de una SEDE en vez de un usuario — el plan lo paga el dueño
+     * histórico (Place.claimedByUserId), pero un Agente/Supervisor de esa sede lo
+     * hereda igual, sin tener suscripción propia.
+     */
+    async getSubscriptionForPlace(placeId: string) {
+        const place = await this.placesRepo.findOne({ where: { id: placeId } });
+        if (!place?.claimedByUserId) return null;
+        return this.getMySubscription(place.claimedByUserId);
     }
 
     async getMyPayments(userId: string) {
