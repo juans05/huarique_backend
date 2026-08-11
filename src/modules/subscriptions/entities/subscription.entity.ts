@@ -9,6 +9,7 @@ import {
     OneToMany,
 } from 'typeorm';
 import { User } from '../../users/entities/user.entity';
+import { Place } from '../../places/entities/place.entity';
 import { Payment } from './payment.entity';
 
 @Entity('subscriptions')
@@ -16,6 +17,18 @@ export class Subscription {
     @PrimaryGeneratedColumn('uuid')
     id: string;
 
+    // La sede que desbloquea el plan. Sigue habiendo un solo plan activo por sede
+    // (índice único parcial en la migración) — el equipo entero de esa sede lo
+    // hereda vía PlaceTeamService, no hace falta suscripción por persona.
+    @Column({ name: 'place_id' })
+    placeId: string;
+
+    @ManyToOne(() => Place)
+    @JoinColumn({ name: 'place_id' })
+    place: Place;
+
+    // Quién lo pagó (tarjeta en Culqi a su nombre) — solo para trazabilidad/soporte,
+    // ya no se usa para resolver acceso.
     @Column({ name: 'user_id' })
     userId: string;
 
