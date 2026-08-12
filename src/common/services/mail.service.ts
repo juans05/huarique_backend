@@ -103,6 +103,38 @@ export class MailService {
         }
     }
 
+    async sendTeamMemberPasswordReset(email: string, fullName: string, code: string, placeName: string) {
+        try {
+            const resetUrl = `${this.frontendUrl}/forgot-password?email=${encodeURIComponent(email)}&code=${code}`;
+            const { data, error } = await this.resend.emails.send({
+                from: 'Wuarike <auth@wuarikes.com>',
+                to: [email],
+                subject: `Te sumaron al equipo de ${placeName} en Wuarike`,
+                html: `
+                    <div style="font-family: 'Inter', sans-serif; max-width: 600px; margin: 0 auto; background-color: #ffffff; padding: 40px; border-radius: 20px; border: 1px solid #eee;">
+                        <h1 style="color: #111827; font-size: 22px; font-weight: 900; margin-bottom: 10px;">¡Hola ${fullName}!</h1>
+                        <p style="color: #4b5563; font-size: 15px; margin-bottom: 20px;">
+                            Te agregaron al equipo de <strong>${placeName}</strong> en Wuarike. Ya tenías una cuenta, así que por seguridad
+                            necesitás confirmar una contraseña nueva antes de entrar:
+                        </p>
+                        <div style="text-align: center; margin-bottom: 20px;">
+                            <a href="${resetUrl}" style="display: inline-block; background: #F26122; color: #ffffff; text-decoration: none; padding: 14px 28px; border-radius: 12px; font-weight: 700; font-size: 15px;">
+                                Cambiar mi contraseña
+                            </a>
+                        </div>
+                        <p style="color: #9ca3af; font-size: 12px;">Si el botón no funciona, copiá y pegá este link en tu navegador: ${resetUrl}</p>
+                    </div>
+                `,
+            });
+
+            if (error) throw error;
+            return data;
+        } catch (error) {
+            console.error('Error sending team member password reset:', error);
+            throw new InternalServerErrorException('Error al enviar el correo de cambio de contraseña');
+        }
+    }
+
     async sendTeamMemberCredentials(email: string, fullName: string, password: string, placeName: string, role: string) {
         try {
             const { data, error } = await this.resend.emails.send({

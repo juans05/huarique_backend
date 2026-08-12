@@ -124,7 +124,7 @@ export class TeamController {
                 // convertir el código en una contraseña nueva.
                 const resetCode = Math.floor(100000 + Math.random() * 900000).toString();
                 await this.usersService.setVerificationCode(user.id, resetCode);
-                await this.mailService.sendVerificationCode(dto.email, resetCode);
+                await this.mailService.sendTeamMemberPasswordReset(dto.email, dto.fullName, resetCode, place.name);
             } else {
                 await this.mailService.sendTeamMemberCredentials(
                     dto.email,

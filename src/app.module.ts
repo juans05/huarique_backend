@@ -37,6 +37,7 @@ import { PlazBotModule } from './modules/plazbot/plazbot.module';
 import { ContactsModule } from './modules/contacts/contacts.module';
 import { AuditLogModule } from './modules/audit-log/audit-log.module';
 import { CreditsModule } from './modules/credits/credits.module';
+import { ReportsModule } from './modules/reports/reports.module';
 
 @Module({
     imports: [
@@ -111,6 +112,7 @@ import { CreditsModule } from './modules/credits/credits.module';
         ContactsModule,
         AuditLogModule,
         CreditsModule,
+        ReportsModule,
     ],
     providers: [
         {

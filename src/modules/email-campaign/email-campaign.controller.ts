@@ -1,4 +1,4 @@
-import { Controller, Post, Get, Patch, Delete, Param, Body, HttpCode, HttpStatus, UseGuards } from '@nestjs/common';
+import { Controller, Post, Get, Patch, Delete, Param, Body, Query, HttpCode, HttpStatus, UseGuards } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
 import { EmailCampaignService } from './email-campaign.service';
 import { CreateEmailCampaignDto } from './dto/create-email-campaign.dto';
@@ -37,9 +37,14 @@ export class EmailCampaignController {
 
     @Get('place/:placeId/audience-count')
     @ApiOperation({ summary: 'Get count of customers with marketing consent for a place' })
-    async getAudienceCount(@Param('placeId') placeId: string, @CurrentUser() user: any) {
+    async getAudienceCount(
+        @Param('placeId') placeId: string,
+        @Query('sources') sources: string,
+        @CurrentUser() user: any,
+    ) {
         await this.assertOwner(placeId, user.id);
-        return await this.campaignService.getAudienceCount(placeId);
+        const parsed = sources?.split(',').filter(Boolean) as ('feedback' | 'contacts')[] | undefined;
+        return await this.campaignService.getAudienceCount(placeId, parsed?.length ? parsed : ['feedback']);
     }
 
     @Get(':campaignId')

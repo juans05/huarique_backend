@@ -84,6 +84,86 @@ export class PlazBotService {
     }
   }
 
+  async sendFile(
+    apiKey: string,
+    workspaceId: string,
+    contactId: string,
+    recipientPhone: string,
+    file: Express.Multer.File,
+    caption?: string,
+  ) {
+    this.logger.log(`[sendFile] Enviando archivo a phone=${recipientPhone} workspace=${workspaceId} mime=${file.mimetype}`);
+    try {
+      const form = new FormData();
+      form.append('workspaceId', workspaceId);
+      form.append('recipientPhone', recipientPhone);
+      form.append('contactId', contactId);
+      if (caption) form.append('content', caption);
+      form.append('contentFile', new Blob([new Uint8Array(file.buffer)], { type: file.mimetype }), file.originalname);
+
+      const response = await axios.post(
+        `${this.baseUrl}/api/message/files`,
+        form,
+        {
+          headers: {
+            'Authorization': `Bearer ${apiKey}`,
+            'x-workspace-id': workspaceId,
+          },
+        }
+      );
+      this.logger.log(`[sendFile] Respuesta status=${response.status} data=${JSON.stringify(response.data)}`);
+      return response.data;
+    } catch (error) {
+      this.logger.error(`[sendFile] Error status=${error?.response?.status} body=${JSON.stringify(error?.response?.data)}`, error?.message);
+      throw error;
+    }
+  }
+
+  // Resuelve el contactId interno de PlazBot a partir del teléfono — lo busca y,
+  // si no existe todavía en su CRM, lo crea. No lo cacheamos en ningún lado.
+  async resolveContactId(apiKey: string, workspaceId: string, phone: string, name?: string): Promise<string> {
+    let contact = await this.getContact(apiKey, workspaceId, phone);
+    if (!contact) {
+      contact = await this.createContact(apiKey, workspaceId, { name: name || phone, phone });
+    }
+    return contact.id;
+  }
+
+  async sendFileByUrl(
+    apiKey: string,
+    workspaceId: string,
+    contactId: string,
+    recipientPhone: string,
+    contentUrl: string,
+    caption?: string,
+  ) {
+    this.logger.log(`[sendFileByUrl] Enviando archivo a phone=${recipientPhone} workspace=${workspaceId} url=${contentUrl}`);
+    try {
+      const form = new FormData();
+      form.append('workspaceId', workspaceId);
+      form.append('recipientPhone', recipientPhone);
+      form.append('contactId', contactId);
+      if (caption) form.append('content', caption);
+      form.append('contentUrl', contentUrl);
+
+      const response = await axios.post(
+        `${this.baseUrl}/api/message/files`,
+        form,
+        {
+          headers: {
+            'Authorization': `Bearer ${apiKey}`,
+            'x-workspace-id': workspaceId,
+          },
+        }
+      );
+      this.logger.log(`[sendFileByUrl] Respuesta status=${response.status} data=${JSON.stringify(response.data)}`);
+      return response.data;
+    } catch (error) {
+      this.logger.error(`[sendFileByUrl] Error status=${error?.response?.status} body=${JSON.stringify(error?.response?.data)}`, error?.message);
+      throw error;
+    }
+  }
+
   async updateContact(
     apiKey: string,
     workspaceId: string,

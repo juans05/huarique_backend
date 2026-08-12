@@ -1,0 +1,7 @@
+{
+  "tool_name": "Read",
+  "tool_input_preview": "{\"file_path\":\"D:\\\\Github\\\\wuarikes\\\\huarique_backend\\\\src\\\\modules\\\\whatsapp\"}",
+  "error": "EISDIR: illegal operation on a directory, read 'D:\\Github\\wuarikes\\huarique_backend\\src\\modules\\whatsapp'",
+  "timestamp": "2026-08-11T19:22:46.697Z",
+  "retry_count": 1
+}

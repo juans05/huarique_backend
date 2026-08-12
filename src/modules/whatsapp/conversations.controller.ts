@@ -1,4 +1,5 @@
-import { Controller, Get, Post, Patch, Param, Body, UseGuards, Query, Sse, Req, BadRequestException, NotFoundException, ForbiddenException, ConflictException } from '@nestjs/common';
+import { Controller, Get, Post, Patch, Param, Body, UseGuards, UseInterceptors, UploadedFile, Query, Sse, Req, BadRequestException, NotFoundException, ForbiddenException, ConflictException, ParseFilePipe, MaxFileSizeValidator, FileTypeValidator } from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Observable } from 'rxjs';
@@ -11,11 +12,15 @@ import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { IsPublic } from '../../common/decorators/is-public.decorator';
 import { WhatsappService } from './whatsapp.service';
 import { PlazBotService } from '../plazbot/plazbot.service';
+import { UploadService } from '../upload/upload.service';
 import { JwtService } from '@nestjs/jwt';
 import { PlaceRoleGuard, ROLE_RANK } from '../../common/guards/place-role.guard';
 import { RequiresPlaceRole } from '../../common/decorators/requires-place-role.decorator';
 import { PlaceTeamService } from '../team/place-team.service';
 import { PlaceTeamMember, PlaceTeamRole } from '../team/entities/place-team-member.entity';
+
+// Tipos que PlazBot/WhatsApp aceptan para /api/message/files
+const ALLOWED_ATTACHMENT_MIME = /^(image\/(jpeg|png)|application\/pdf|application\/msword|application\/vnd\.openxmlformats-officedocument.*|video\/(mp4|3gpp)|audio\/(aac|amr|mpeg|mp4|ogg|webm|x-m4a))$/;
 
 @UseGuards(JwtAuthGuard)
 @Controller('business/conversations')
@@ -29,6 +34,7 @@ export class ConversationsController {
         private whatsappNumberRepo: Repository<WhatsAppNumber>,
         private whatsappService: WhatsappService,
         private plazbotService: PlazBotService,
+        private uploadService: UploadService,
         private eventEmitter: EventEmitter2,
         private jwtService: JwtService,
         private placeTeamService: PlaceTeamService,
@@ -88,10 +94,17 @@ export class ConversationsController {
                 return {
                     ...conv,
                     lastMessage: lastMessage?.messageBody || '',
-                    lastMessageTime: lastMessage?.createdAt
+                    lastMessageTime: lastMessage?.createdAt,
+                    awaitingReply: lastMessage?.messageType === 'INCOMING',
                 };
             })
         );
+
+        // Esperando respuesta primero, luego por mensaje más reciente
+        withLastMessage.sort((a, b) => {
+            if (a.awaitingReply !== b.awaitingReply) return a.awaitingReply ? -1 : 1;
+            return new Date(b.lastMessageTime || b.createdAt).getTime() - new Date(a.lastMessageTime || a.createdAt).getTime();
+        });
 
         return {
             data: withLastMessage,
@@ -194,7 +207,65 @@ export class ConversationsController {
         const workspaceId = process.env.PLAZBOT_WORKSPACE_ID || '';
         await this.plazbotService.sendMessage(apiKey, workspaceId, conversation.customerPhone, body.text);
 
+        this.eventEmitter.emit('whatsapp.message.received', {
+            placeId: conversation.placeId,
+            conversationId: conversation.id,
+            customerName: conversation.customerName,
+            customerPhone: conversation.customerPhone,
+            messageBody: body.text,
+            messageType: 'OUTGOING',
+        });
+
         return { data: message, message: 'Message sent successfully' };
+    }
+
+    // Send file/image/PDF attachment from operator
+    @Post(':conversationId/messages/file')
+    @UseInterceptors(FileInterceptor('file'))
+    async sendManualFile(
+        @Param('conversationId') conversationId: string,
+        @CurrentUser() user: any,
+        @Body() body: { caption?: string },
+        @UploadedFile(
+            new ParseFilePipe({
+                validators: [
+                    new MaxFileSizeValidator({ maxSize: 16 * 1024 * 1024 }), // 16MB — límite práctico de WhatsApp para no-imagen
+                    new FileTypeValidator({ fileType: ALLOWED_ATTACHMENT_MIME }),
+                ],
+            }),
+        )
+        file: Express.Multer.File,
+    ) {
+        const { conversation } = await this.assertConversationAccess(conversationId, user.id);
+
+        const apiKey = process.env.PLAZBOT_API_KEY || '';
+        const workspaceId = process.env.PLAZBOT_WORKSPACE_ID || '';
+
+        const contactId = await this.plazbotService.resolveContactId(apiKey, workspaceId, conversation.customerPhone, conversation.customerName);
+
+        const uploaded = await this.uploadService.uploadImage(file, 'wuarike/chat-attachments');
+        await this.plazbotService.sendFile(apiKey, workspaceId, contactId, conversation.customerPhone, file, body.caption);
+
+        const message = this.messageRepo.create({
+            conversationId: conversation.id,
+            messageType: 'OUTGOING',
+            messageBody: body.caption || '',
+            isFromAi: false,
+            mediaUrl: uploaded.secure_url,
+            mediaType: file.mimetype,
+        });
+        await this.messageRepo.save(message);
+
+        this.eventEmitter.emit('whatsapp.message.received', {
+            placeId: conversation.placeId,
+            conversationId: conversation.id,
+            customerName: conversation.customerName,
+            customerPhone: conversation.customerPhone,
+            messageBody: body.caption || '📎 Adjunto',
+            messageType: 'OUTGOING',
+        });
+
+        return { data: message, message: 'File sent successfully' };
     }
 
     // Reclamar una conversación sin asignar — UPDATE atómico, 409 si ya la tomó otro

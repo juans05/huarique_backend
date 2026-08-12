@@ -30,6 +30,7 @@ export class EmailCampaignService {
             bodyHtml: dto.bodyHtml,
             scheduledAt,
             status: isFuture ? 'SCHEDULED' : 'DRAFT',
+            audienceSources: dto.audienceSources?.length ? dto.audienceSources : ['feedback'],
         });
         return await this.campaignRepo.save(campaign);
     }
@@ -42,6 +43,7 @@ export class EmailCampaignService {
         if (dto.campaignName !== undefined) campaign.campaignName = dto.campaignName;
         if (dto.subject !== undefined) campaign.subject = dto.subject;
         if (dto.bodyHtml !== undefined) campaign.bodyHtml = dto.bodyHtml;
+        if (dto.audienceSources !== undefined) campaign.audienceSources = dto.audienceSources.length ? dto.audienceSources : ['feedback'];
         return await this.campaignRepo.save(campaign);
     }
 
@@ -115,7 +117,7 @@ export class EmailCampaignService {
             throw new Error(`Campaign ${campaignId} is not in DRAFT or SCHEDULED state`);
         }
 
-        const customers = await this.getCustomersWithConsent(campaign.placeId);
+        const customers = await this.getCustomersWithConsent(campaign.placeId, campaign.audienceSources || ['feedback']);
 
         campaign.status = 'SENDING';
         campaign.totalRecipients = customers.length;
@@ -156,29 +158,60 @@ export class EmailCampaignService {
         return campaign;
     }
 
-    async getAudienceCount(placeId: string): Promise<{ audienceCount: number }> {
-        const result = await this.campaignRepo.query(
-            `SELECT COUNT(DISTINCT customer_contact)::int AS count
-             FROM wuarike_db.public_feedback
-             WHERE place_id = $1
-               AND marketing_consent = TRUE
-               AND customer_contact IS NOT NULL
-               AND customer_contact LIKE '%@%'`,
-            [placeId]
-        );
-        return { audienceCount: result[0]?.count ?? 0 };
+    async getAudienceCount(placeId: string, sources: ('feedback' | 'contacts')[] = ['feedback']): Promise<{ audienceCount: number }> {
+        const customers = await this.getCustomersWithConsent(placeId, sources);
+        return { audienceCount: customers.length };
     }
 
-    private async getCustomersWithConsent(placeId: string) {
-        return await this.campaignRepo.query(
-            `SELECT DISTINCT ON (customer_contact) customer_name, customer_contact
-             FROM wuarike_db.public_feedback
-             WHERE place_id = $1
-               AND marketing_consent = TRUE
-               AND customer_contact IS NOT NULL
-               AND customer_contact LIKE '%@%'
-             ORDER BY customer_contact, created_at DESC`,
-            [placeId]
-        );
+    // Une "fidelización" (reseñas con consentimiento) y/o "contactos" (agenda de
+    // WhatsApp/importados), sin duplicar destinatarios que estén en ambas fuentes
+    // con el mismo email.
+    private async getCustomersWithConsent(
+        placeId: string,
+        sources: ('feedback' | 'contacts')[],
+    ): Promise<{ customerName: string; customerContact: string }[]> {
+        const queries: Promise<{ customerName: string; customerContact: string }[]>[] = [];
+
+        if (sources.includes('feedback')) {
+            queries.push(
+                this.campaignRepo.query(
+                    `SELECT DISTINCT ON (customer_contact)
+                        customer_name AS "customerName", customer_contact AS "customerContact"
+                     FROM wuarike_db.public_feedback
+                     WHERE place_id = $1
+                       AND marketing_consent = TRUE
+                       AND customer_contact IS NOT NULL
+                       AND customer_contact LIKE '%@%'
+                     ORDER BY customer_contact, created_at DESC`,
+                    [placeId],
+                ),
+            );
+        }
+
+        if (sources.includes('contacts')) {
+            queries.push(
+                this.campaignRepo.query(
+                    `SELECT DISTINCT ON (email)
+                        name AS "customerName", email AS "customerContact"
+                     FROM wuarike_db.contacts
+                     WHERE place_id = $1
+                       AND marketing_consent = TRUE
+                       AND email IS NOT NULL
+                       AND email LIKE '%@%'
+                     ORDER BY email, created_at DESC`,
+                    [placeId],
+                ),
+            );
+        }
+
+        const results = await Promise.all(queries);
+        const merged = new Map<string, { customerName: string; customerContact: string }>();
+        for (const rows of results) {
+            for (const row of rows) {
+                const key = row.customerContact.toLowerCase();
+                if (!merged.has(key)) merged.set(key, row);
+            }
+        }
+        return Array.from(merged.values());
     }
 }
