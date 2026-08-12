@@ -14,6 +14,7 @@ import { AuthModule } from '../auth/auth.module';
 import { PlazBotModule } from '../plazbot/plazbot.module';
 import { SubscriptionsModule } from '../subscriptions/subscriptions.module';
 import { TeamModule } from '../team/team.module';
+import { UploadModule } from '../upload/upload.module';
 
 @Module({
     imports: [
@@ -24,6 +25,7 @@ import { TeamModule } from '../team/team.module';
         PlazBotModule,
         SubscriptionsModule,
         TeamModule,
+        UploadModule,
     ],
     controllers: [WhatsappController, ConversationsController, WhatsAppNumbersController, AdminWhatsAppNumbersController],
     providers: [WhatsappService],

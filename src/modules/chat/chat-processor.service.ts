@@ -10,6 +10,8 @@ import { VectorService } from '../ai/vector.service';
 import { MenuFormatterService } from '../places/menu-formatter.service';
 import { PlaceBotConfigService } from '../plazbot-config/place-bot-config.service';
 import { PlaceBotConfig } from '../plazbot-config/entities/place-bot-config.entity';
+import { BotMenuOptionService } from '../plazbot-config/bot-menu-option.service';
+import { BotMenuOption } from '../plazbot-config/entities/bot-menu-option.entity';
 import { Conversation } from '../whatsapp/entities/conversation.entity';
 import { Message } from '../whatsapp/entities/message.entity';
 
@@ -37,6 +39,7 @@ export class ChatProcessorService {
     private vectorService: VectorService,
     private menuFormatter: MenuFormatterService,
     private botConfigService: PlaceBotConfigService,
+    private menuOptionService: BotMenuOptionService,
     private eventEmitter: EventEmitter2,
     @InjectRepository(Conversation)
     private conversationRepo: Repository<Conversation>,
@@ -82,7 +85,7 @@ export class ChatProcessorService {
     if (this.gemini) {
       try {
         // systemInstruction va en getGenerativeModel(), no en startChat() — la API lo rechaza ahí.
-        const model = this.gemini.getGenerativeModel({ model: 'gemini-2.0-flash', systemInstruction: systemPrompt });
+        const model = this.gemini.getGenerativeModel({ model: 'gemini-2.5-flash', systemInstruction: systemPrompt });
         const chat = model.startChat({
           history: history.map(m => ({ role: m.role === 'assistant' ? 'model' : 'user', parts: [{ text: m.content }] })),
         });
@@ -170,6 +173,7 @@ FORMATO OBLIGATORIO PARA WHATSAPP:
       where: { placeId, customerPhone: contact.phone, status: Not('cerrado') as any },
       order: { createdAt: 'DESC' },
     });
+    const isNewConversation = !conversation;
     if (!conversation) {
       conversation = this.conversationRepo.create({
         placeId,
@@ -198,6 +202,7 @@ FORMATO OBLIGATORIO PARA WHATSAPP:
       customerName: conversation.customerName,
       customerPhone: conversation.customerPhone,
       messageBody,
+      messageType: 'INCOMING',
     });
 
     // 3. Si está en modo humano, el agente responde manualmente — no procesar
@@ -208,6 +213,17 @@ FORMATO OBLIGATORIO PARA WHATSAPP:
 
     // 4. Configuración del bot para este restaurante
     const botConfig = await this.botConfigService.findByPlaceId(placeId);
+
+    // 4b. Modo "menú de botones" — flujo determinístico simulando botones con texto
+    // numerado, sin gastar ninguna llamada a IA (Claude/Grok/Gemini). Si el
+    // restaurante activó el modo pero todavía no cargó ninguna opción, seguimos
+    // de largo al flujo de IA en vez de mandar un menú vacío.
+    if (botConfig?.responseMode === 'menu') {
+      const menuOptions = await this.menuOptionService.findByPlaceId(placeId);
+      if (menuOptions.length > 0) {
+        return this.handleMenuFlow(conversation, isNewConversation, messageBody, botConfig, menuOptions, apiKey, workspaceId);
+      }
+    }
 
     // 5. RAG: buscar contexto relevante de la knowledge base
     let ragContext = '';
@@ -295,10 +311,122 @@ FORMATO OBLIGATORIO PARA WHATSAPP:
       customerName: conversation.customerName,
       customerPhone: conversation.customerPhone,
       messageBody: botResponse,
+      messageType: 'OUTGOING',
     });
 
     // 10. Enviar respuesta via PlazBot
     await this.plazbot.sendMessage(apiKey, workspaceId, contact.phone, botResponse);
+
+    return { success: true };
+  }
+
+  private buildMenuOptions(options: BotMenuOption[]): string {
+    return options.map((o, i) => `${i + 1}️⃣ ${o.label}`).join('\n');
+  }
+
+  private buildMenuGreeting(botConfig: PlaceBotConfig, options: BotMenuOption[]): string {
+    const restaurantName = botConfig.restaurantName || 'nuestro restaurante';
+    return `¡Hola! Soy el asistente de ${restaurantName}. Elegí una opción escribiendo el número:\n\n${this.buildMenuOptions(options)}`;
+  }
+
+  private guessMediaType(url: string): string {
+    const ext = url.split('?')[0].split('.').pop()?.toLowerCase();
+    if (ext === 'pdf') return 'application/pdf';
+    if (ext === 'png') return 'image/png';
+    if (ext === 'webp') return 'image/webp';
+    if (ext === '3gp') return 'video/3gpp';
+    if (ext === 'mp4') return 'video/mp4';
+    return 'image/jpeg';
+  }
+
+  private async sendAndLogText(apiKey: string, workspaceId: string, conversation: Conversation, text: string): Promise<void> {
+    await this.messageRepo.save(
+      this.messageRepo.create({
+        conversationId: conversation.id,
+        messageType: 'OUTGOING',
+        messageBody: text,
+      }),
+    );
+    this.eventEmitter.emit('whatsapp.message.received', {
+      placeId: conversation.placeId,
+      conversationId: conversation.id,
+      customerName: conversation.customerName,
+      customerPhone: conversation.customerPhone,
+      messageBody: text,
+      messageType: 'OUTGOING',
+    });
+    await this.plazbot.sendMessage(apiKey, workspaceId, conversation.customerPhone, text);
+  }
+
+  private async sendAndLogFile(apiKey: string, workspaceId: string, conversation: Conversation, fileUrl: string, caption?: string): Promise<void> {
+    const mediaType = this.guessMediaType(fileUrl);
+    const contactId = await this.plazbot.resolveContactId(apiKey, workspaceId, conversation.customerPhone, conversation.customerName);
+    await this.plazbot.sendFileByUrl(apiKey, workspaceId, contactId, conversation.customerPhone, fileUrl, caption);
+    await this.messageRepo.save(
+      this.messageRepo.create({
+        conversationId: conversation.id,
+        messageType: 'OUTGOING',
+        messageBody: caption || '',
+        mediaUrl: fileUrl,
+        mediaType,
+      }),
+    );
+    this.eventEmitter.emit('whatsapp.message.received', {
+      placeId: conversation.placeId,
+      conversationId: conversation.id,
+      customerName: conversation.customerName,
+      customerPhone: conversation.customerPhone,
+      messageBody: caption || '📎 Adjunto',
+      messageType: 'OUTGOING',
+    });
+  }
+
+  // Simula un menú de botones con texto numerado — PlazBot solo soporta botones
+  // reales de WhatsApp vía su flow-builder propio, no vía API, así que esta es
+  // la alternativa determinística (sin IA) para restaurantes que la prefieren.
+  // Las opciones (texto + acción) las define cada restaurante desde el admin panel.
+  private async handleMenuFlow(
+    conversation: Conversation,
+    isNewConversation: boolean,
+    messageBody: string,
+    botConfig: PlaceBotConfig,
+    options: BotMenuOption[],
+    apiKey: string,
+    workspaceId: string,
+  ): Promise<{ success: boolean }> {
+    if (isNewConversation) {
+      await this.sendAndLogText(apiKey, workspaceId, conversation, this.buildMenuGreeting(botConfig, options));
+      return { success: true };
+    }
+
+    const choice = messageBody.trim().toLowerCase();
+    const matched = options.find((o, i) => choice === String(i + 1) || choice.includes(o.label.toLowerCase()));
+
+    if (!matched) {
+      await this.sendAndLogText(apiKey, workspaceId, conversation, `No entendí, elegí una opción:\n\n${this.buildMenuOptions(options)}`);
+      return { success: true };
+    }
+
+    switch (matched.actionType) {
+      case 'file':
+        if (matched.actionValue) {
+          await this.sendAndLogFile(apiKey, workspaceId, conversation, matched.actionValue);
+        } else {
+          await this.sendAndLogText(apiKey, workspaceId, conversation, 'Todavía no tenemos ese archivo cargado.');
+        }
+        break;
+
+      case 'human':
+        conversation.mode = 'human';
+        await this.conversationRepo.save(conversation);
+        await this.sendAndLogText(apiKey, workspaceId, conversation, matched.actionValue || 'Ya te atiende alguien de nuestro equipo. En breve te responden por acá.');
+        break;
+
+      case 'text':
+      default:
+        await this.sendAndLogText(apiKey, workspaceId, conversation, matched.actionValue || matched.label);
+        break;
+    }
 
     return { success: true };
   }

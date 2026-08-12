@@ -25,6 +25,12 @@ export class Message {
     @Column({ name: 'whatsapp_message_id', nullable: true })
     whatsappMessageId: string;
 
+    @Column({ name: 'media_url', type: 'text', nullable: true })
+    mediaUrl: string | null;
+
+    @Column({ name: 'media_type', nullable: true })
+    mediaType: string | null;
+
     @CreateDateColumn({ name: 'created_at' })
     createdAt: Date;
 }

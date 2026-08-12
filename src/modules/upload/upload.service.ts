@@ -7,11 +7,11 @@ import * as streamifier from 'streamifier';
 export class UploadService {
     private readonly logger = new Logger(UploadService.name);
 
-    async uploadImage(file: Express.Multer.File): Promise<CloudinaryResponse> {
+    async uploadImage(file: Express.Multer.File, folder = 'wuarike/places'): Promise<CloudinaryResponse> {
         return new Promise((resolve, reject) => {
             const uploadStream = cloudinary.uploader.upload_stream(
                 {
-                    folder: 'wuarike/places',
+                    folder,
                     resource_type: 'auto',
                 },
                 (error, result) => {

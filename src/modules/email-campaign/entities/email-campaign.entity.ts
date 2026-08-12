@@ -38,6 +38,11 @@ export class EmailCampaign {
     @Column({ name: 'scheduled_at', type: 'timestamp', nullable: true })
     scheduledAt: Date | null;
 
+    // Null = comportamiento histórico (solo 'feedback'), para campañas creadas
+    // antes de que existiera esta columna.
+    @Column({ name: 'audience_sources', type: 'jsonb', nullable: true })
+    audienceSources: ('feedback' | 'contacts')[] | null;
+
     @Column({ default: 'America/Lima' })
     timezone: string;
 

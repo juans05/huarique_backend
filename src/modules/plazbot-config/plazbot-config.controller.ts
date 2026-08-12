@@ -4,6 +4,7 @@ import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { PlaceBotConfigService } from './place-bot-config.service';
 import { PlazBotAdvancedService } from '../plazbot/plazbot-advanced.service';
 import { WhatsAppTemplateService } from './whatsapp-template.service';
+import { BotMenuOptionService } from './bot-menu-option.service';
 import { SubscriptionTierGuard } from '../../common/guards/subscription-tier.guard';
 import { RequiresTier } from '../../common/decorators/requires-tier.decorator';
 import { PlaceTeamService } from '../team/place-team.service';
@@ -20,6 +21,7 @@ export class PlazbotConfigController {
     private botConfigService: PlaceBotConfigService,
     private plazBotAdvanced: PlazBotAdvancedService,
     private templateService: WhatsAppTemplateService,
+    private menuOptionService: BotMenuOptionService,
     private placeTeamService: PlaceTeamService,
   ) {}
 
@@ -34,6 +36,7 @@ export class PlazbotConfigController {
       systemPrompt: config?.systemPrompt || null,
       tone: config?.tone || 'professional',
       isActive: config?.isActive ?? true,
+      responseMode: config?.responseMode || 'ai',
       webhookUrl: this.getWebhookUrl(),
     };
   }
@@ -41,7 +44,14 @@ export class PlazbotConfigController {
   @Post('configure')
   async configure(
     @CurrentUser() user: any,
-    @Body() dto: { placeId: string; botName?: string; restaurantName?: string; systemPrompt?: string; tone?: 'professional' | 'casual' | 'friendly' },
+    @Body() dto: {
+      placeId: string;
+      botName?: string;
+      restaurantName?: string;
+      systemPrompt?: string;
+      tone?: 'professional' | 'casual' | 'friendly';
+      responseMode?: 'ai' | 'menu';
+    },
   ) {
     await this.placeTeamService.assertAccess(user.id, dto.placeId, 'ia_total');
     const saved = await this.botConfigService.createOrUpdate(dto.placeId, {
@@ -49,8 +59,31 @@ export class PlazbotConfigController {
       restaurantName: dto.restaurantName,
       systemPrompt: dto.systemPrompt,
       tone: dto.tone,
+      responseMode: dto.responseMode,
     });
     return { ...saved, webhookUrl: this.getWebhookUrl() };
+  }
+
+  // ── Opciones del menú de botones (modo "menu") ──
+
+  @Get('menu-options')
+  async getMenuOptions(@CurrentUser() user: any, @Query('placeId') placeId: string) {
+    await this.placeTeamService.assertAccess(user.id, placeId, 'ia_total');
+    const options = await this.menuOptionService.findByPlaceId(placeId);
+    return { data: options };
+  }
+
+  @Post('menu-options')
+  async saveMenuOptions(
+    @CurrentUser() user: any,
+    @Body() dto: {
+      placeId: string;
+      options: { label: string; actionType: 'file' | 'text' | 'human'; actionValue?: string }[];
+    },
+  ) {
+    await this.placeTeamService.assertAccess(user.id, dto.placeId, 'ia_total');
+    const saved = await this.menuOptionService.replaceAll(dto.placeId, dto.options);
+    return { data: saved };
   }
 
   @UseGuards(SubscriptionTierGuard)

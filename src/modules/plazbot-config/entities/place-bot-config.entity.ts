@@ -28,6 +28,9 @@ export class PlaceBotConfig {
   @Column({ default: true, name: 'is_active' })
   isActive: boolean;
 
+  @Column({ default: 'ai', name: 'response_mode' })
+  responseMode: 'ai' | 'menu';
+
   @CreateDateColumn({ name: 'created_at' })
   createdAt: Date;
 

@@ -1,4 +1,4 @@
-import { IsString, IsOptional, IsUUID, IsDateString } from 'class-validator';
+import { IsString, IsOptional, IsUUID, IsDateString, IsArray, IsIn } from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 
 export class CreateEmailCampaignDto {
@@ -22,4 +22,13 @@ export class CreateEmailCampaignDto {
     @IsOptional()
     @IsDateString()
     scheduledAt?: string;
+
+    @ApiPropertyOptional({
+        description: 'De dónde sacar los destinatarios: clientes fidelizados (feedback con consentimiento) y/o la lista de contactos. Default: ["feedback"].',
+        example: ['feedback', 'contacts'],
+    })
+    @IsOptional()
+    @IsArray()
+    @IsIn(['feedback', 'contacts'], { each: true })
+    audienceSources?: ('feedback' | 'contacts')[];
 }
