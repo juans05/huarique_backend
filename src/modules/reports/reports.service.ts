@@ -145,7 +145,7 @@ export class ReportsService {
   private async getStatusBuckets(placeId: string, from: Date, to: Date): Promise<Record<Bucket, number>> {
     const rows = await this.repo.query(
       `SELECT ${BUCKET_CASE} AS bucket, COUNT(*)::int AS count
-       FROM conversations
+       FROM wuarike_db.conversations
        WHERE place_id = $1 AND created_at >= $2 AND created_at < $3
        GROUP BY 1`,
       [placeId, from, to],
@@ -157,7 +157,7 @@ export class ReportsService {
 
   private async getContactsCount(placeId: string, from: Date, to: Date): Promise<number> {
     const rows = await this.repo.query(
-      `SELECT COUNT(*)::int AS count FROM contacts WHERE place_id = $1 AND created_at >= $2 AND created_at < $3`,
+      `SELECT COUNT(*)::int AS count FROM wuarike_db.contacts WHERE place_id = $1 AND created_at >= $2 AND created_at < $3`,
       [placeId, from, to],
     );
     return Number(rows[0]?.count ?? 0);
@@ -167,7 +167,7 @@ export class ReportsService {
     const rows = await this.repo.query(
       `WITH bucketed AS (
          SELECT date_trunc('day', created_at) AS day, ${BUCKET_CASE} AS bucket
-         FROM conversations
+         FROM wuarike_db.conversations
          WHERE place_id = $1 AND created_at >= $2 AND created_at < $3
        )
        SELECT
@@ -192,7 +192,7 @@ export class ReportsService {
   private async getConversationsByHour(placeId: string, from: Date, to: Date) {
     const rows = await this.repo.query(
       `SELECT EXTRACT(HOUR FROM created_at)::int AS hour, COUNT(*)::int AS count
-       FROM conversations
+       FROM wuarike_db.conversations
        WHERE place_id = $1 AND created_at >= $2 AND created_at < $3
        GROUP BY 1 ORDER BY 1`,
       [placeId, from, to],
@@ -205,7 +205,7 @@ export class ReportsService {
     const rows = await this.repo.query(
       `WITH bucketed AS (
          SELECT customer_phone, customer_name, created_at, ${BUCKET_CASE} AS bucket
-         FROM conversations
+         FROM wuarike_db.conversations
          WHERE place_id = $1 AND created_at >= $2 AND created_at < $3
        )
        SELECT
@@ -234,8 +234,8 @@ export class ReportsService {
       `WITH first_times AS (
          SELECT c.id, c.created_at AS conv_start,
            MIN(m.created_at) FILTER (WHERE m.message_type = 'OUTGOING') AS first_response
-         FROM conversations c
-         JOIN messages m ON m.conversation_id = c.id
+         FROM wuarike_db.conversations c
+         JOIN wuarike_db.messages m ON m.conversation_id = c.id
          WHERE c.place_id = $1 AND c.created_at >= $2 AND c.created_at < $3
          GROUP BY c.id, c.created_at
        )
@@ -249,7 +249,7 @@ export class ReportsService {
   private async getAvgResolutionSeconds(placeId: string, from: Date, to: Date): Promise<number | null> {
     const rows = await this.repo.query(
       `SELECT AVG(EXTRACT(EPOCH FROM (closed_at - created_at)))::float AS avg_seconds
-       FROM conversations
+       FROM wuarike_db.conversations
        WHERE place_id = $1 AND status = 'cerrado' AND closed_at IS NOT NULL
          AND created_at >= $2 AND created_at < $3`,
       [placeId, from, to],
@@ -261,7 +261,7 @@ export class ReportsService {
     const rows = await this.repo.query(
       `WITH bucketed AS (
          SELECT assigned_to_user_id, ${BUCKET_CASE} AS bucket
-         FROM conversations
+         FROM wuarike_db.conversations
          WHERE place_id = $1 AND created_at >= $2 AND created_at < $3
        )
        SELECT
@@ -270,8 +270,8 @@ export class ReportsService {
          COUNT(*) FILTER (WHERE b.bucket = 'attended')::int AS attended,
          COUNT(*) FILTER (WHERE b.bucket = 'resolved')::int AS resolved,
          COUNT(*) FILTER (WHERE b.bucket = 'pending')::int AS pending
-       FROM place_team_members ptm
-       JOIN users u ON u.id = ptm.user_id
+       FROM wuarike_db.place_team_members ptm
+       JOIN wuarike_db.users u ON u.id = ptm.user_id
        LEFT JOIN bucketed b ON b.assigned_to_user_id = u.id
        WHERE ptm.place_id = $1
        GROUP BY u.id, u.full_name
@@ -293,8 +293,8 @@ export class ReportsService {
       `WITH first_times AS (
          SELECT c.id, c.assigned_to_user_id, c.created_at AS conv_start,
            MIN(m.created_at) FILTER (WHERE m.message_type = 'OUTGOING') AS first_response
-         FROM conversations c
-         JOIN messages m ON m.conversation_id = c.id
+         FROM wuarike_db.conversations c
+         JOIN wuarike_db.messages m ON m.conversation_id = c.id
          WHERE c.place_id = $1 AND c.created_at >= $2 AND c.created_at < $3
            AND c.assigned_to_user_id IS NOT NULL
          GROUP BY c.id, c.assigned_to_user_id, c.created_at
@@ -310,7 +310,7 @@ export class ReportsService {
   private async getAgentResolutionTimes(placeId: string, from: Date, to: Date) {
     const rows = await this.repo.query(
       `SELECT assigned_to_user_id AS user_id, AVG(EXTRACT(EPOCH FROM (closed_at - created_at)))::float AS avg_seconds
-       FROM conversations
+       FROM wuarike_db.conversations
        WHERE place_id = $1 AND status = 'cerrado' AND closed_at IS NOT NULL AND assigned_to_user_id IS NOT NULL
          AND created_at >= $2 AND created_at < $3
        GROUP BY assigned_to_user_id`,
