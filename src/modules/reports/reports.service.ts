@@ -142,11 +142,18 @@ export class ReportsService {
     };
   }
 
+  // Cuenta conversaciones con actividad (mensajes) en el rango, no por fecha de creación —
+  // una conversación queda "abierto" indefinidamente, así que un mensaje de hoy en un chat
+  // viejo debe contar como actividad de hoy, no perderse en la fecha en que se abrió.
   private async getStatusBuckets(placeId: string, from: Date, to: Date): Promise<Record<Bucket, number>> {
     const rows = await this.repo.query(
       `SELECT ${BUCKET_CASE} AS bucket, COUNT(*)::int AS count
-       FROM wuarike_db.conversations
-       WHERE place_id = $1 AND created_at >= $2 AND created_at < $3
+       FROM wuarike_db.conversations c
+       WHERE c.place_id = $1
+         AND EXISTS (
+           SELECT 1 FROM wuarike_db.messages m
+           WHERE m.conversation_id = c.id AND m.created_at >= $2 AND m.created_at < $3
+         )
        GROUP BY 1`,
       [placeId, from, to],
     );
@@ -165,10 +172,16 @@ export class ReportsService {
 
   private async getConversationsByDay(placeId: string, from: Date, to: Date) {
     const rows = await this.repo.query(
-      `WITH bucketed AS (
-         SELECT date_trunc('day', created_at) AS day, ${BUCKET_CASE} AS bucket
-         FROM wuarike_db.conversations
-         WHERE place_id = $1 AND created_at >= $2 AND created_at < $3
+      `WITH activity AS (
+         SELECT DISTINCT date_trunc('day', m.created_at) AS day, c.id AS conv_id
+         FROM wuarike_db.messages m
+         JOIN wuarike_db.conversations c ON c.id = m.conversation_id
+         WHERE c.place_id = $1 AND m.created_at >= $2 AND m.created_at < $3
+       ),
+       bucketed AS (
+         SELECT a.day, ${BUCKET_CASE} AS bucket
+         FROM activity a
+         JOIN wuarike_db.conversations c ON c.id = a.conv_id
        )
        SELECT
          to_char(day, 'YYYY-MM-DD') AS date,
@@ -203,17 +216,24 @@ export class ReportsService {
 
   private async getConversationsByPhone(placeId: string, from: Date, to: Date) {
     const rows = await this.repo.query(
-      `WITH bucketed AS (
-         SELECT customer_phone, customer_name, created_at, ${BUCKET_CASE} AS bucket
-         FROM wuarike_db.conversations
-         WHERE place_id = $1 AND created_at >= $2 AND created_at < $3
+      `WITH msg_activity AS (
+         SELECT conversation_id, MAX(created_at) AS last_msg_at
+         FROM wuarike_db.messages
+         WHERE created_at >= $2 AND created_at < $3
+         GROUP BY conversation_id
+       ),
+       bucketed AS (
+         SELECT c.customer_phone, c.customer_name, ma.last_msg_at, ${BUCKET_CASE} AS bucket
+         FROM wuarike_db.conversations c
+         JOIN msg_activity ma ON ma.conversation_id = c.id
+         WHERE c.place_id = $1
        )
        SELECT
          customer_phone AS phone,
-         (ARRAY_AGG(customer_name ORDER BY created_at DESC))[1] AS contact_name,
+         (ARRAY_AGG(customer_name ORDER BY last_msg_at DESC))[1] AS contact_name,
          COUNT(*)::int AS conversations,
-         MAX(created_at) AS last_conversation_at,
-         (ARRAY_AGG(bucket ORDER BY created_at DESC))[1] AS status
+         MAX(last_msg_at) AS last_conversation_at,
+         (ARRAY_AGG(bucket ORDER BY last_msg_at DESC))[1] AS status
        FROM bucketed
        GROUP BY customer_phone
        ORDER BY conversations DESC
@@ -259,10 +279,15 @@ export class ReportsService {
 
   private async getAgentBase(placeId: string, from: Date, to: Date) {
     const rows = await this.repo.query(
-      `WITH bucketed AS (
-         SELECT assigned_to_user_id, ${BUCKET_CASE} AS bucket
-         FROM wuarike_db.conversations
-         WHERE place_id = $1 AND created_at >= $2 AND created_at < $3
+      `WITH activity_convs AS (
+         SELECT DISTINCT conversation_id FROM wuarike_db.messages
+         WHERE created_at >= $2 AND created_at < $3
+       ),
+       bucketed AS (
+         SELECT c.assigned_to_user_id, ${BUCKET_CASE} AS bucket
+         FROM wuarike_db.conversations c
+         JOIN activity_convs ac ON ac.conversation_id = c.id
+         WHERE c.place_id = $1
        )
        SELECT
          u.id AS user_id, u.full_name AS full_name,
