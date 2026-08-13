@@ -367,6 +367,7 @@ export class SocialController {
                 revealPrices: false,
                 personality: 'friendly',
                 isActive: true,
+                dmBotEnabled: false,
             });
             rules = await this.rulesRepo.save(rules);
         }

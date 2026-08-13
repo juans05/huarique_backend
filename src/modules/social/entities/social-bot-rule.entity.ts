@@ -42,6 +42,10 @@ export class SocialBotRule {
     @Column({ name: 'is_active', default: true })
     isActive: boolean;
 
+    // Aparte de isActive (comentarios) — el inbox de DMs es más personal, por defecto apagado.
+    @Column({ name: 'dm_bot_enabled', default: false })
+    dmBotEnabled: boolean;
+
     @CreateDateColumn({ name: 'created_at' })
     createdAt: Date;
 
