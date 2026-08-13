@@ -216,28 +216,35 @@ export class SocialController {
             if (!postId) continue;
 
             const commentsResult = await this.zernio.getPostComments(postId, account.platformUserId, 50);
-            const rawComments = commentsResult?.comments || commentsResult?.data || [];
+            // Forma real según el OpenAPI de Zernio (GET /v1/inbox/comments/{postId}):
+            // { comments: [{ id, message, createdTime, from: { username, name, picture } }] }
+            const rawComments = commentsResult?.comments || [];
 
             for (const raw of rawComments) {
-                const platformCommentId = raw.id || raw._id || raw.commentId;
+                const platformCommentId = raw.id;
                 if (!platformCommentId) continue;
 
-                const existing = await this.commentsRepo.findOne({ where: { platformCommentId } });
-                if (existing) continue;
-
-                await this.commentsRepo.save(this.commentsRepo.create({
+                const values = {
                     socialAccountId: account.id,
                     platformCommentId,
                     platformPostId: postId,
-                    authorUsername: raw.username || raw.from?.username || raw.author?.username || 'desconocido',
-                    authorProfilePic: raw.profilePicture || raw.from?.profilePicture || null,
-                    text: raw.text || raw.message || '',
-                    platformCreatedAt: raw.createdTime
-                        ? new Date(raw.createdTime)
-                        : raw.timestamp
-                            ? new Date(raw.timestamp)
-                            : null,
-                }));
+                    authorUsername: raw.from?.username || raw.from?.name || 'desconocido',
+                    authorProfilePic: raw.from?.picture || null,
+                    text: raw.message || '',
+                    platformCreatedAt: raw.createdTime ? new Date(raw.createdTime) : null,
+                };
+
+                const existing = await this.commentsRepo.findOne({ where: { platformCommentId } });
+                // Reintenta los que quedaron con datos de respaldo de una sincronización previa
+                // rota, en vez de dejarlos "desconocido"/vacíos para siempre.
+                if (existing && existing.authorUsername !== 'desconocido' && existing.text) continue;
+
+                if (existing) {
+                    Object.assign(existing, values);
+                    await this.commentsRepo.save(existing);
+                } else {
+                    await this.commentsRepo.save(this.commentsRepo.create(values));
+                }
             }
         }
     }
