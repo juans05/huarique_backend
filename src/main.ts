@@ -7,7 +7,9 @@ import * as cookieParser from 'cookie-parser';
 import { AppModule } from './app.module';
 
 async function bootstrap() {
-    const app = await NestFactory.create(AppModule);
+    // rawBody: true — necesario para verificar la firma HMAC del webhook de Zernio
+    // (necesita los bytes exactos del body, no el JSON re-serializado).
+    const app = await NestFactory.create(AppModule, { rawBody: true });
 
     // Validate critical secrets at startup
     const requiredSecrets = ['JWT_SECRET', 'JWT_REFRESH_SECRET'];
