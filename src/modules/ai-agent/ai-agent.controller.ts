@@ -2,6 +2,7 @@ import { Controller, Post, Get, Delete, Param, Body, UseGuards, UseInterceptors,
 import { FileInterceptor } from '@nestjs/platform-express';
 import { memoryStorage } from 'multer';
 import { GoogleGenerativeAI } from '@google/generative-ai';
+import { Anthropic } from '@anthropic-ai/sdk';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { KnowledgeBase } from '../ai/entities/knowledge-base.entity';
@@ -34,6 +35,9 @@ export class AiAgentController {
     private readonly logger = new Logger(AiAgentController.name);
     private gemini = process.env.GEMINI_API_KEY
         ? new GoogleGenerativeAI(process.env.GEMINI_API_KEY)
+        : null;
+    private anthropic = process.env.ANTHROPIC_API_KEY
+        ? new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
         : null;
 
     constructor(
@@ -259,7 +263,34 @@ export class AiAgentController {
             }
         }
 
-        // Todos los modelos agotaron cuota — no hay forma de extraer el texto ahora.
+        // Gemini agotó cuota en todos sus modelos — Claude es más caro por token,
+        // por eso va último, pero evita que la subida falle solo porque el nivel
+        // gratuito de Gemini se acabó por hoy.
+        if (this.anthropic) {
+            try {
+                this.logger.log(`[imageToMarkdown] Gemini no disponible, probando con Claude`);
+                const response = await this.anthropic.messages.create({
+                    model: 'claude-haiku-4-5-20251001',
+                    max_tokens: 4096,
+                    messages: [{
+                        role: 'user',
+                        content: [
+                            { type: 'image', source: { type: 'base64', media_type: mimeType as 'image/jpeg' | 'image/png' | 'image/webp' | 'image/gif', data: buffer.toString('base64') } },
+                            { type: 'text', text: prompt },
+                        ],
+                    }],
+                });
+                const text = response.content[0].type === 'text' ? response.content[0].text : '';
+                if (text) {
+                    this.logger.log(`[imageToMarkdown] Éxito con Claude`);
+                    return `# ${fileName}\n\n${text}`;
+                }
+            } catch (err) {
+                this.logger.warn(`[imageToMarkdown] Claude también falló: ${err?.message}`);
+            }
+        }
+
+        // Todos los proveedores agotaron cuota — no hay forma de extraer el texto ahora.
         // Antes esto guardaba un placeholder como si fuera contenido real (quedaba
         // "indexado" para siempre sin que el bot tuviera nada que leer). Mejor fallar
         // claro para que el usuario reintente cuando la cuota se renueve.
