@@ -99,7 +99,7 @@ export class PlacesController {
     @ApiOperation({ summary: 'Get public digital menu (categories and dishes) for a place' })
     @ApiParam({ name: 'id', description: 'Place UUID' })
     async getPublicMenu(@Param('id') id: string) {
-        const place = await this.placesRepo.findOne({ where: { id }, select: ['id', 'name', 'coverImageUrl'] });
+        const place = await this.placesRepo.findOne({ where: { id }, select: ['id', 'name', 'coverImageUrl', 'menuImageUrl'] });
         if (!place) throw new NotFoundException('Local no encontrado');
         const categories = await this.menuService.getMenu(id);
         return { place, categories };
