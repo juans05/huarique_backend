@@ -8,12 +8,14 @@ export interface CreateCategoryDto {
     name: string;
     description?: string;
     displayOrder?: number;
+    categoryType?: 'food' | 'drink' | 'dessert' | 'other';
 }
 
 export interface UpdateCategoryDto {
     name?: string;
     description?: string;
     displayOrder?: number;
+    categoryType?: 'food' | 'drink' | 'dessert' | 'other';
 }
 
 export interface CreateDishDto {
@@ -21,6 +23,8 @@ export interface CreateDishDto {
     price?: number;
     description?: string;
     imageUrl?: string;
+    videoUrl?: string;
+    isVegetarian?: boolean;
     categoryId?: string;
     displayOrder?: number;
 }
@@ -30,6 +34,8 @@ export interface UpdateDishDto {
     price?: number;
     description?: string;
     imageUrl?: string;
+    videoUrl?: string;
+    isVegetarian?: boolean;
     categoryId?: string;
     displayOrder?: number;
 }
@@ -50,6 +56,7 @@ export class MenuService {
             description: dto.description,
             placeId,
             displayOrder: dto.displayOrder ?? count,
+            categoryType: dto.categoryType || 'food',
         });
         return this.categoryRepo.save(category);
     }
@@ -83,6 +90,8 @@ export class MenuService {
             price: dto.price,
             description: dto.description,
             imageUrl: dto.imageUrl,
+            videoUrl: dto.videoUrl,
+            isVegetarian: dto.isVegetarian ?? false,
             categoryId: dto.categoryId,
             placeId,
             displayOrder: dto.displayOrder ?? 0,

@@ -25,6 +25,9 @@ export class MenuCategory {
     @Column({ name: 'display_order', default: 0 })
     displayOrder: number;
 
+    @Column({ name: 'category_type', default: 'food' })
+    categoryType: 'food' | 'drink' | 'dessert' | 'other';
+
     @ManyToOne(() => Place, { onDelete: 'CASCADE' })
     @JoinColumn({ name: 'place_id' })
     place: Place;
