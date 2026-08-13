@@ -21,6 +21,11 @@ const BUCKET_LABELS: Record<Bucket, string> = {
   resolved: 'Resueltas',
 };
 
+interface Filter {
+  statuses: Bucket[] | null;
+  agentId: string | null;
+}
+
 export interface ChangeMetric {
   value: number;
   previousValue: number;
@@ -35,8 +40,11 @@ export class ReportsService {
     private repo: Repository<Conversation>,
   ) {}
 
-  async getReport(placeId: string, fromStr?: string, toStr?: string) {
+  async getReport(placeId: string, fromStr?: string, toStr?: string, statuses?: Bucket[], agentId?: string) {
     const { from, to, prevFrom, prevTo } = this.resolveRange(fromStr, toStr);
+    // Filtro de Estado/Agente: los KPIs y el donut siempre muestran el desglose completo
+    // (son la referencia de qué podés filtrar); todo lo demás respeta el filtro.
+    const filter = { statuses: statuses?.length ? statuses : null, agentId: agentId || null };
 
     const [
       buckets,
@@ -58,16 +66,16 @@ export class ReportsService {
       this.getStatusBuckets(placeId, prevFrom, prevTo),
       this.getContactsCount(placeId, from, to),
       this.getContactsCount(placeId, prevFrom, prevTo),
-      this.getConversationsByDay(placeId, from, to),
-      this.getConversationsByHour(placeId, from, to),
-      this.getConversationsByPhone(placeId, from, to),
-      this.getAvgResponseSeconds(placeId, from, to),
-      this.getAvgResponseSeconds(placeId, prevFrom, prevTo),
-      this.getAvgResolutionSeconds(placeId, from, to),
-      this.getAvgResolutionSeconds(placeId, prevFrom, prevTo),
-      this.getAgentBase(placeId, from, to),
-      this.getAgentResponseTimes(placeId, from, to),
-      this.getAgentResolutionTimes(placeId, from, to),
+      this.getConversationsByDay(placeId, from, to, filter),
+      this.getConversationsByHour(placeId, from, to, filter),
+      this.getConversationsByPhone(placeId, from, to, filter),
+      this.getAvgResponseSeconds(placeId, from, to, filter),
+      this.getAvgResponseSeconds(placeId, prevFrom, prevTo, filter),
+      this.getAvgResolutionSeconds(placeId, from, to, filter),
+      this.getAvgResolutionSeconds(placeId, prevFrom, prevTo, filter),
+      this.getAgentBase(placeId, from, to, filter),
+      this.getAgentResponseTimes(placeId, from, to, filter),
+      this.getAgentResolutionTimes(placeId, from, to, filter),
     ]);
 
     const totalConversations = buckets.attended + buckets.unassigned + buckets.pending + buckets.resolved;
@@ -170,13 +178,15 @@ export class ReportsService {
     return Number(rows[0]?.count ?? 0);
   }
 
-  private async getConversationsByDay(placeId: string, from: Date, to: Date) {
+  private async getConversationsByDay(placeId: string, from: Date, to: Date, filter: Filter) {
     const rows = await this.repo.query(
       `WITH activity AS (
          SELECT DISTINCT date_trunc('day', m.created_at) AS day, c.id AS conv_id
          FROM wuarike_db.messages m
          JOIN wuarike_db.conversations c ON c.id = m.conversation_id
          WHERE c.place_id = $1 AND m.created_at >= $2 AND m.created_at < $3
+           AND ($4::text[] IS NULL OR (${BUCKET_CASE}) = ANY($4))
+           AND ($5::uuid IS NULL OR c.assigned_to_user_id = $5)
        ),
        bucketed AS (
          SELECT a.day, ${BUCKET_CASE} AS bucket
@@ -191,7 +201,7 @@ export class ReportsService {
          COUNT(*) FILTER (WHERE bucket = 'resolved')::int AS resolved
        FROM bucketed
        GROUP BY day ORDER BY day`,
-      [placeId, from, to],
+      [placeId, from, to, filter.statuses, filter.agentId],
     );
     return rows.map((r: any) => ({
       date: r.date,
@@ -202,19 +212,25 @@ export class ReportsService {
     }));
   }
 
-  private async getConversationsByHour(placeId: string, from: Date, to: Date) {
+  // Igual que getConversationsByDay: bucketea por actividad (mensajes) dentro del rango,
+  // no por fecha de creación de la conversación — si no, una conversación vieja con
+  // mensajes nuevos hoy queda invisible en el rango seleccionado.
+  private async getConversationsByHour(placeId: string, from: Date, to: Date, filter: Filter) {
     const rows = await this.repo.query(
-      `SELECT EXTRACT(HOUR FROM created_at)::int AS hour, COUNT(*)::int AS count
-       FROM wuarike_db.conversations
-       WHERE place_id = $1 AND created_at >= $2 AND created_at < $3
+      `SELECT EXTRACT(HOUR FROM m.created_at)::int AS hour, COUNT(*)::int AS count
+       FROM wuarike_db.messages m
+       JOIN wuarike_db.conversations c ON c.id = m.conversation_id
+       WHERE c.place_id = $1 AND m.created_at >= $2 AND m.created_at < $3
+         AND ($4::text[] IS NULL OR (${BUCKET_CASE}) = ANY($4))
+         AND ($5::uuid IS NULL OR c.assigned_to_user_id = $5)
        GROUP BY 1 ORDER BY 1`,
-      [placeId, from, to],
+      [placeId, from, to, filter.statuses, filter.agentId],
     );
     const byHour = new Map<number, number>(rows.map((r: any) => [Number(r.hour), Number(r.count)]));
     return Array.from({ length: 24 }, (_, hour) => ({ hour, count: byHour.get(hour) ?? 0 }));
   }
 
-  private async getConversationsByPhone(placeId: string, from: Date, to: Date) {
+  private async getConversationsByPhone(placeId: string, from: Date, to: Date, filter: Filter) {
     const rows = await this.repo.query(
       `WITH msg_activity AS (
          SELECT conversation_id, MAX(created_at) AS last_msg_at
@@ -227,6 +243,8 @@ export class ReportsService {
          FROM wuarike_db.conversations c
          JOIN msg_activity ma ON ma.conversation_id = c.id
          WHERE c.place_id = $1
+           AND ($4::text[] IS NULL OR (${BUCKET_CASE}) = ANY($4))
+           AND ($5::uuid IS NULL OR c.assigned_to_user_id = $5)
        )
        SELECT
          customer_phone AS phone,
@@ -238,7 +256,7 @@ export class ReportsService {
        GROUP BY customer_phone
        ORDER BY conversations DESC
        LIMIT 200`,
-      [placeId, from, to],
+      [placeId, from, to, filter.statuses, filter.agentId],
     );
     return rows.map((r: any) => ({
       phone: r.phone,
@@ -249,7 +267,7 @@ export class ReportsService {
     }));
   }
 
-  private async getAvgResponseSeconds(placeId: string, from: Date, to: Date): Promise<number | null> {
+  private async getAvgResponseSeconds(placeId: string, from: Date, to: Date, filter: Filter): Promise<number | null> {
     const rows = await this.repo.query(
       `WITH first_times AS (
          SELECT c.id, c.created_at AS conv_start,
@@ -257,27 +275,31 @@ export class ReportsService {
          FROM wuarike_db.conversations c
          JOIN wuarike_db.messages m ON m.conversation_id = c.id
          WHERE c.place_id = $1 AND c.created_at >= $2 AND c.created_at < $3
+           AND ($4::text[] IS NULL OR (${BUCKET_CASE}) = ANY($4))
+           AND ($5::uuid IS NULL OR c.assigned_to_user_id = $5)
          GROUP BY c.id, c.created_at
        )
        SELECT AVG(EXTRACT(EPOCH FROM (first_response - conv_start)))::float AS avg_seconds
        FROM first_times WHERE first_response IS NOT NULL`,
-      [placeId, from, to],
+      [placeId, from, to, filter.statuses, filter.agentId],
     );
     return rows[0]?.avg_seconds != null ? Number(rows[0].avg_seconds) : null;
   }
 
-  private async getAvgResolutionSeconds(placeId: string, from: Date, to: Date): Promise<number | null> {
+  private async getAvgResolutionSeconds(placeId: string, from: Date, to: Date, filter: Filter): Promise<number | null> {
     const rows = await this.repo.query(
       `SELECT AVG(EXTRACT(EPOCH FROM (closed_at - created_at)))::float AS avg_seconds
-       FROM wuarike_db.conversations
-       WHERE place_id = $1 AND status = 'cerrado' AND closed_at IS NOT NULL
-         AND created_at >= $2 AND created_at < $3`,
-      [placeId, from, to],
+       FROM wuarike_db.conversations c
+       WHERE c.place_id = $1 AND c.status = 'cerrado' AND c.closed_at IS NOT NULL
+         AND c.created_at >= $2 AND c.created_at < $3
+         AND ($4::text[] IS NULL OR (${BUCKET_CASE}) = ANY($4))
+         AND ($5::uuid IS NULL OR c.assigned_to_user_id = $5)`,
+      [placeId, from, to, filter.statuses, filter.agentId],
     );
     return rows[0]?.avg_seconds != null ? Number(rows[0].avg_seconds) : null;
   }
 
-  private async getAgentBase(placeId: string, from: Date, to: Date) {
+  private async getAgentBase(placeId: string, from: Date, to: Date, filter: Filter) {
     const rows = await this.repo.query(
       `WITH activity_convs AS (
          SELECT DISTINCT conversation_id FROM wuarike_db.messages
@@ -288,6 +310,7 @@ export class ReportsService {
          FROM wuarike_db.conversations c
          JOIN activity_convs ac ON ac.conversation_id = c.id
          WHERE c.place_id = $1
+           AND ($4::text[] IS NULL OR (${BUCKET_CASE}) = ANY($4))
        )
        SELECT
          u.id AS user_id, u.full_name AS full_name,
@@ -299,9 +322,10 @@ export class ReportsService {
        JOIN wuarike_db.users u ON u.id = ptm.user_id
        LEFT JOIN bucketed b ON b.assigned_to_user_id = u.id
        WHERE ptm.place_id = $1
+         AND ($5::uuid IS NULL OR u.id = $5)
        GROUP BY u.id, u.full_name
        ORDER BY conversations DESC`,
-      [placeId, from, to],
+      [placeId, from, to, filter.statuses, filter.agentId],
     );
     return rows.map((r: any) => ({
       userId: r.user_id,
@@ -313,7 +337,7 @@ export class ReportsService {
     }));
   }
 
-  private async getAgentResponseTimes(placeId: string, from: Date, to: Date) {
+  private async getAgentResponseTimes(placeId: string, from: Date, to: Date, filter: Filter) {
     const rows = await this.repo.query(
       `WITH first_times AS (
          SELECT c.id, c.assigned_to_user_id, c.created_at AS conv_start,
@@ -322,24 +346,28 @@ export class ReportsService {
          JOIN wuarike_db.messages m ON m.conversation_id = c.id
          WHERE c.place_id = $1 AND c.created_at >= $2 AND c.created_at < $3
            AND c.assigned_to_user_id IS NOT NULL
+           AND ($4::text[] IS NULL OR (${BUCKET_CASE}) = ANY($4))
+           AND ($5::uuid IS NULL OR c.assigned_to_user_id = $5)
          GROUP BY c.id, c.assigned_to_user_id, c.created_at
        )
        SELECT assigned_to_user_id AS user_id, AVG(EXTRACT(EPOCH FROM (first_response - conv_start)))::float AS avg_seconds
        FROM first_times WHERE first_response IS NOT NULL
        GROUP BY assigned_to_user_id`,
-      [placeId, from, to],
+      [placeId, from, to, filter.statuses, filter.agentId],
     );
     return rows.map((r: any) => ({ userId: r.user_id, avgSeconds: Number(r.avg_seconds) }));
   }
 
-  private async getAgentResolutionTimes(placeId: string, from: Date, to: Date) {
+  private async getAgentResolutionTimes(placeId: string, from: Date, to: Date, filter: Filter) {
     const rows = await this.repo.query(
       `SELECT assigned_to_user_id AS user_id, AVG(EXTRACT(EPOCH FROM (closed_at - created_at)))::float AS avg_seconds
-       FROM wuarike_db.conversations
-       WHERE place_id = $1 AND status = 'cerrado' AND closed_at IS NOT NULL AND assigned_to_user_id IS NOT NULL
-         AND created_at >= $2 AND created_at < $3
+       FROM wuarike_db.conversations c
+       WHERE c.place_id = $1 AND c.status = 'cerrado' AND c.closed_at IS NOT NULL AND c.assigned_to_user_id IS NOT NULL
+         AND c.created_at >= $2 AND c.created_at < $3
+         AND ($4::text[] IS NULL OR (${BUCKET_CASE}) = ANY($4))
+         AND ($5::uuid IS NULL OR c.assigned_to_user_id = $5)
        GROUP BY assigned_to_user_id`,
-      [placeId, from, to],
+      [placeId, from, to, filter.statuses, filter.agentId],
     );
     return rows.map((r: any) => ({ userId: r.user_id, avgSeconds: Number(r.avg_seconds) }));
   }

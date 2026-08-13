@@ -21,9 +21,12 @@ export class ReportsController {
         @Param('placeId') placeId: string,
         @Query('from') from: string | undefined,
         @Query('to') to: string | undefined,
+        @Query('statuses') statuses: string | undefined,
+        @Query('agentId') agentId: string | undefined,
         @CurrentUser() user: any,
     ) {
         await this.placeTeamService.assertAccess(user.id, placeId, 'ia_total');
-        return await this.reportsService.getReport(placeId, from, to);
+        const statusList = statuses?.split(',').filter(Boolean) as ('attended' | 'unassigned' | 'pending' | 'resolved')[] | undefined;
+        return await this.reportsService.getReport(placeId, from, to, statusList, agentId);
     }
 }
