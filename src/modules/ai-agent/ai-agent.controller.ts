@@ -259,8 +259,10 @@ export class AiAgentController {
             }
         }
 
-        // Todos los modelos agotaron cuota — subir imagen con aviso sin bloquear al usuario
-        this.logger.warn(`[imageToMarkdown] Cuota de Gemini agotada en todos los modelos. Subiendo imagen sin extracción de texto.`);
-        return `# ${fileName}\n\n*(Imagen indexada — el texto no pudo extraerse porque la cuota de Gemini está agotada. Se extraerá automáticamente cuando la cuota se renueve.)*`;
+        // Todos los modelos agotaron cuota — no hay forma de extraer el texto ahora.
+        // Antes esto guardaba un placeholder como si fuera contenido real (quedaba
+        // "indexado" para siempre sin que el bot tuviera nada que leer). Mejor fallar
+        // claro para que el usuario reintente cuando la cuota se renueve.
+        throw new Error('quota exceeded: no se pudo extraer el texto de la imagen');
     }
 }
