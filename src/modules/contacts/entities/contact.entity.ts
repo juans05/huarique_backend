@@ -27,7 +27,7 @@ export class Contact {
     @Column({ nullable: true })
     dni: string;
 
-    @Column({ type: 'jsonb', nullable: true })
+    @Column({ type: 'jsonb', nullable: true, name: 'custom_fields' })
     customFields: any;
 
     @Column({
