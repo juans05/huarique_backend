@@ -1,7 +1,7 @@
 import { Controller, Get, Post, Patch, Param, Body, UseGuards, UseInterceptors, UploadedFile, Query, Sse, Req, BadRequestException, NotFoundException, ForbiddenException, ConflictException, ParseFilePipe, MaxFileSizeValidator, FileTypeValidator } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { Repository, LessThan } from 'typeorm';
 import { Observable } from 'rxjs';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { Conversation } from './entities/conversation.entity';
@@ -145,23 +145,25 @@ export class ConversationsController {
         return { conversation, member };
     }
 
-    // Get messages for a conversation
+    // Get messages for a conversation (paginado por cursor, más recientes primero — "Cargar más" trae los anteriores a `before`)
     @Get(':conversationId/messages')
     async getConversationMessages(
         @Param('conversationId') conversationId: string,
-        @Query('limit') limit: string = '100',
+        @Query('limit') limit: string = '50',
+        @Query('before') before: string | undefined,
         @CurrentUser() user: any,
     ) {
         await this.assertConversationAccess(conversationId, user.id);
-        const limitNum = parseInt(limit) || 100;
+        const limitNum = parseInt(limit) || 50;
 
         const messages = await this.messageRepo.find({
-            where: { conversationId },
-            order: { createdAt: 'ASC' },
+            where: before ? { conversationId, createdAt: LessThan(new Date(before)) } : { conversationId },
+            order: { createdAt: 'DESC' },
             take: limitNum
         });
+        messages.reverse();
 
-        return { data: messages, total: messages.length };
+        return { data: messages, total: messages.length, hasMore: messages.length === limitNum };
     }
 
     // Change conversation mode (bot or human)
