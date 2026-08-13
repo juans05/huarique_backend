@@ -80,6 +80,9 @@ export class Place {
     @Column({ name: 'cover_image_url', nullable: true })
     coverImageUrl: string | null;
 
+    @Column({ name: 'menu_image_url', nullable: true })
+    menuImageUrl: string | null;
+
     @Column({ default: 'active' })
     status: 'active' | 'inactive' | 'pending';
 
