@@ -83,6 +83,9 @@ export class Place {
     @Column({ name: 'menu_image_url', nullable: true })
     menuImageUrl: string | null;
 
+    @Column({ name: 'logo_url', nullable: true })
+    logoUrl: string | null;
+
     @Column({ default: 'active' })
     status: 'active' | 'inactive' | 'pending';
 

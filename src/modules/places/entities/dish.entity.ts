@@ -27,6 +27,12 @@ export class Dish {
     @Column({ name: 'image_url', nullable: true })
     imageUrl: string | null;
 
+    @Column({ name: 'video_url', nullable: true })
+    videoUrl: string | null;
+
+    @Column({ name: 'is_vegetarian', default: false })
+    isVegetarian: boolean;
+
     @Column({ name: 'display_order', default: 0 })
     displayOrder: number;
 
