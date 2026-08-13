@@ -38,15 +38,24 @@ export class ZernioWebhookController {
         const secret = process.env.ZERNIO_WEBHOOK_SECRET;
         const rawBody = (req as any).rawBody as Buffer | undefined;
 
-        if (secret && rawBody) {
-            const expected = crypto.createHmac('sha256', secret).update(rawBody).digest('hex');
-            const provided = (signature || '').replace(/^sha256=/, '');
-            const valid = provided.length === expected.length
-                && crypto.timingSafeEqual(Buffer.from(expected), Buffer.from(provided));
-            if (!valid) {
-                this.logger.warn('[zernio-webhook] Firma inválida, se rechaza el request');
-                return res.status(401).json({ status: 'invalid signature' });
-            }
+        // Fail-closed: sin secret configurado o sin rawBody no hay forma de verificar
+        // la firma, así que se rechaza — nunca se procesa un payload sin autenticar.
+        if (!secret) {
+            this.logger.error('[zernio-webhook] ZERNIO_WEBHOOK_SECRET no configurado — se rechaza el request');
+            return res.status(500).json({ status: 'server misconfigured' });
+        }
+        if (!rawBody) {
+            this.logger.warn('[zernio-webhook] Sin rawBody, no se puede verificar la firma — se rechaza el request');
+            return res.status(401).json({ status: 'missing body' });
+        }
+
+        const expected = crypto.createHmac('sha256', secret).update(rawBody).digest('hex');
+        const provided = (signature || '').replace(/^sha256=/, '');
+        const valid = provided.length === expected.length
+            && crypto.timingSafeEqual(Buffer.from(expected), Buffer.from(provided));
+        if (!valid) {
+            this.logger.warn('[zernio-webhook] Firma inválida, se rechaza el request');
+            return res.status(401).json({ status: 'invalid signature' });
         }
 
         // Siempre 200 desde acá para abajo — Zernio desactiva el webhook después de
