@@ -279,7 +279,7 @@ export class ContactsService {
     async syncFromConversations(placeId: string): Promise<number> {
         const result = await this.contactRepo.query(
             `SELECT DISTINCT customer_phone, customer_name
-             FROM conversations
+             FROM wuarike_db.conversations
              WHERE place_id = $1
                AND customer_phone IS NOT NULL`,
             [placeId]
@@ -307,7 +307,7 @@ export class ContactsService {
     async syncFromPublicFeedback(placeId: string): Promise<number> {
         const result = await this.contactRepo.query(
             `SELECT DISTINCT ON (customer_contact) customer_name, customer_contact, marketing_consent
-             FROM public_feedback
+             FROM wuarike_db.public_feedback
              WHERE place_id = $1
                AND customer_contact IS NOT NULL`,
             [placeId]
