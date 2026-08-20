@@ -14,6 +14,7 @@ import {
 import { ApiTags, ApiBearerAuth, ApiOperation, ApiResponse, ApiParam, ApiQuery } from '@nestjs/swagger';
 import { CheckinsService } from './checkins.service';
 import { CreateCheckinDto } from './dto/create-checkin.dto';
+import { SubmitInfoSuggestionDto } from './dto/submit-info-suggestion.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 
@@ -73,5 +74,17 @@ export class CheckinsController {
     async unlike(@CurrentUser() user: any, @Param('id') id: string) {
         const likesCount = await this.checkinsService.unlike(user.id, id);
         return { message: 'Like eliminado', likesCount };
+    }
+
+    @Post('info-suggestions')
+    @UseGuards(JwtAuthGuard)
+    @ApiBearerAuth()
+    @ApiOperation({
+        summary:
+            'Reportar un dato desactualizado de un local (teléfono, dirección o carta) al hacer check-in. Se aplica cuando 3 usuarios distintos coinciden.',
+    })
+    @ApiResponse({ status: 201, description: 'Voto registrado. Indica si ya se aplicó por consenso.' })
+    async submitInfoSuggestion(@CurrentUser() user: any, @Body() dto: SubmitInfoSuggestionDto) {
+        return this.checkinsService.submitInfoSuggestion(user.id, dto);
     }
 }

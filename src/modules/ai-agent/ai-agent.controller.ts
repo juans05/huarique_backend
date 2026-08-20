@@ -191,7 +191,13 @@ export class AiAgentController {
 
         if (mime === 'application/pdf') {
             const pdfData = await pdfParse(file.buffer);
-            return this.txtToMarkdown(pdfData.text, fileName);
+            // pdf-parse solo lee la capa de texto embebida. Un PDF escaneado (foto guardada
+            // como PDF) no tiene esa capa y devuelve texto vacío/basura — en ese caso lo
+            // tratamos igual que una imagen y lo mandamos a Gemini/Claude para OCR.
+            if (pdfData.text.trim().length >= 20) {
+                return this.txtToMarkdown(pdfData.text, fileName);
+            }
+            return this.fileToMarkdownViaAI(file.buffer, mime, fileName);
         }
 
         if (mime === 'application/msword' || mime === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document') {
@@ -200,7 +206,7 @@ export class AiAgentController {
         }
 
         if (mime.startsWith('image/')) {
-            return this.imageToMarkdown(file.buffer, mime, fileName);
+            return this.fileToMarkdownViaAI(file.buffer, mime, fileName);
         }
 
         throw new BadRequestException('Formato no soportado');
@@ -228,35 +234,38 @@ export class AiAgentController {
         return md.join('\n');
     }
 
-    private async imageToMarkdown(buffer: Buffer, mimeType: string, fileName: string): Promise<string> {
+    // Extrae texto vía IA (Gemini → Claude) de una imagen o de un PDF escaneado sin capa
+    // de texto. Gemini acepta PDF directamente como inlineData igual que una imagen;
+    // Claude necesita un bloque 'document' en vez de 'image' para PDFs.
+    private async fileToMarkdownViaAI(buffer: Buffer, mimeType: string, fileName: string): Promise<string> {
         if (!this.gemini) {
-            return `# ${fileName}\n\n*(Imagen subida — se necesita GEMINI_API_KEY para extraer texto)*`;
+            return `# ${fileName}\n\n*(Archivo subido — se necesita GEMINI_API_KEY para extraer texto)*`;
         }
 
         // Intentar modelos en orden hasta que uno funcione
         const models = ['gemini-2.0-flash-lite', 'gemini-2.0-flash'];
-        const prompt = `Extrae TODO el texto de esta imagen y conviértelo a formato Markdown estructurado.
+        const prompt = `Extrae TODO el texto de este archivo y conviértelo a formato Markdown estructurado.
              Usa # para títulos principales, ## para subtítulos, - para listas, **negrita** para énfasis.
              Si es un menú, organiza por secciones con precios. Si es texto libre, mantén la estructura original.
              Responde SOLO con el markdown, sin explicaciones.`;
 
         for (const modelName of models) {
             try {
-                this.logger.log(`[imageToMarkdown] Intentando con ${modelName}`);
+                this.logger.log(`[fileToMarkdownViaAI] Intentando con ${modelName}`);
                 const model = this.gemini.getGenerativeModel({ model: modelName });
                 const result = await model.generateContent([
                     { inlineData: { mimeType, data: buffer.toString('base64') } },
                     prompt,
                 ]);
                 const text = result.response.text();
-                this.logger.log(`[imageToMarkdown] Éxito con ${modelName}`);
+                this.logger.log(`[fileToMarkdownViaAI] Éxito con ${modelName}`);
                 return `# ${fileName}\n\n${text}`;
             } catch (err) {
                 const isSkippable = err?.message?.includes('429') || err?.message?.includes('quota') ||
                     err?.message?.includes('Too Many Requests') || err?.message?.includes('404') ||
                     err?.message?.includes('not found');
                 if (isSkippable) {
-                    this.logger.warn(`[imageToMarkdown] Modelo ${modelName} no disponible: ${err?.message?.slice(0, 80)}`);
+                    this.logger.warn(`[fileToMarkdownViaAI] Modelo ${modelName} no disponible: ${err?.message?.slice(0, 80)}`);
                     continue;
                 }
                 throw err;
@@ -268,25 +277,28 @@ export class AiAgentController {
         // gratuito de Gemini se acabó por hoy.
         if (this.anthropic) {
             try {
-                this.logger.log(`[imageToMarkdown] Gemini no disponible, probando con Claude`);
+                this.logger.log(`[fileToMarkdownViaAI] Gemini no disponible, probando con Claude`);
+                const isPdf = mimeType === 'application/pdf';
                 const response = await this.anthropic.messages.create({
                     model: 'claude-haiku-4-5-20251001',
                     max_tokens: 4096,
                     messages: [{
                         role: 'user',
                         content: [
-                            { type: 'image', source: { type: 'base64', media_type: mimeType as 'image/jpeg' | 'image/png' | 'image/webp' | 'image/gif', data: buffer.toString('base64') } },
+                            isPdf
+                                ? { type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: buffer.toString('base64') } }
+                                : { type: 'image', source: { type: 'base64', media_type: mimeType as 'image/jpeg' | 'image/png' | 'image/webp' | 'image/gif', data: buffer.toString('base64') } },
                             { type: 'text', text: prompt },
                         ],
                     }],
                 });
                 const text = response.content[0].type === 'text' ? response.content[0].text : '';
                 if (text) {
-                    this.logger.log(`[imageToMarkdown] Éxito con Claude`);
+                    this.logger.log(`[fileToMarkdownViaAI] Éxito con Claude`);
                     return `# ${fileName}\n\n${text}`;
                 }
             } catch (err) {
-                this.logger.warn(`[imageToMarkdown] Claude también falló: ${err?.message}`);
+                this.logger.warn(`[fileToMarkdownViaAI] Claude también falló: ${err?.message}`);
             }
         }
 
@@ -294,6 +306,6 @@ export class AiAgentController {
         // Antes esto guardaba un placeholder como si fuera contenido real (quedaba
         // "indexado" para siempre sin que el bot tuviera nada que leer). Mejor fallar
         // claro para que el usuario reintente cuando la cuota se renueve.
-        throw new Error('quota exceeded: no se pudo extraer el texto de la imagen');
+        throw new Error('quota exceeded: no se pudo extraer el texto del archivo');
     }
 }

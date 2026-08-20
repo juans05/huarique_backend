@@ -38,6 +38,7 @@ import { ContactsModule } from './modules/contacts/contacts.module';
 import { AuditLogModule } from './modules/audit-log/audit-log.module';
 import { CreditsModule } from './modules/credits/credits.module';
 import { ReportsModule } from './modules/reports/reports.module';
+import { QrModule } from './modules/qr/qr.module';
 
 @Module({
     imports: [
@@ -113,6 +114,7 @@ import { ReportsModule } from './modules/reports/reports.module';
         AuditLogModule,
         CreditsModule,
         ReportsModule,
+        QrModule,
     ],
     providers: [
         {
