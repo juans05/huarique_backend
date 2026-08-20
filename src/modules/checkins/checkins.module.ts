@@ -8,16 +8,27 @@ import { CheckinLike } from './entities/checkin-like.entity';
 import { CheckinPhoto } from './entities/checkin-photo.entity';
 import { PublicFeedback } from './entities/public-feedback.entity';
 import { PlaceScan } from './entities/place-scan.entity';
+import { PlaceInfoSuggestion } from './entities/place-info-suggestion.entity';
 import { Place } from '../places/entities/place.entity';
 import { UsersModule } from '../users/users.module';
 import { PlacesModule } from '../places/places.module';
+import { AuditLogModule } from '../audit-log/audit-log.module';
 import { AntiFraudService } from './services/anti-fraud.service';
 
 @Module({
     imports: [
-        TypeOrmModule.forFeature([Checkin, CheckinLike, CheckinPhoto, PublicFeedback, PlaceScan, Place]),
+        TypeOrmModule.forFeature([
+            Checkin,
+            CheckinLike,
+            CheckinPhoto,
+            PublicFeedback,
+            PlaceScan,
+            PlaceInfoSuggestion,
+            Place,
+        ]),
         UsersModule,
         PlacesModule,
+        AuditLogModule,
     ],
     controllers: [CheckinsController, PublicFeedbackController],
     providers: [CheckinsService, AntiFraudService],

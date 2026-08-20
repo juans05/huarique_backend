@@ -15,6 +15,43 @@ import { User } from '../users/entities/user.entity';
 import { UsersService } from '../users/users.service';
 import { GamificationService } from '../gamification/gamification.service';
 import { AdminUpdatePlaceDto } from './dto/update-place.dto';
+import { ImportScrapedPlaceDto } from './dto/import-scraped-place.dto';
+
+// "Lima Cercado" en el scraper corresponde al distrito "Lima" en la tabla ubigeos
+const DISTRICT_ALIASES: Record<string, string> = { 'Lima Cercado': 'Lima' };
+
+// Mapeo best-effort de la categoría textual de Google a las categorías existentes.
+// Lo que no matchee queda sin categoryId (se conserva el texto crudo en metadata).
+const CATEGORY_KEYWORDS: [RegExp, string][] = [
+    [/peruan/, 'Criollo'],
+    [/chino|mandarina|^china$/, 'Chifa'],
+    [/japon|sushi/, 'Japonesa'],
+    [/italian/, 'Italiana'],
+    [/mexican/, 'Mexicana'],
+    [/pollo/, 'Pollo a la Brasa'],
+    [/marisco|marisqueria/, 'Marino'],
+    [/sopa/, 'Sopas'],
+    [/comida rapida|hamburguesa/, 'Comida Rápida'],
+    [/cafe|cafeteria/, 'Café'],
+    [/sanguche|sandwich/, 'Sanguchería'],
+    [/buffet/, 'Buffet'],
+    [/postre/, 'Postres'],
+    [/jugo/, 'Juguerias'],
+];
+
+function normalize(s: string): string {
+    return (s || '').normalize('NFKD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+}
+
+function slugify(s: string): string {
+    return normalize(s).replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 80);
+}
+
+function extractGooglePlaceId(mapsUrl: string | undefined): string | null {
+    if (!mapsUrl) return null;
+    const m = mapsUrl.match(/!19s(ChIJ[^!&]+)/);
+    return m ? m[1] : null;
+}
 
 @Injectable()
 export class AdminService {
@@ -292,5 +329,107 @@ export class AdminService {
         // Apply updates
         Object.assign(place, updateData);
         return this.placesRepository.save(place);
+    }
+
+    /**
+     * Crea restaurantes en la BD a partir del CSV del scraper de Google Maps.
+     * Idempotente: si un googlePlaceId ya existe, se salta. Devuelve el detalle
+     * de importados/saltados/fallidos para que un script pueda repetir el lote.
+     */
+    async importScrapedPlaces(rows: ImportScrapedPlaceDto[]) {
+        const categories = await this.categoryRepository.find();
+        const existingSlugs = await this.placesRepository.find({ select: ['slug'] });
+        const usedSlugs = new Set(existingSlugs.map((p) => p.slug).filter((s): s is string => !!s));
+        const districtIdCache = new Map<string, string | null>();
+
+        let imported = 0;
+        let skipped = 0;
+        let failed = 0;
+        const errors: string[] = [];
+
+        for (const row of rows) {
+            try {
+                const googlePlaceId = extractGooglePlaceId(row.mapsUrl);
+                if (googlePlaceId) {
+                    const existing = await this.placesRepository.findOne({ where: { googlePlaceId } });
+                    if (existing) { skipped++; continue; }
+                }
+
+                const districtName = DISTRICT_ALIASES[row.district || ''] || row.district || '';
+                if (!districtIdCache.has(districtName)) {
+                    const ubigeo = districtName
+                        ? await this.ubigeoRepository.findOne({ where: { district: districtName } })
+                        : null;
+                    districtIdCache.set(districtName, ubigeo?.id ?? null);
+                }
+
+                let slug = slugify(`${row.name}-${districtName}`) || `restaurante-${Date.now()}`;
+                let suffix = 2;
+                while (usedSlugs.has(slug)) {
+                    slug = `${slugify(`${row.name}-${districtName}`)}-${suffix++}`;
+                }
+                usedSlugs.add(slug);
+
+                const lat = row.latitude != null && row.latitude !== '' ? parseFloat(String(row.latitude)) : null;
+                const lng = row.longitude != null && row.longitude !== '' ? parseFloat(String(row.longitude)) : null;
+                const reviewCount = row.reviewCount != null
+                    ? parseInt(String(row.reviewCount).replace(/[.,]/g, ''), 10)
+                    : 0;
+                const googleRating = row.rating != null && row.rating !== ''
+                    ? parseFloat(String(row.rating))
+                    : null;
+
+                const place = this.placesRepository.create({
+                    name: row.name.trim(),
+                    nameNormalized: normalize(row.name.trim()),
+                    address: row.address?.trim() || null,
+                    latitude: Number.isFinite(lat) ? lat : null,
+                    longitude: Number.isFinite(lng) ? lng : null,
+                    location: lat != null && lng != null && Number.isFinite(lat) && Number.isFinite(lng)
+                        ? { type: 'Point', coordinates: [lng, lat] }
+                        : null,
+                    districtId: districtIdCache.get(districtName) ?? null,
+                    categoryId: this.pickCategoryId(row.category, categories),
+                    coverImageUrl: row.imageUrl || null,
+                    googlePlaceId,
+                    googleRating: Number.isFinite(googleRating) ? googleRating : null,
+                    googleTotalReviews: Number.isFinite(reviewCount) ? reviewCount : 0,
+                    slug,
+                    status: 'active',
+                    isVerified: false,
+                    countryCode: 'PE',
+                    metadata: {
+                        source: 'google_maps_scrape',
+                        scrapedCategory: row.category,
+                        mapsFeatureId: row.mapsFeatureId,
+                        importedAt: new Date().toISOString(),
+                    },
+                });
+
+                await this.placesRepository.save(place);
+                imported++;
+            } catch (err) {
+                failed++;
+                errors.push(`"${row.name}": ${(err as Error).message}`);
+            }
+        }
+
+        return {
+            imported,
+            skipped,
+            failed,
+            errors,
+        };
+    }
+
+    private pickCategoryId(rawCategory: string | undefined, categories: Category[]): string | null {
+        const norm = normalize(rawCategory || '');
+        for (const [re, name] of CATEGORY_KEYWORDS) {
+            if (re.test(norm)) {
+                const cat = categories.find((c) => c.name === name);
+                if (cat) return cat.id;
+            }
+        }
+        return null;
     }
 }

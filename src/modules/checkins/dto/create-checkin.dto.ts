@@ -1,4 +1,4 @@
-import { IsString, IsOptional, MaxLength, IsUrl, IsUUID } from 'class-validator';
+import { IsString, IsOptional, MaxLength, IsUrl, IsUUID, IsLatitude, IsLongitude } from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 
 export class CreateCheckinDto {
@@ -25,4 +25,14 @@ export class CreateCheckinDto {
     @ApiPropertyOptional({ minimum: 1, maximum: 5 })
     @IsOptional()
     rating?: number;
+
+    @ApiPropertyOptional({ description: 'Ubicación GPS del dispositivo al hacer check-in, para detectar viajes imposibles entre locales.' })
+    @IsOptional()
+    @IsLatitude()
+    latitude?: number;
+
+    @ApiPropertyOptional()
+    @IsOptional()
+    @IsLongitude()
+    longitude?: number;
 }

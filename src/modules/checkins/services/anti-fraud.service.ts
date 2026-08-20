@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { MoreThanOrEqual, Repository } from 'typeorm';
 import { Checkin } from '../entities/checkin.entity';
 
 interface AntiFraudValidation {
@@ -56,6 +56,7 @@ export class AntiFraudService {
         const todayCheckins = await this.checkinsRepository.count({
             where: {
                 userId,
+                createdAt: MoreThanOrEqual(startOfDay),
             },
         });
 

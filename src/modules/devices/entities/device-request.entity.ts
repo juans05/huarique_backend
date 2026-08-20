@@ -18,6 +18,10 @@ export const TAP_UNIT_PRICE: Record<TapType, number> = {
 
 export const TAP_MIN_QUANTITY = 5;
 
+// Beneficio de por vida por local: las primeras N unidades que pida (sumando
+// todos sus pedidos no rechazados) salen gratis; el resto paga el precio normal.
+export const FREE_TAPS_PER_PLACE = 2;
+
 @Entity('device_requests')
 @Index(['placeId'])
 export class DeviceRequest {

@@ -17,6 +17,7 @@ import { RolesGuard } from '../../common/guards/roles.guard';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { AdminUpdatePlaceDto } from './dto/update-place.dto';
+import { ImportScrapedPlacesDto } from './dto/import-scraped-place.dto';
 
 @ApiTags('admin')
 @Controller('admin')
@@ -195,5 +196,12 @@ export class AdminController {
     @ApiParam({ name: 'id', description: 'Place UUID' })
     async updatePlace(@Param('id') id: string, @Body() updateData: AdminUpdatePlaceDto) {
         return this.adminService.updatePlace(id, updateData);
+    }
+
+    @Post('places/import')
+    @ApiOperation({ summary: 'Bulk create restaurants from the Google Maps scraper CSV' })
+    @ApiResponse({ status: 201, description: 'Returns { imported, skipped, failed, errors }.' })
+    async importScrapedPlaces(@Body() dto: ImportScrapedPlacesDto) {
+        return this.adminService.importScrapedPlaces(dto.places);
     }
 }

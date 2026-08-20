@@ -166,6 +166,12 @@ export class Place {
     @Column({ name: 'open_hours_text', nullable: true })
     openHoursText: string | null;
 
+    // Marcado por CheckinsService.submitInfoSuggestion() cuando 3 usuarios
+    // reportan la carta desactualizada en un check-in; el dueño lo revisa
+    // desde warike_administrativo.
+    @Column({ name: 'menu_needs_review', default: false })
+    menuNeedsReview: boolean;
+
     @ManyToOne(() => User, { nullable: true })
     @JoinColumn({ name: 'claimed_by_user_id' })
     claimedBy: User;

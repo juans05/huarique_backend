@@ -1,8 +1,8 @@
 import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { Not, Repository } from 'typeorm';
 import { Device } from './entities/device.entity';
-import { DeviceRequest, DeviceRequestStatus, TAP_UNIT_PRICE } from './entities/device-request.entity';
+import { DeviceRequest, DeviceRequestStatus, FREE_TAPS_PER_PLACE, TAP_UNIT_PRICE } from './entities/device-request.entity';
 import { CreateDeviceDto } from './dto/create-device.dto';
 import { UpdateDeviceDto } from './dto/update-device.dto';
 import { CreateDeviceRequestDto } from './dto/create-device-request.dto';
@@ -62,12 +62,22 @@ export class DevicesService {
 
   async createRequest(placeId: string, dto: CreateDeviceRequestDto): Promise<DeviceRequest> {
     const unitPrice = TAP_UNIT_PRICE[dto.tapType];
+
+    // Beneficio de por vida: las primeras FREE_TAPS_PER_PLACE unidades que
+    // pida el local (sumando pedidos pasados no rechazados) no se cobran.
+    const pastRequests = await this.deviceRequestsRepository.find({
+      where: { placeId, status: Not(DeviceRequestStatus.REJECTED) },
+    });
+    const alreadyUsed = pastRequests.reduce((sum, r) => sum + r.quantity, 0);
+    const freeRemaining = Math.max(0, FREE_TAPS_PER_PLACE - alreadyUsed);
+    const paidUnits = Math.max(0, dto.quantity - freeRemaining);
+
     const request = this.deviceRequestsRepository.create({
       placeId,
       tapType: dto.tapType,
       quantity: dto.quantity,
       unitPrice,
-      totalPrice: unitPrice * dto.quantity,
+      totalPrice: paidUnits * unitPrice,
     });
     return this.deviceRequestsRepository.save(request);
   }
