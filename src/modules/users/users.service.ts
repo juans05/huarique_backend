@@ -163,9 +163,9 @@ export class UsersService {
             xp: user.totalPoints,
             nextLevelXp: user.currentLevel * 1000,
             checkinsCount: stats.totalCheckins,
-            reviewsCount: 0,
-            photosCount: 0,
-            videosCount: 0,
+            reviewsCount: stats.totalCheckins,
+            photosCount: stats.totalPhotos,
+            videosCount: stats.totalVideos,
             followersCount: parseInt(String(followersCount[0]?.count || 0)),
             followingCount: parseInt(String(followingCount[0]?.count || 0)),
             stats,
@@ -210,12 +210,33 @@ export class UsersService {
             [userId],
         );
 
+        const photos = await this.usersRepository.query(
+            `
+      SELECT COUNT(*) as total_photos
+      FROM wuarike_db.checkin_photos cp
+      JOIN wuarike_db.checkins c ON cp.checkin_id = c.id
+      WHERE c.user_id = $1
+    `,
+            [userId],
+        );
+
+        const videos = await this.usersRepository.query(
+            `
+      SELECT COUNT(*) as total_videos
+      FROM wuarike_db.place_videos
+      WHERE user_id = $1
+    `,
+            [userId],
+        );
+
         return {
             totalCheckins: parseInt(checkins[0]?.total_checkins || 0),
             uniquePlaces: parseInt(checkins[0]?.unique_places || 0),
             totalLikesReceived: parseInt(checkins[0]?.total_likes_received || 0),
             placesSubmittedApproved: parseInt(submissions[0]?.approved_submissions || 0),
             districtsVisited: parseInt(districts[0]?.districts_visited || 0),
+            totalPhotos: parseInt(photos[0]?.total_photos || 0),
+            totalVideos: parseInt(videos[0]?.total_videos || 0),
         };
     }
 

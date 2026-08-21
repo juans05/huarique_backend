@@ -25,6 +25,9 @@ export interface CreateDishDto {
     imageUrl?: string;
     videoUrl?: string;
     isVegetarian?: boolean;
+    allergens?: string[];
+    ingredients?: string[];
+    isAvailable?: boolean;
     categoryId?: string;
     displayOrder?: number;
 }
@@ -36,6 +39,9 @@ export interface UpdateDishDto {
     imageUrl?: string;
     videoUrl?: string;
     isVegetarian?: boolean;
+    allergens?: string[];
+    ingredients?: string[];
+    isAvailable?: boolean;
     categoryId?: string;
     displayOrder?: number;
 }
@@ -92,6 +98,9 @@ export class MenuService {
             imageUrl: dto.imageUrl,
             videoUrl: dto.videoUrl,
             isVegetarian: dto.isVegetarian ?? false,
+            allergens: dto.allergens,
+            ingredients: dto.ingredients,
+            isAvailable: dto.isAvailable ?? true,
             categoryId: dto.categoryId,
             placeId,
             displayOrder: dto.displayOrder ?? 0,

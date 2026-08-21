@@ -9,7 +9,6 @@ import { LoginDto } from './dto/login.dto';
 import { VerifyEmailDto } from './dto/verify-email.dto';
 import { ResendCodeDto } from './dto/resend-code.dto';
 import { SocialLoginDto } from './dto/social-login.dto';
-import { RefreshTokenDto } from './dto/refresh-token.dto';
 import { JwtAuthGuard } from './guards/jwt-auth.guard';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { ForgotPasswordDto } from './dto/forgot-password.dto';
@@ -121,11 +120,6 @@ export class AuthController {
 
     @Post('refresh')
     @HttpCode(200)
-    @ApiOperation({ summary: 'Get new access token using refresh token' })
-    @ApiResponse({ status: 200, description: 'Returns new accessToken and refreshToken.' })
-    @ApiResponse({ status: 401, description: 'Refresh token invalid or expired.' })
-    @Post('refresh-cookie')
-    @HttpCode(200)
     @ApiOperation({ summary: 'Refresh tokens using httpOnly cookie' })
     @ApiResponse({ status: 200, description: 'New tokens set as cookies.' })
     @ApiResponse({ status: 401, description: 'No refresh token cookie.' })
@@ -137,17 +131,6 @@ export class AuthController {
         const result = await this.authService.refreshTokens(refreshToken);
         this.setTokenCookies(res, result.accessToken, result.refreshToken);
         return { message: 'Tokens refreshed' };
-    }
-
-    @Post('refresh')
-    @HttpCode(200)
-    @ApiOperation({ summary: 'Get new access token using refresh token' })
-    @ApiResponse({ status: 200, description: 'Returns new accessToken and refreshToken.' })
-    @ApiResponse({ status: 401, description: 'Refresh token invalid or expired.' })
-    async refresh(@Body() refreshTokenDto: RefreshTokenDto, @Res({ passthrough: true }) res: Response) {
-        const result = await this.authService.refreshTokens(refreshTokenDto.refreshToken);
-        this.setTokenCookies(res, result.accessToken, result.refreshToken);
-        return result;
     }
 
     @Post('logout')

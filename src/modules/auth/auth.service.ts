@@ -69,7 +69,13 @@ export class AuthService {
 
         const tokens = await this.generateTokens(user.id, user.email, user.role);
         return {
-            user: { ...user, isVerified: true },
+            user: {
+                id: user.id,
+                email: user.email,
+                fullName: user.fullName,
+                role: user.role,
+                isVerified: true,
+            },
             ...tokens,
         };
     }

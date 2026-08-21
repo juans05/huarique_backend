@@ -31,7 +31,6 @@ export class UbigeoController {
         @Query('department') department: string,
         @Query('province') province: string
     ) {
-        console.log('--------------------------------------------------');
         return this.ubigeoRawService.getDistricts(department, province);
     }
 }

@@ -126,14 +126,29 @@ export class CheckinsService {
         district?: string,
         userId?: string,
         placeId?: string,
+        sort: 'recent' | 'top_rated' | 'low_rated' | 'most_liked' = 'recent',
+        hasPhotos?: boolean,
     ): Promise<PaginatedResponse<any>> {
         const skip = (page - 1) * size;
 
         const queryBuilder = this.checkinsRepository.createQueryBuilder('checkin')
             .leftJoinAndSelect('checkin.user', 'user')
             .leftJoinAndSelect('checkin.place', 'place')
-            .leftJoinAndSelect('checkin.photos', 'photos')
-            .orderBy('checkin.createdAt', 'DESC');
+            .leftJoinAndSelect('checkin.photos', 'photos');
+
+        switch (sort) {
+            case 'top_rated':
+                queryBuilder.orderBy('checkin.rating', 'DESC').addOrderBy('checkin.createdAt', 'DESC');
+                break;
+            case 'low_rated':
+                queryBuilder.orderBy('checkin.rating', 'ASC').addOrderBy('checkin.createdAt', 'DESC');
+                break;
+            case 'most_liked':
+                queryBuilder.orderBy('checkin.likesCount', 'DESC').addOrderBy('checkin.createdAt', 'DESC');
+                break;
+            default:
+                queryBuilder.orderBy('checkin.createdAt', 'DESC');
+        }
 
         if (district) {
             queryBuilder.andWhere('place.district = :district', { district });
@@ -141,6 +156,14 @@ export class CheckinsService {
 
         if (placeId) {
             queryBuilder.andWhere('checkin.placeId = :placeId', { placeId });
+        }
+
+        if (hasPhotos) {
+            queryBuilder.andWhere(
+                `(checkin.photoUrl IS NOT NULL OR EXISTS (
+                    SELECT 1 FROM wuarike_db.checkin_photos cp WHERE cp.checkin_id = checkin.id
+                ))`,
+            );
         }
 
         const [data, total] = await queryBuilder

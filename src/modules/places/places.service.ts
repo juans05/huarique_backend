@@ -66,7 +66,12 @@ export class PlacesService {
 
         if (search) {
             queryBuilder.andWhere(
-                '(LOWER(place.name) LIKE LOWER(:search) OR LOWER(place.description) LIKE LOWER(:search))',
+                `(LOWER(place.name) LIKE LOWER(:search)
+                  OR LOWER(place.description) LIKE LOWER(:search)
+                  OR EXISTS (
+                      SELECT 1 FROM wuarike_db.dishes d
+                      WHERE d.place_id = place.id AND LOWER(d.name) LIKE LOWER(:search)
+                  ))`,
                 { search: `%${search}%` },
             );
         }
@@ -106,19 +111,32 @@ export class PlacesService {
         }
 
         if (openNow) {
-            // ponytail: naive "H:MM AM/PM - H:MM AM/PM" parse of the free-text
-            // open_hours_text column. Doesn't model per-day schedules, holidays,
-            // or text like "24 horas" — places with unparseable hours are
-            // treated as closed. Upgrade to a structured hours table if that
-            // ever matters.
             const now = `(now() AT TIME ZONE 'America/Lima')::time`;
+            const today = `lower(to_char(now() AT TIME ZONE 'America/Lima', 'Dy'))`;
+
+            // Places with structured opening_hours (day/open/close) are matched
+            // exactly against today's schedule.
+            const structuredMatch = `EXISTS (
+                SELECT 1 FROM jsonb_array_elements(place.opening_hours) AS oh
+                WHERE oh->>'day' = ${today}
+                AND (
+                    ((oh->>'open')::time <= (oh->>'close')::time AND ${now} BETWEEN (oh->>'open')::time AND (oh->>'close')::time)
+                    OR ((oh->>'open')::time > (oh->>'close')::time AND (${now} >= (oh->>'open')::time OR ${now} < (oh->>'close')::time))
+                )
+            )`;
+
+            // ponytail: naive "H:MM AM/PM - H:MM AM/PM" parse of the free-text
+            // open_hours_text column for places without structured hours yet.
+            // Doesn't model per-day schedules or holidays — unparseable text
+            // is treated as closed.
             const open = `to_timestamp(trim(split_part(place.open_hours_text, '-', 1)), 'HH12:MI AM')::time`;
             const close = `to_timestamp(trim(split_part(place.open_hours_text, '-', 2)), 'HH12:MI AM')::time`;
-            queryBuilder
-                .andWhere(`place.open_hours_text ~* '^\\s*[0-9]{1,2}:[0-9]{2}\\s*(AM|PM)\\s*-\\s*[0-9]{1,2}:[0-9]{2}\\s*(AM|PM)\\s*$'`)
-                .andWhere(
-                    `((${open} <= ${close} AND ${now} BETWEEN ${open} AND ${close}) OR (${open} > ${close} AND (${now} >= ${open} OR ${now} < ${close})))`,
-                );
+            const textMatch = `(
+                place.open_hours_text ~* '^\\s*[0-9]{1,2}:[0-9]{2}\\s*(AM|PM)\\s*-\\s*[0-9]{1,2}:[0-9]{2}\\s*(AM|PM)\\s*$'
+                AND ((${open} <= ${close} AND ${now} BETWEEN ${open} AND ${close}) OR (${open} > ${close} AND (${now} >= ${open} OR ${now} < ${close})))
+            )`;
+
+            queryBuilder.andWhere(`(${structuredMatch} OR ${textMatch})`);
         }
 
         const hasOrigin = !!(query.latitude && query.longitude);
@@ -189,7 +207,7 @@ export class PlacesService {
     async findOne(id: string): Promise<PlaceResponseDto> {
         const place = await this.placesRepository.findOne({
             where: { id, status: In(['active', 'pending']) },
-            relations: ['category', 'district', 'tags', 'amenities', 'dishes', 'claimedBy'],
+            relations: ['category', 'district', 'tags', 'amenities', 'dishes', 'claimedBy', 'googleReviews'],
         });
         if (!place) {
             throw new NotFoundException('Lugar no encontrado');
@@ -208,6 +226,29 @@ export class PlacesService {
         return plainToInstance(PlaceResponseDto, place, {
             excludeExtraneousValues: true,
         });
+    }
+
+    async getRatingDistribution(placeId: string): Promise<{ rating: number; count: number }[]> {
+        const place = await this.placesRepository.findOne({ where: { id: placeId } });
+        if (!place) {
+            throw new NotFoundException('Lugar no encontrado');
+        }
+
+        const rows = await this.placesRepository.query(
+            `SELECT rating, COUNT(*) as count
+             FROM wuarike_db.checkins
+             WHERE place_id = $1
+             GROUP BY rating`,
+            [placeId],
+        );
+        const counts = new Map<number, number>(
+            rows.map((r: any) => [parseInt(r.rating), parseInt(r.count)]),
+        );
+
+        return [5, 4, 3, 2, 1].map((rating) => ({
+            rating,
+            count: counts.get(rating) ?? 0,
+        }));
     }
 
     async getMySubmissions(userId: string): Promise<PlaceSubmission[]> {
