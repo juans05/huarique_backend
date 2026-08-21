@@ -12,6 +12,7 @@ import { GamificationModule } from '../gamification/gamification.module';
 
 import { Checkin } from '../checkins/entities/checkin.entity';
 import { User } from '../users/entities/user.entity';
+import { GoogleReview } from '../places/entities/google-review.entity';
 
 @Module({
     imports: [
@@ -22,7 +23,8 @@ import { User } from '../users/entities/user.entity';
             Category,
             Ubigeo,
             Checkin,
-            User
+            User,
+            GoogleReview,
         ]),
         UsersModule,
         GamificationModule,

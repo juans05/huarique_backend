@@ -16,6 +16,8 @@ import { UsersService } from '../users/users.service';
 import { GamificationService } from '../gamification/gamification.service';
 import { AdminUpdatePlaceDto } from './dto/update-place.dto';
 import { ImportScrapedPlaceDto } from './dto/import-scraped-place.dto';
+import { ImportScrapedReviewDto } from './dto/import-scraped-reviews.dto';
+import { GoogleReview } from '../places/entities/google-review.entity';
 
 // "Lima Cercado" en el scraper corresponde al distrito "Lima" en la tabla ubigeos
 const DISTRICT_ALIASES: Record<string, string> = { 'Lima Cercado': 'Lima' };
@@ -70,6 +72,8 @@ export class AdminService {
         private checkinsRepository: Repository<Checkin>,
         @InjectRepository(User)
         private usersRepository: Repository<User>,
+        @InjectRepository(GoogleReview)
+        private googleReviewsRepository: Repository<GoogleReview>,
         private usersService: UsersService,
         private gamificationService: GamificationService,
     ) { }
@@ -419,6 +423,65 @@ export class AdminService {
             skipped,
             failed,
             errors,
+        };
+    }
+
+    /**
+     * Importa reseñas de Google Maps a la tabla google_reviews.
+     * Idempotente: usa .orIgnore() sobre el índice único (placeId, authorName, time).
+     * Solo inserta si el Place ya existe en la BD (matcheado por googlePlaceId).
+     */
+    async importGoogleReviews(rows: ImportScrapedReviewDto[]) {
+        // 1. Map googlePlaceId → placeId (UUID) in batch
+        const placeIds = [...new Set(rows.map(r => r.googlePlaceId).filter(Boolean))];
+        const places = await this.placesRepository
+            .createQueryBuilder('place')
+            .select(['place.id', 'place.googlePlaceId'])
+            .where('place.googlePlaceId IN (:...placeIds)', { placeIds })
+            .getMany();
+        const placeMap = new Map(places.map(p => [p.googlePlaceId, p.id]));
+
+        let imported = 0;
+        let skipped = 0;
+        let failed = 0;
+        const errors: string[] = [];
+
+        for (const row of rows) {
+            try {
+                const placeId = placeMap.get(row.googlePlaceId);
+                if (!placeId) {
+                    skipped++;
+                    continue;
+                }
+
+                await this.googleReviewsRepository
+                    .createQueryBuilder()
+                    .insert()
+                    .into(GoogleReview)
+                    .values({
+                        placeId,
+                        authorName: row.reviewer,
+                        authorPhotoUrl: row.authorPhotoUrl || null,
+                        rating: row.rating,
+                        text: row.text || null,
+                        relativeTimeDescription: row.date || null,
+                        time: row.time || null,
+                    })
+                    .orIgnore()
+                    .execute();
+                imported++;
+            } catch (err) {
+                failed++;
+                errors.push(`"${row.reviewer}@${row.googlePlaceId}": ${(err as Error).message}`);
+            }
+        }
+
+        return {
+            imported,
+            skipped,
+            failed,
+            errors,
+            total: rows.length,
         };
     }
 
