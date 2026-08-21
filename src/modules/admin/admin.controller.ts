@@ -18,6 +18,7 @@ import { Roles } from '../../common/decorators/roles.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { AdminUpdatePlaceDto } from './dto/update-place.dto';
 import { ImportScrapedPlacesDto } from './dto/import-scraped-place.dto';
+import { ImportScrapedReviewsDto } from './dto/import-scraped-reviews.dto';
 
 @ApiTags('admin')
 @Controller('admin')
@@ -203,5 +204,12 @@ export class AdminController {
     @ApiResponse({ status: 201, description: 'Returns { imported, skipped, failed, errors }.' })
     async importScrapedPlaces(@Body() dto: ImportScrapedPlacesDto) {
         return this.adminService.importScrapedPlaces(dto.places);
+    }
+
+    @Post('reviews/import')
+    @ApiOperation({ summary: 'Bulk import Google reviews into google_reviews table' })
+    @ApiResponse({ status: 201, description: 'Returns { imported, skipped, failed, errors, total }.' })
+    async importGoogleReviews(@Body() dto: ImportScrapedReviewsDto) {
+        return this.adminService.importGoogleReviews(dto.reviews);
     }
 }
