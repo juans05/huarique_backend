@@ -20,6 +20,7 @@ import { Ubigeo } from '../../ubigeo/entities/ubigeo.entity';
 import { Category } from './category.entity';
 import { Dish } from './dish.entity';
 import { PlaceVideo } from './place-video.entity';
+import { GoogleReview } from './google-review.entity';
 import { encryptTransformer } from '../../../common/utils/encryption-transformer';
 
 
@@ -166,6 +167,11 @@ export class Place {
     @Column({ name: 'open_hours_text', nullable: true })
     openHoursText: string | null;
 
+    // Structured schedule: [{ day: 'mon'|'tue'|...|'sun', open: 'HH:mm', close: 'HH:mm' }, ...]
+    // Replaces openHoursText for a reliable "open now" filter once places are migrated.
+    @Column({ name: 'opening_hours', type: 'jsonb', nullable: true })
+    openingHours: { day: string; open: string; close: string }[] | null;
+
     // Marcado por CheckinsService.submitInfoSuggestion() cuando 3 usuarios
     // reportan la carta desactualizada en un check-in; el dueño lo revisa
     // desde warike_administrativo.
@@ -212,6 +218,9 @@ export class Place {
 
     @OneToMany(() => PlaceVideo, (video) => video.place)
     videos: PlaceVideo[];
+
+    @OneToMany(() => GoogleReview, (review) => review.place)
+    googleReviews: GoogleReview[];
 
     // Virtual fields (not in DB)
 

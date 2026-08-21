@@ -24,6 +24,7 @@ import { Repository } from 'typeorm';
 import { Place } from './entities/place.entity';
 import { PlacesService } from './places.service';
 import { MenuService } from './menu.service';
+import { PromotionsService } from './promotions.service';
 import { CreatePlaceSubmissionDto } from './dto/create-place-submission.dto';
 import { CreatePlaceClaimDto } from './dto/create-place-claim.dto';
 import { GetPlacesDto } from './dto/get-places.dto';
@@ -37,6 +38,7 @@ export class PlacesController {
     constructor(
         private readonly placesService: PlacesService,
         private readonly menuService: MenuService,
+        private readonly promotionsService: PromotionsService,
         @InjectRepository(Place)
         private placesRepo: Repository<Place>,
     ) { }
@@ -93,6 +95,20 @@ export class PlacesController {
     @ApiResponse({ status: 404, description: 'Place not found.' })
     async findOne(@Param('id') id: string) {
         return this.placesService.findOne(id);
+    }
+
+    @Get(':id/promotions')
+    @ApiOperation({ summary: 'Get active promotions for a place' })
+    @ApiParam({ name: 'id', description: 'Place UUID' })
+    async getPromotions(@Param('id') id: string) {
+        return this.promotionsService.getActiveForPlace(id);
+    }
+
+    @Get(':id/rating-distribution')
+    @ApiOperation({ summary: 'Get review count per star rating (1-5) for a place' })
+    @ApiParam({ name: 'id', description: 'Place UUID' })
+    async getRatingDistribution(@Param('id') id: string) {
+        return this.placesService.getRatingDistribution(id);
     }
 
     @Get(':id/menu')

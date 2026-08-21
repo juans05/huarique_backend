@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { PlacesService } from './places.service';
 import { MenuService } from './menu.service';
+import { PromotionsService } from './promotions.service';
 import { MenuFormatterService } from './menu-formatter.service';
 import { PlacesController } from './places.controller';
 import { BusinessPlacesController } from './business-places.controller';
@@ -16,6 +17,7 @@ import { Dish } from './entities/dish.entity';
 import { MenuCategory } from './entities/menu-category.entity';
 import { PlaceVideo } from './entities/place-video.entity';
 import { GoogleReview } from './entities/google-review.entity';
+import { Promotion } from './entities/promotion.entity';
 
 import { UploadModule } from '../upload/upload.module';
 import { PlaceReport } from './entities/place-report.entity';
@@ -45,6 +47,7 @@ import { SubscriptionsModule } from '../subscriptions/subscriptions.module';
             MenuCategory,
             PlaceVideo,
             GoogleReview,
+            Promotion,
             User,
         ]),
         UploadModule,
@@ -53,7 +56,7 @@ import { SubscriptionsModule } from '../subscriptions/subscriptions.module';
     ],
 
     controllers: [PlacesController, BusinessPlacesController, GoogleCallbackController],
-    providers: [PlacesService, MenuService, MenuFormatterService, GeolocationService, RarityCalculatorService, GoogleMapsService, GoogleBusinessService, WeeklyReportService],
+    providers: [PlacesService, MenuService, MenuFormatterService, PromotionsService, GeolocationService, RarityCalculatorService, GoogleMapsService, GoogleBusinessService, WeeklyReportService],
     exports: [PlacesService, MenuService, MenuFormatterService, GeolocationService, GoogleMapsService],
 })
 export class PlacesModule { }

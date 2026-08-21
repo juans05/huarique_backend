@@ -53,6 +53,15 @@ class DishDto {
 
     @Expose()
     imageUrl: string | null;
+
+    @Expose()
+    allergens: string[] | null;
+
+    @Expose()
+    ingredients: string[] | null;
+
+    @Expose()
+    isAvailable: boolean;
 }
 
 class OwnerDto {
@@ -64,6 +73,32 @@ class OwnerDto {
 
     @Expose()
     email: string;
+}
+
+class GoogleReviewDto {
+    @Expose()
+    id: string;
+
+    @Expose()
+    authorName: string;
+
+    @Expose()
+    authorPhotoUrl: string | null;
+
+    @Expose()
+    rating: number;
+
+    @Expose()
+    text: string | null;
+
+    @Expose()
+    relativeTimeDescription: string | null;
+
+    @Expose()
+    time: number | null;
+
+    @Expose()
+    createdAt: Date;
 }
 
 export class PlaceResponseDto {
@@ -178,6 +213,14 @@ export class PlaceResponseDto {
     @Expose()
     openHoursText: string | null;
 
+    @ApiPropertyOptional({ type: 'array', items: { type: 'object' } })
+    @Expose()
+    openingHours: { day: string; open: string; close: string }[] | null;
+
+    @ApiPropertyOptional({ type: 'object' })
+    @Expose()
+    metadata: any;
+
     @ApiPropertyOptional()
     @Expose()
     claimedByUserId: string | null;
@@ -231,4 +274,9 @@ export class PlaceResponseDto {
     @Expose()
     @Type(() => DishDto)
     dishes?: DishDto[];
+
+    @ApiPropertyOptional({ type: [GoogleReviewDto], isArray: true })
+    @Expose()
+    @Type(() => GoogleReviewDto)
+    googleReviews?: GoogleReviewDto[];
 }

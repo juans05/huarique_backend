@@ -100,9 +100,9 @@ export class GamificationService {
             xp,
             nextLevelXp,
             checkinsCount: stats.totalCheckins,
-            reviewsCount: 0,
-            photosCount: 0,
-            videosCount: 0,
+            reviewsCount: stats.totalCheckins,
+            photosCount: stats.totalPhotos,
+            videosCount: stats.totalVideos,
         };
     }
 
@@ -138,6 +138,45 @@ export class GamificationService {
         };
     }
 
+    async getProfile(userId: string): Promise<any> {
+        const userResult = await this.pointsLogRepository.query(
+            `SELECT current_level, total_points FROM users WHERE id = $1`,
+            [userId],
+        );
+        const currentLevel = parseInt(userResult[0]?.current_level ?? 1);
+        const currentXp = parseInt(userResult[0]?.total_points ?? 0);
+        const nextLevelXp = currentLevel * 1000;
+
+        return {
+            level: currentLevel,
+            currentXp,
+            nextLevelXp,
+            progress: (currentXp / nextLevelXp) * 100,
+            title: this.getTitleForLevel(currentLevel),
+        };
+    }
+
+    async getLeaderboard(): Promise<any[]> {
+        const rows = await this.pointsLogRepository.query(
+            `SELECT full_name, current_level, total_points
+       FROM users
+       ORDER BY total_points DESC
+       LIMIT 10`,
+        );
+        return rows.map((row: any) => ({
+            username: row.full_name,
+            level: parseInt(row.current_level ?? 1),
+            xp: parseInt(row.total_points ?? 0),
+        }));
+    }
+
+    private getTitleForLevel(level: number): string {
+        if (level < 5) return 'Turista Gastronómico';
+        if (level < 10) return 'Explorador de Sabores';
+        if (level < 20) return 'Cazador de Wuarikes';
+        return 'Leyenda Limeña';
+    }
+
     private async getUserActivityStats(userId: string): Promise<any> {
         // This is a simplified version of stats
         const checkins = await this.pointsLogRepository.query(
@@ -156,10 +195,23 @@ export class GamificationService {
         );
 
         const districts = await this.pointsLogRepository.query(
-            `SELECT COUNT(DISTINCT p.district) as districts_visited 
-       FROM checkins c 
-       JOIN places p ON c.place_id = p.id 
+            `SELECT COUNT(DISTINCT p.district) as districts_visited
+       FROM checkins c
+       JOIN places p ON c.place_id = p.id
        WHERE c.user_id = $1`,
+            [userId],
+        );
+
+        const photos = await this.pointsLogRepository.query(
+            `SELECT COUNT(*) as total_photos
+       FROM checkin_photos cp
+       JOIN checkins c ON cp.checkin_id = c.id
+       WHERE c.user_id = $1`,
+            [userId],
+        );
+
+        const videos = await this.pointsLogRepository.query(
+            `SELECT COUNT(*) as total_videos FROM place_videos WHERE user_id = $1`,
             [userId],
         );
 
@@ -168,6 +220,8 @@ export class GamificationService {
             approvedSubmissions: parseInt(submissions[0]?.approved_submissions || 0),
             totalLikesReceived: parseInt(likes[0]?.total_likes_received || 0),
             districtsVisited: parseInt(districts[0]?.districts_visited || 0),
+            totalPhotos: parseInt(photos[0]?.total_photos || 0),
+            totalVideos: parseInt(videos[0]?.total_videos || 0),
         };
     }
 }

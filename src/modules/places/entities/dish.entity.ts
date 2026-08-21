@@ -33,6 +33,15 @@ export class Dish {
     @Column({ name: 'is_vegetarian', default: false })
     isVegetarian: boolean;
 
+    @Column({ type: 'jsonb', nullable: true })
+    allergens: string[] | null;
+
+    @Column({ type: 'jsonb', nullable: true })
+    ingredients: string[] | null;
+
+    @Column({ name: 'is_available', default: true })
+    isAvailable: boolean;
+
     @Column({ name: 'display_order', default: 0 })
     displayOrder: number;
 

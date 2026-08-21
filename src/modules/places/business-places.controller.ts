@@ -19,6 +19,7 @@ import { GoogleMapsService } from './services/google-maps.service';
 import { GoogleBusinessService } from './services/google-business.service';
 import { AiService } from '../ai/ai.service';
 import { MenuService } from './menu.service';
+import { PromotionsService } from './promotions.service';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Place } from './entities/place.entity';
 import { Amenity } from './entities/amenity.entity';
@@ -43,6 +44,7 @@ export class BusinessPlacesController {
         private readonly googleBusinessService: GoogleBusinessService,
         private readonly aiService: AiService,
         private readonly menuService: MenuService,
+        private readonly promotionsService: PromotionsService,
         @InjectRepository(Place)
         private placesRepo: Repository<Place>,
         @InjectRepository(Amenity)
@@ -269,6 +271,8 @@ export class BusinessPlacesController {
         if (data.categoryId !== undefined) place.categoryId = data.categoryId;
         if (data.districtId !== undefined) place.districtId = data.districtId;
         if (data.openHoursText !== undefined) place.openHoursText = data.openHoursText;
+        if (data.openingHours !== undefined) place.openingHours = data.openingHours;
+        if (data.metadata !== undefined) place.metadata = { ...place.metadata, ...data.metadata };
         if (data.priceMin !== undefined) place.priceMin = data.priceMin;
         if (data.coverImageUrl !== undefined) place.coverImageUrl = data.coverImageUrl;
         if (data.menuImageUrl !== undefined) place.menuImageUrl = data.menuImageUrl;
@@ -553,5 +557,20 @@ El prompt debe:
     async deleteDish(@Param('dishId') dishId: string) {
         await this.menuService.deleteDish(dishId);
         return { message: 'Plato eliminado' };
+    }
+
+    @Post('places/:id/promotions')
+    async createPromotion(@CurrentUser() user: any, @Param('id') id: string, @Body() body: any) {
+        return this.promotionsService.create(id, user.id, body);
+    }
+
+    @Delete('places/:id/promotions/:promotionId')
+    async deletePromotion(
+        @CurrentUser() user: any,
+        @Param('id') id: string,
+        @Param('promotionId') promotionId: string,
+    ) {
+        await this.promotionsService.delete(id, promotionId, user.id);
+        return { message: 'Promoción eliminada' };
     }
 }

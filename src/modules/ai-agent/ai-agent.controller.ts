@@ -105,7 +105,6 @@ export class AiAgentController {
 
     @Get(':placeId')
     async getKnowledgeBases(@CurrentUser() user: any, @Param('placeId') placeId: string) {
-        console.log('*/**********');
         await this.placeTeamService.assertAccess(user.id, placeId, 'ia_total');
         const bases = await this.aiAgentService.getKnowledgeBases(placeId);
         return { data: bases, total: bases.length };

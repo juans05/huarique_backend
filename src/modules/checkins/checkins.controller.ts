@@ -39,15 +39,19 @@ export class CheckinsController {
     @ApiQuery({ name: 'size', required: false, type: Number, example: 20 })
     @ApiQuery({ name: 'district', required: false, type: String, example: 'Miraflores' })
     @ApiQuery({ name: 'placeId', required: false, type: String, description: 'Filter check-ins/reviews to a single place' })
+    @ApiQuery({ name: 'sort', required: false, enum: ['recent', 'top_rated', 'low_rated', 'most_liked'] })
+    @ApiQuery({ name: 'hasPhotos', required: false, type: Boolean })
     @ApiResponse({ status: 200, description: 'Paginated list of recent check-ins.' })
     async getFeed(
         @Query('page', new DefaultValuePipe(1), ParseIntPipe) page: number,
         @Query('size', new DefaultValuePipe(20), ParseIntPipe) size: number,
         @Query('district') district?: string,
         @Query('placeId') placeId?: string,
+        @Query('sort') sort?: 'recent' | 'top_rated' | 'low_rated' | 'most_liked',
+        @Query('hasPhotos') hasPhotos?: string,
         @CurrentUser() user?: any,
     ) {
-        return this.checkinsService.getFeed(page, size, district, user?.id, placeId);
+        return this.checkinsService.getFeed(page, size, district, user?.id, placeId, sort, hasPhotos === 'true');
     }
 
     @Post(':id/like')
