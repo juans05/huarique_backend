@@ -41,7 +41,14 @@ export class PromotionsService {
 
     async create(placeId: string, userId: string, dto: CreatePromotionDto): Promise<Promotion> {
         await this.assertOwner(placeId, userId);
-        const promotion = this.promotionsRepo.create({ ...dto, placeId });
+        const promotion = this.promotionsRepo.create({
+            title: dto.title,
+            description: dto.description,
+            imageUrl: dto.imageUrl,
+            startsAt: dto.startsAt,
+            endsAt: dto.endsAt,
+            placeId,
+        });
         return this.promotionsRepo.save(promotion);
     }
 
