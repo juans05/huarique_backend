@@ -111,7 +111,20 @@ export class MenuService {
     async updateDish(dishId: string, dto: UpdateDishDto): Promise<Dish> {
         const dish = await this.dishRepo.findOne({ where: { id: dishId } });
         if (!dish) throw new NotFoundException(`Plato ${dishId} no encontrado`);
-        return this.dishRepo.save({ ...dish, ...dto });
+
+        if (dto.name !== undefined) dish.name = dto.name;
+        if (dto.price !== undefined) dish.price = dto.price;
+        if (dto.description !== undefined) dish.description = dto.description;
+        if (dto.imageUrl !== undefined) dish.imageUrl = dto.imageUrl;
+        if (dto.videoUrl !== undefined) dish.videoUrl = dto.videoUrl;
+        if (dto.isVegetarian !== undefined) dish.isVegetarian = dto.isVegetarian;
+        if (dto.allergens !== undefined) dish.allergens = dto.allergens;
+        if (dto.ingredients !== undefined) dish.ingredients = dto.ingredients;
+        if (dto.isAvailable !== undefined) dish.isAvailable = dto.isAvailable;
+        if (dto.categoryId !== undefined) dish.categoryId = dto.categoryId;
+        if (dto.displayOrder !== undefined) dish.displayOrder = dto.displayOrder;
+
+        return this.dishRepo.save(dish);
     }
 
     async deleteDish(dishId: string): Promise<void> {
