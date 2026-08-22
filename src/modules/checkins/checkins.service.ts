@@ -24,6 +24,22 @@ import { PaginatedResponse } from '../../common/dto/pagination.dto';
 // sugerido antes de aplicar el cambio al local.
 const INFO_SUGGESTION_CONSENSUS_THRESHOLD = 3;
 
+const VALID_DAY_KEYS = new Set(['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun']);
+const TIME_RE = /^([01]\d|2[0-3]):[0-5]\d$/;
+
+function isValidDayHours(entry: unknown): entry is { day: string; open: string; close: string } {
+    if (typeof entry !== 'object' || entry === null) return false;
+    const { day, open, close } = entry as Record<string, unknown>;
+    return (
+        typeof day === 'string' &&
+        VALID_DAY_KEYS.has(day) &&
+        typeof open === 'string' &&
+        TIME_RE.test(open) &&
+        typeof close === 'string' &&
+        TIME_RE.test(close)
+    );
+}
+
 @Injectable()
 export class CheckinsService {
     constructor(
@@ -241,6 +257,7 @@ export class CheckinsService {
         await this.placesService.findOne(dto.placeId);
 
         const normalizedValue = dto.field === 'menu' ? 'outdated' : (dto.suggestedValue ?? '').trim();
+        this.validateSuggestedValue(dto.field, normalizedValue);
 
         const existing = await this.infoSuggestionsRepository.findOne({
             where: { placeId: dto.placeId, field: dto.field, userId },
@@ -293,6 +310,27 @@ export class CheckinsService {
         return { votes: matching.length, applied: true };
     }
 
+    private validateSuggestedValue(field: string, value: string): void {
+        if (field === 'website') {
+            // RestaurantSidebar en el frontend renderiza esto directo como
+            // <a href={place.website}> — sin exigir http(s), un valor como
+            // "javascript:alert(1)" quedaría clicable para cualquier visitante
+            // en cuanto 3 usuarios coincidieran en sugerirlo.
+            let url: URL;
+            try {
+                url = new URL(value);
+            } catch {
+                throw new BadRequestException('website debe ser una URL válida');
+            }
+            if (url.protocol !== 'http:' && url.protocol !== 'https:') {
+                throw new BadRequestException('website debe empezar con http:// o https://');
+            }
+        }
+        if (field === 'name' && (value.length < 2 || value.length > 150)) {
+            throw new BadRequestException('name debe tener entre 2 y 150 caracteres');
+        }
+    }
+
     private async applyFieldChange(placeId: string, field: string, value: string): Promise<void> {
         switch (field) {
             case 'phone':
@@ -313,10 +351,14 @@ export class CheckinsService {
             case 'hours': {
                 // El formulario de edición manda un horario estructurado por día
                 // (JSON); las sugerencias más simples (botón lápiz) mandan texto
-                // libre. Si no parsea como el shape esperado, se guarda como texto.
+                // libre. Si no parsea como el shape exacto esperado, se guarda como
+                // texto — day/open/close se validan estrictamente porque el filtro
+                // openNow (places.service.ts) les hace un CAST ::time en SQL: un
+                // valor que no sea HH:MM ahí rompería esa consulta para cualquier
+                // búsqueda con openNow=true, no solo para este local.
                 try {
                     const parsed = JSON.parse(value);
-                    if (Array.isArray(parsed) && parsed.every((d) => d.day && d.open && d.close)) {
+                    if (Array.isArray(parsed) && parsed.every(isValidDayHours)) {
                         await this.placesRepository.update(placeId, { openingHours: parsed });
                         break;
                     }
