@@ -14,6 +14,8 @@ import { SubmitInfoSuggestionDto } from './dto/submit-info-suggestion.dto';
 import { UsersService } from '../users/users.service';
 import { PlacesService } from '../places/places.service';
 import { Place } from '../places/entities/place.entity';
+import { Category } from '../places/entities/category.entity';
+import { Amenity } from '../places/entities/amenity.entity';
 import { AuditLogService } from '../audit-log/audit-log.service';
 import { AntiFraudService } from './services/anti-fraud.service';
 import { PaginatedResponse } from '../../common/dto/pagination.dto';
@@ -35,6 +37,10 @@ export class CheckinsService {
         private infoSuggestionsRepository: Repository<PlaceInfoSuggestion>,
         @InjectRepository(Place)
         private placesRepository: Repository<Place>,
+        @InjectRepository(Category)
+        private categoriesRepository: Repository<Category>,
+        @InjectRepository(Amenity)
+        private amenitiesRepository: Repository<Amenity>,
         private usersService: UsersService,
         private placesService: PlacesService,
         private auditLogService: AuditLogService,
@@ -267,15 +273,7 @@ export class CheckinsService {
             return { votes: matching.length, applied: false };
         }
 
-        if (dto.field === 'phone') {
-            await this.placesRepository.update(dto.placeId, { phone: normalizedValue });
-        } else if (dto.field === 'address') {
-            await this.placesRepository.update(dto.placeId, { address: normalizedValue });
-        } else if (dto.field === 'hours') {
-            await this.placesRepository.update(dto.placeId, { openHoursText: normalizedValue });
-        } else {
-            await this.placesRepository.update(dto.placeId, { menuNeedsReview: true });
-        }
+        await this.applyFieldChange(dto.placeId, dto.field, normalizedValue);
 
         await this.infoSuggestionsRepository.update(
             { id: In(matching.map((m) => m.id)) },
@@ -293,5 +291,60 @@ export class CheckinsService {
         });
 
         return { votes: matching.length, applied: true };
+    }
+
+    private async applyFieldChange(placeId: string, field: string, value: string): Promise<void> {
+        switch (field) {
+            case 'phone':
+                await this.placesRepository.update(placeId, { phone: value });
+                break;
+            case 'address':
+                await this.placesRepository.update(placeId, { address: value });
+                break;
+            case 'name':
+                await this.placesRepository.update(placeId, {
+                    name: value,
+                    nameNormalized: value.toLowerCase().trim(),
+                });
+                break;
+            case 'website':
+                await this.placesRepository.update(placeId, { website: value });
+                break;
+            case 'hours': {
+                // El formulario de edición manda un horario estructurado por día
+                // (JSON); las sugerencias más simples (botón lápiz) mandan texto
+                // libre. Si no parsea como el shape esperado, se guarda como texto.
+                try {
+                    const parsed = JSON.parse(value);
+                    if (Array.isArray(parsed) && parsed.every((d) => d.day && d.open && d.close)) {
+                        await this.placesRepository.update(placeId, { openingHours: parsed });
+                        break;
+                    }
+                } catch {
+                    // no era JSON, cae al texto libre
+                }
+                await this.placesRepository.update(placeId, { openHoursText: value });
+                break;
+            }
+            case 'category': {
+                const category = await this.categoriesRepository.findOne({ where: { slug: value } });
+                if (category) await this.placesRepository.update(placeId, { categoryId: category.id });
+                break;
+            }
+            case 'amenities': {
+                const slugs = value.split(',').map((s) => s.trim()).filter(Boolean);
+                const amenities = slugs.length
+                    ? await this.amenitiesRepository.find({ where: { slug: In(slugs) } })
+                    : [];
+                const place = await this.placesRepository.findOne({ where: { id: placeId } });
+                if (place) {
+                    place.amenities = amenities;
+                    await this.placesRepository.save(place);
+                }
+                break;
+            }
+            default:
+                await this.placesRepository.update(placeId, { menuNeedsReview: true });
+        }
     }
 }
