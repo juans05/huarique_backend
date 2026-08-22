@@ -1,7 +1,10 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { In, Repository } from 'typeorm';
+import { plainToInstance } from 'class-transformer';
 import { User } from './entities/user.entity';
+import { Place } from '../places/entities/place.entity';
+import { PlaceResponseDto } from '../places/dto/place-response.dto';
 import * as bcrypt from 'bcryptjs';
 
 @Injectable()
@@ -9,6 +12,8 @@ export class UsersService {
     constructor(
         @InjectRepository(User)
         private usersRepository: Repository<User>,
+        @InjectRepository(Place)
+        private placesRepository: Repository<Place>,
     ) { }
 
     async create(
@@ -384,33 +389,33 @@ export class UsersService {
     async getFavorites(userId: string): Promise<any> {
         const favorites = await this.usersRepository.query(
             `
-            SELECT 
-                fp.id,
-                fp.created_at as "savedAt",
-                p.id as "placeId",
-                p.name as "placeName",
-                p.cover_image_url as "placePhotoUrl",
-                p.rating as "placeRating"
-            FROM wuarike_db.favorite_places fp
-            JOIN wuarike_db.places p ON fp.place_id = p.id
-            WHERE fp.user_id = $1
-            ORDER BY fp.created_at DESC
+            SELECT place_id as "placeId", created_at as "savedAt"
+            FROM wuarike_db.favorite_places
+            WHERE user_id = $1
+            ORDER BY created_at DESC
             `,
             [userId],
         );
+        if (favorites.length === 0) {
+            return { data: [], total: 0, page: 1, limit: 0 };
+        }
+
+        const savedAtByPlaceId = new Map<string, Date>(
+            favorites.map((f: any) => [f.placeId, f.savedAt]),
+        );
+
+        const places = await this.placesRepository.find({
+            where: { id: In([...savedAtByPlaceId.keys()]) },
+            relations: ['category', 'district', 'tags', 'amenities'],
+        });
+        // Preserva el orden "más reciente primero" de favorite_places — find() con In() no lo garantiza.
+        places.sort((a, b) => savedAtByPlaceId.get(b.id)!.valueOf() - savedAtByPlaceId.get(a.id)!.valueOf());
 
         return {
-            data: favorites.map((f: any) => ({
-                id: f.id,
-                savedAt: f.savedAt,
-                place: {
-                    id: f.placeId,
-                    name: f.placeName,
-                    photoUrl: f.placePhotoUrl,
-                    rating: f.placeRating,
-                },
-            })),
-            total: favorites.length,
+            data: plainToInstance(PlaceResponseDto, places, { excludeExtraneousValues: true }),
+            total: places.length,
+            page: 1,
+            limit: places.length,
         };
     }
 }
