@@ -10,6 +10,8 @@ import { PublicFeedback } from './entities/public-feedback.entity';
 import { PlaceScan } from './entities/place-scan.entity';
 import { PlaceInfoSuggestion } from './entities/place-info-suggestion.entity';
 import { Place } from '../places/entities/place.entity';
+import { Category } from '../places/entities/category.entity';
+import { Amenity } from '../places/entities/amenity.entity';
 import { UsersModule } from '../users/users.module';
 import { PlacesModule } from '../places/places.module';
 import { AuditLogModule } from '../audit-log/audit-log.module';
@@ -25,6 +27,8 @@ import { AntiFraudService } from './services/anti-fraud.service';
             PlaceScan,
             PlaceInfoSuggestion,
             Place,
+            Category,
+            Amenity,
         ]),
         UsersModule,
         PlacesModule,

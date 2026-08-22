@@ -10,7 +10,15 @@ import {
 import { Place } from '../../places/entities/place.entity';
 import { User } from '../../users/entities/user.entity';
 
-export type PlaceInfoField = 'phone' | 'address' | 'menu' | 'hours';
+export type PlaceInfoField =
+    | 'phone'
+    | 'address'
+    | 'menu'
+    | 'hours'
+    | 'name'
+    | 'website'
+    | 'category'
+    | 'amenities';
 
 // Un usuario vota una sola vez por campo/local; revotar actualiza su fila
 // (ver UNIQUE en la migración). Cuando 3 votos coinciden en el mismo valor
