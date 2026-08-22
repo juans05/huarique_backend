@@ -311,7 +311,7 @@ export class CheckinsService {
     }
 
     private validateSuggestedValue(field: string, value: string): void {
-        if (field === 'website') {
+        if (field === 'website' && value !== '') {
             // RestaurantSidebar en el frontend renderiza esto directo como
             // <a href={place.website}> — sin exigir http(s), un valor como
             // "javascript:alert(1)" quedaría clicable para cualquier visitante
