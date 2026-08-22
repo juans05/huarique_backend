@@ -25,6 +25,7 @@ import { Place } from './entities/place.entity';
 import { PlacesService } from './places.service';
 import { MenuService } from './menu.service';
 import { PromotionsService } from './promotions.service';
+import { TikTokSearchService } from './tiktok-search.service';
 import { CreatePlaceSubmissionDto } from './dto/create-place-submission.dto';
 import { CreatePlaceClaimDto } from './dto/create-place-claim.dto';
 import { GetPlacesDto } from './dto/get-places.dto';
@@ -39,6 +40,7 @@ export class PlacesController {
         private readonly placesService: PlacesService,
         private readonly menuService: MenuService,
         private readonly promotionsService: PromotionsService,
+        private readonly tiktokSearchService: TikTokSearchService,
         @InjectRepository(Place)
         private placesRepo: Repository<Place>,
     ) { }
@@ -95,6 +97,14 @@ export class PlacesController {
     @ApiResponse({ status: 404, description: 'Place not found.' })
     async findOne(@Param('id') id: string) {
         return this.placesService.findOne(id);
+    }
+
+    @Post(':id/tiktok-search')
+    @HttpCode(200)
+    @ApiOperation({ summary: 'Get cached TikTok videos for a place, searching TikTok on first request if none are cached yet' })
+    @ApiParam({ name: 'id', description: 'Place UUID' })
+    async searchTikTok(@Param('id') id: string) {
+        return this.tiktokSearchService.getOrSearch(id);
     }
 
     @Get(':id/promotions')

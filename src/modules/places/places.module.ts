@@ -3,6 +3,7 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 import { PlacesService } from './places.service';
 import { MenuService } from './menu.service';
 import { PromotionsService } from './promotions.service';
+import { TikTokSearchService } from './tiktok-search.service';
 import { MenuFormatterService } from './menu-formatter.service';
 import { PlacesController } from './places.controller';
 import { BusinessPlacesController } from './business-places.controller';
@@ -56,7 +57,7 @@ import { SubscriptionsModule } from '../subscriptions/subscriptions.module';
     ],
 
     controllers: [PlacesController, BusinessPlacesController, GoogleCallbackController],
-    providers: [PlacesService, MenuService, MenuFormatterService, PromotionsService, GeolocationService, RarityCalculatorService, GoogleMapsService, GoogleBusinessService, WeeklyReportService],
+    providers: [PlacesService, MenuService, MenuFormatterService, PromotionsService, TikTokSearchService, GeolocationService, RarityCalculatorService, GoogleMapsService, GoogleBusinessService, WeeklyReportService],
     exports: [PlacesService, MenuService, MenuFormatterService, GeolocationService, GoogleMapsService],
 })
 export class PlacesModule { }
