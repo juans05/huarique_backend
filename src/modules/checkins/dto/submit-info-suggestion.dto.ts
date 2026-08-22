@@ -7,11 +7,11 @@ export class SubmitInfoSuggestionDto {
     @IsUUID()
     placeId: string;
 
-    @ApiProperty({ enum: ['phone', 'address', 'menu'] })
-    @IsIn(['phone', 'address', 'menu'])
+    @ApiProperty({ enum: ['phone', 'address', 'menu', 'hours'] })
+    @IsIn(['phone', 'address', 'menu', 'hours'])
     field: PlaceInfoField;
 
-    @ApiPropertyOptional({ description: 'Requerido para phone/address; ignorado para menu' })
+    @ApiPropertyOptional({ description: 'Requerido para phone/address/hours; ignorado para menu' })
     @ValidateIf((dto: SubmitInfoSuggestionDto) => dto.field !== 'menu')
     @IsString()
     @MaxLength(300)
