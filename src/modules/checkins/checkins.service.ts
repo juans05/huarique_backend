@@ -271,6 +271,8 @@ export class CheckinsService {
             await this.placesRepository.update(dto.placeId, { phone: normalizedValue });
         } else if (dto.field === 'address') {
             await this.placesRepository.update(dto.placeId, { address: normalizedValue });
+        } else if (dto.field === 'hours') {
+            await this.placesRepository.update(dto.placeId, { openHoursText: normalizedValue });
         } else {
             await this.placesRepository.update(dto.placeId, { menuNeedsReview: true });
         }
