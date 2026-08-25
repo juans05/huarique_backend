@@ -9,6 +9,7 @@ import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { UsersService } from './users.service';
 import { UpdateProfileDto } from './dto/update-profile.dto';
+import { UpdatePrivacyDto } from './dto/update-privacy.dto';
 import { ChangePasswordDto } from './dto/change-password.dto';
 import { CloudinaryService } from '../../common/services/cloudinary.service';
 
@@ -46,6 +47,15 @@ export class UsersController {
         this.logger.log(`Update profile for user ${user.id}`);
         await this.usersService.updateProfile(user.id, updateProfileDto);
         return { message: 'Perfil actualizado exitosamente' };
+    }
+
+    @Patch('me/privacy')
+    @ApiOperation({ summary: 'Update current user privacy settings' })
+    @ApiResponse({ status: 200, description: 'Privacy settings updated.' })
+    @ApiResponse({ status: 401, description: 'Not authenticated.' })
+    async updateMyPrivacy(@CurrentUser() user: any, @Body() dto: UpdatePrivacyDto) {
+        await this.usersService.updatePrivacy(user.id, dto);
+        return { message: 'Configuración de privacidad actualizada' };
     }
 
     @Patch('me/password')

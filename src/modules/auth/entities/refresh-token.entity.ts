@@ -23,6 +23,9 @@ export class RefreshToken {
     @Column({ unique: true })
     token: string;
 
+    @Column({ name: 'device_label', nullable: true })
+    deviceLabel: string;
+
     @Column({ name: 'expires_at' })
     expiresAt: Date;
 
