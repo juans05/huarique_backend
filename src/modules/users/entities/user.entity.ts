@@ -30,8 +30,17 @@ export class User {
     @Column({ name: 'avatar_url', nullable: true })
     avatarUrl: string;
 
+    @Column({ name: 'cover_image_url', nullable: true })
+    coverImageUrl: string;
+
     @Column({ type: 'text', nullable: true })
     bio: string;
+
+    @Column({ type: 'varchar', length: 100, nullable: true })
+    city: string; // "Vive en"
+
+    @Column({ type: 'varchar', length: 100, nullable: true })
+    hometown: string; // "De" (ciudad natal)
 
     @Column({ type: 'varchar', length: 50, nullable: true })
     pronouns: string; // Ej: "Él/He", "Ella/She", "Elle/They"
@@ -96,4 +105,17 @@ export class User {
     @Column({ name: 'social_id', nullable: true })
     @Exclude()
     socialId: string;
+
+    // Privacidad
+    @Column({ name: 'is_profile_public', default: true })
+    isProfilePublic: boolean;
+
+    @Column({ name: 'are_favorites_public', default: true })
+    areFavoritesPublic: boolean;
+
+    @Column({ name: 'allow_business_messages', default: true })
+    allowBusinessMessages: boolean;
+
+    @Column({ name: 'is_discoverable', default: true })
+    isDiscoverable: boolean;
 }

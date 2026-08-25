@@ -15,6 +15,11 @@ import { ForgotPasswordDto } from './dto/forgot-password.dto';
 import { ResetPasswordDto } from './dto/reset-password.dto';
 import * as bcrypt from 'bcryptjs';
 
+function getDeviceLabel(userAgent?: string): string {
+    if (!userAgent) return 'Desconocido';
+    return /Mobile|Android|iPhone/i.test(userAgent) ? 'Mobile' : 'Desktop';
+}
+
 @Injectable()
 export class AuthService {
     private readonly logger = new Logger(AuthService.name);
@@ -51,7 +56,7 @@ export class AuthService {
         };
     }
 
-    async verifyEmail(email: string, code: string) {
+    async verifyEmail(email: string, code: string, userAgent?: string) {
         const user = await this.usersService.findByEmail(email);
         if (!user) {
             throw new UnauthorizedException('Usuario no encontrado');
@@ -67,7 +72,12 @@ export class AuthService {
 
         await this.usersService.markVerified(user.id);
 
-        const tokens = await this.generateTokens(user.id, user.email, user.role);
+        const tokens = await this.generateTokens(
+            user.id,
+            user.email,
+            user.role,
+            getDeviceLabel(userAgent),
+        );
         return {
             user: {
                 id: user.id,
@@ -98,7 +108,14 @@ export class AuthService {
         return { message: 'Nuevo código enviado' };
     }
 
-    async socialLogin(provider: string, token: string, email: string, name?: string, photoUrl?: string) {
+    async socialLogin(
+        provider: string,
+        token: string,
+        email: string,
+        name?: string,
+        photoUrl?: string,
+        userAgent?: string,
+    ) {
         let verifiedEmail: string;
         let verifiedName: string | undefined = name;
         let socialId: string;
@@ -171,7 +188,12 @@ export class AuthService {
         }
 
         await this.usersService.updateLastLogin(user.id);
-        const tokens = await this.generateTokens(user.id, user.email, user.role);
+        const tokens = await this.generateTokens(
+            user.id,
+            user.email,
+            user.role,
+            getDeviceLabel(userAgent),
+        );
 
         return {
             user: {
@@ -217,7 +239,7 @@ export class AuthService {
         return { message: 'Contraseña actualizada exitosamente' };
     }
 
-    async login(loginDto: LoginDto) {
+    async login(loginDto: LoginDto, userAgent?: string) {
         this.logger.log(`[AUTH] Attempting login for email: ${loginDto.email}`);
         const user = await this.usersService.findByEmail(loginDto.email);
         
@@ -246,7 +268,12 @@ export class AuthService {
         this.logger.log(`[AUTH] Login successful for user: ${user.email}`);
         await this.usersService.updateLastLogin(user.id);
 
-        const tokens = await this.generateTokens(user.id, user.email, user.role);
+        const tokens = await this.generateTokens(
+            user.id,
+            user.email,
+            user.role,
+            getDeviceLabel(userAgent),
+        );
 
         return {
             user: {
@@ -278,11 +305,12 @@ export class AuthService {
         // Remove old token
         await this.refreshTokenRepository.remove(storedToken);
 
-        // Generate new tokens
+        // Generate new tokens, preserving the device label across rotation
         const tokens = await this.generateTokens(
             storedToken.user.id,
             storedToken.user.email,
             storedToken.user.role,
+            storedToken.deviceLabel,
         );
 
         return tokens;
@@ -292,7 +320,38 @@ export class AuthService {
         await this.refreshTokenRepository.delete({ userId });
     }
 
-    private async generateTokens(userId: string, email: string, role: string) {
+    async listSessions(userId: string, currentRefreshToken?: string) {
+        const currentHash = currentRefreshToken
+            ? createHash('sha256').update(currentRefreshToken).digest('hex')
+            : null;
+
+        const sessions = await this.refreshTokenRepository.find({
+            where: { userId },
+            order: { createdAt: 'DESC' },
+        });
+
+        return sessions.map((s) => ({
+            id: s.id,
+            deviceLabel: s.deviceLabel ?? 'Desconocido',
+            createdAt: s.createdAt,
+            isCurrent: currentHash !== null && s.token === currentHash,
+        }));
+    }
+
+    async revokeSession(userId: string, sessionId: string) {
+        await this.refreshTokenRepository.delete({ id: sessionId, userId });
+    }
+
+    async revokeOtherSessions(userId: string, currentRefreshToken: string) {
+        const currentHash = createHash('sha256').update(currentRefreshToken).digest('hex');
+        const sessions = await this.refreshTokenRepository.find({ where: { userId } });
+        const idsToRemove = sessions.filter((s) => s.token !== currentHash).map((s) => s.id);
+        if (idsToRemove.length > 0) {
+            await this.refreshTokenRepository.delete(idsToRemove);
+        }
+    }
+
+    private async generateTokens(userId: string, email: string, role: string, deviceLabel?: string) {
         const [accessToken, refreshToken] = await Promise.all([
             this.jwtService.signAsync(
                 { sub: userId, email, role },
@@ -319,6 +378,7 @@ export class AuthService {
             userId,
             token: tokenHash,
             expiresAt,
+            deviceLabel: deviceLabel ?? 'Desconocido',
         });
 
         // Clean up expired tokens

@@ -44,8 +44,21 @@ async function bootstrap() {
         throw new Error('CORS_ORIGIN must be set in production');
     }
 
+    const allowedOrigins = corsOrigin
+        ? corsOrigin.split(',').map((o) => o.trim()).filter(Boolean)
+        : ['http://localhost:3000', 'https://wuarikes.com', 'https://admin.wuarikes.com', 'http://localhost:8080', 'https://wuarikes-2-b73941025455.railway.app',
+            'https://admin.wuarikes-2-b73941025455.railway.app', 'https://www.wuarikes.com', 'https://www.admin.wuarikes.com'];
+
     app.enableCors({
-        origin: corsOrigin ? corsOrigin.split(',') : 'http://localhost:3000',
+        origin: (origin, callback) => {
+            // Permitir requests sin Origin (server-to-server, curl, mobile apps)
+            if (!origin || allowedOrigins.includes(origin)) {
+                callback(null, true);
+            } else {
+                console.warn(`🚫 CORS blocked origin: ${origin}`);
+                callback(new Error(`Origin ${origin} not allowed by CORS`));
+            }
+        },
         methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
         allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept'],
         credentials: true,

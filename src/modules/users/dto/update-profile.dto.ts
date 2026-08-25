@@ -19,6 +19,23 @@ export class UpdateProfileDto {
     @IsString()
     avatarUrl?: string;
 
+    @ApiPropertyOptional({ description: 'URL de la foto de portada' })
+    @IsOptional()
+    @IsString()
+    coverImageUrl?: string;
+
+    @ApiPropertyOptional({ description: 'Ciudad donde vive actualmente', example: 'Lima' })
+    @IsOptional()
+    @IsString()
+    @MaxLength(100)
+    city?: string;
+
+    @ApiPropertyOptional({ description: 'Ciudad natal', example: 'Iquitos' })
+    @IsOptional()
+    @IsString()
+    @MaxLength(100)
+    hometown?: string;
+
     @ApiPropertyOptional({ description: 'Pronombres del usuario', example: 'Él/He' })
     @IsOptional()
     @IsString()

@@ -157,7 +157,10 @@ export class UsersService {
             fullName: user.fullName,
             email: user.email,
             avatarUrl: user.avatarUrl,
+            coverImageUrl: user.coverImageUrl,
             bio: user.bio,
+            city: user.city,
+            hometown: user.hometown,
             role: user.role,
             pronouns: user.pronouns,
             gender: user.gender,
@@ -173,6 +176,11 @@ export class UsersService {
             videosCount: stats.totalVideos,
             followersCount: parseInt(String(followersCount[0]?.count || 0)),
             followingCount: parseInt(String(followingCount[0]?.count || 0)),
+            memberSince: user.createdAt,
+            isProfilePublic: user.isProfilePublic,
+            areFavoritesPublic: user.areFavoritesPublic,
+            allowBusinessMessages: user.allowBusinessMessages,
+            isDiscoverable: user.isDiscoverable,
             stats,
             badges: user.badges.map((ub) => ({
                 id: ub.badge.id,
@@ -259,6 +267,9 @@ export class UsersService {
             fullName?: string;
             bio?: string;
             avatarUrl?: string;
+            coverImageUrl?: string;
+            city?: string;
+            hometown?: string;
             pronouns?: string;
             gender?: string;
             birthDate?: string;
@@ -272,14 +283,27 @@ export class UsersService {
         await this.usersRepository.update(userId, updateData);
     }
 
+    async updatePrivacy(
+        userId: string,
+        updates: {
+            isProfilePublic?: boolean;
+            areFavoritesPublic?: boolean;
+            allowBusinessMessages?: boolean;
+            isDiscoverable?: boolean;
+        },
+    ): Promise<void> {
+        await this.usersRepository.update(userId, updates);
+    }
+
     async getUserCheckins(userId: string, page: number = 1, limit: number = 12): Promise<any> {
         const skip = (page - 1) * limit;
 
         const [checkins, total] = await this.usersRepository.query(
             `
-            SELECT 
+            SELECT
                 c.id,
                 c.comment,
+                c.rating,
                 c.photo_url as "photoUrl",
                 c.likes_count as "likesCount",
                 c.created_at as "createdAt",
@@ -305,6 +329,7 @@ export class UsersService {
             data: checkins.map((c: any) => ({
                 id: c.id,
                 comment: c.comment,
+                rating: c.rating,
                 photoUrl: c.photoUrl,
                 likesCount: c.likesCount,
                 createdAt: c.createdAt,

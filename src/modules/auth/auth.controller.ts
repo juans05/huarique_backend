@@ -1,4 +1,4 @@
-import { Controller, Post, Body, UseGuards, HttpCode, Res, Req, UnauthorizedException } from '@nestjs/common';
+import { Controller, Post, Body, Param, UseGuards, HttpCode, Res, Req, UnauthorizedException } from '@nestjs/common';
 import { ApiTags, ApiBearerAuth, ApiOperation, ApiResponse } from '@nestjs/swagger';
 import { Response } from 'express';
 import { ConfigService } from '@nestjs/config';
@@ -57,8 +57,12 @@ export class AuthController {
     @ApiOperation({ summary: 'Login with email and password' })
     @ApiResponse({ status: 200, description: 'Returns accessToken, refreshToken and user.' })
     @ApiResponse({ status: 401, description: 'Invalid credentials.' })
-    async login(@Body() loginDto: LoginDto, @Res({ passthrough: true }) res: Response) {
-        const result = await this.authService.login(loginDto);
+    async login(
+        @Body() loginDto: LoginDto,
+        @Res({ passthrough: true }) res: Response,
+        @Req() req: any,
+    ) {
+        const result = await this.authService.login(loginDto, req.headers['user-agent']);
         this.setTokenCookies(res, result.accessToken, result.refreshToken);
         return result;
     }
@@ -68,8 +72,16 @@ export class AuthController {
     @ApiOperation({ summary: 'Verify email with 6-digit code sent on registration' })
     @ApiResponse({ status: 200, description: 'Email verified successfully.' })
     @ApiResponse({ status: 400, description: 'Invalid or expired code.' })
-    async verifyEmail(@Body() dto: VerifyEmailDto, @Res({ passthrough: true }) res: Response) {
-        const result: any = await this.authService.verifyEmail(dto.email, dto.code);
+    async verifyEmail(
+        @Body() dto: VerifyEmailDto,
+        @Res({ passthrough: true }) res: Response,
+        @Req() req: any,
+    ) {
+        const result: any = await this.authService.verifyEmail(
+            dto.email,
+            dto.code,
+            req.headers['user-agent'],
+        );
         if (result.accessToken) {
             this.setTokenCookies(res, result.accessToken, result.refreshToken);
         }
@@ -109,13 +121,14 @@ export class AuthController {
     @ApiOperation({ summary: 'Login or register via Google / Facebook / Instagram' })
     @ApiResponse({ status: 200, description: 'Returns tokens and user. Creates account on first login.' })
     @ApiResponse({ status: 401, description: 'Invalid social token.' })
-    async socialLogin(@Body() dto: SocialLoginDto) {
+    async socialLogin(@Body() dto: SocialLoginDto, @Req() req: any) {
         return this.authService.socialLogin(
             dto.provider,
             dto.token,
             dto.email,
             dto.name,
             dto.photoUrl,
+            req.headers['user-agent'],
         );
     }
 
@@ -136,6 +149,49 @@ export class AuthController {
         const result = await this.authService.refreshTokens(refreshToken);
         this.setTokenCookies(res, result.accessToken, result.refreshToken);
         return result;
+    }
+
+    @Post('sessions')
+    @UseGuards(JwtAuthGuard)
+    @ApiBearerAuth()
+    @HttpCode(200)
+    @ApiOperation({ summary: 'List active sessions (refresh tokens) for the current user' })
+    @ApiResponse({ status: 200, description: 'Returns a list of sessions with device label and date.' })
+    async listSessions(
+        @CurrentUser() user: any,
+        @Body() dto: RefreshTokenDto,
+        @Req() req: any,
+    ) {
+        const currentToken = req.cookies?.refreshToken ?? dto.refreshToken;
+        return this.authService.listSessions(user.id, currentToken);
+    }
+
+    @Post('sessions/:id/revoke')
+    @UseGuards(JwtAuthGuard)
+    @ApiBearerAuth()
+    @HttpCode(204)
+    @ApiOperation({ summary: 'Revoke a specific session' })
+    @ApiResponse({ status: 204, description: 'Session revoked.' })
+    async revokeSession(@CurrentUser() user: any, @Param('id') id: string) {
+        await this.authService.revokeSession(user.id, id);
+    }
+
+    @Post('sessions/revoke-others')
+    @UseGuards(JwtAuthGuard)
+    @ApiBearerAuth()
+    @HttpCode(204)
+    @ApiOperation({ summary: 'Revoke every session except the current one' })
+    @ApiResponse({ status: 204, description: 'Other sessions revoked.' })
+    async revokeOtherSessions(
+        @CurrentUser() user: any,
+        @Body() dto: RefreshTokenDto,
+        @Req() req: any,
+    ) {
+        const currentToken = req.cookies?.refreshToken ?? dto.refreshToken;
+        if (!currentToken) {
+            throw new UnauthorizedException('No refresh token cookie or body');
+        }
+        await this.authService.revokeOtherSessions(user.id, currentToken);
     }
 
     @Post('logout')
