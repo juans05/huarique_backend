@@ -46,6 +46,9 @@ export class PlaceClaim {
     @Column({ name: 'verification_code', nullable: true })
     verificationCode: string;
 
+    @Column({ name: 'document_urls', type: 'jsonb', nullable: true })
+    documentUrls: string[] | null;
+
     @Column({ default: 'pending' })
     status: 'pending' | 'verified' | 'rejected';
 

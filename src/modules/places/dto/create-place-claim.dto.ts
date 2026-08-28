@@ -1,4 +1,4 @@
-import { IsString, IsEmail, IsOptional } from 'class-validator';
+import { IsString, IsEmail, IsOptional, IsArray } from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 
 export class CreatePlaceClaimDto {
@@ -18,4 +18,13 @@ export class CreatePlaceClaimDto {
     @IsOptional()
     @IsString()
     whatsapp?: string;
+
+    @ApiPropertyOptional({
+        example: ['https://res.cloudinary.com/wuarike/catalogs/ruc.pdf'],
+        description: 'URLs of supporting documents uploaded via POST /upload/document',
+    })
+    @IsOptional()
+    @IsArray()
+    @IsString({ each: true })
+    documentUrls?: string[];
 }

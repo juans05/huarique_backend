@@ -135,6 +135,38 @@ export class MailService {
         }
     }
 
+    async sendComplaintReceipt(email: string, fullName: string, folio: string, type: 'reclamo' | 'queja') {
+        try {
+            const label = type === 'reclamo' ? 'Reclamo' : 'Queja';
+            const { data, error } = await this.resend.emails.send({
+                from: 'Wuarike <reclamos@wuarikes.com>',
+                to: [email],
+                subject: `Constancia de tu ${label.toLowerCase()} — Folio ${folio}`,
+                html: `
+                    <div style="font-family: 'Inter', sans-serif; max-width: 600px; margin: 0 auto; background-color: #ffffff; padding: 40px; border-radius: 20px; border: 1px solid #eee;">
+                        <h1 style="color: #111827; font-size: 22px; font-weight: 900; margin-bottom: 10px;">Hola ${fullName}</h1>
+                        <p style="color: #4b5563; font-size: 15px; margin-bottom: 20px;">
+                            Registramos tu ${label.toLowerCase()} en el Libro de Reclamaciones de Wuarikes SAC. Este correo es tu constancia.
+                        </p>
+                        <div style="background: #f3f4f6; padding: 20px; border-radius: 12px; margin-bottom: 20px;">
+                            <p style="margin: 0 0 8px 0; font-size: 13px; color: #6b7280;">N.º de folio</p>
+                            <p style="margin: 0; font-size: 20px; font-weight: 900; color: #F26122; font-family: monospace;">${folio}</p>
+                        </div>
+                        <p style="color: #4b5563; font-size: 14px;">
+                            Conforme a la normativa vigente, tenemos hasta 30 días calendario para darte una respuesta.
+                        </p>
+                    </div>
+                `,
+            });
+
+            if (error) throw error;
+            return data;
+        } catch (error) {
+            console.error('Error sending complaint receipt:', error);
+            throw new InternalServerErrorException('Error al enviar la constancia del reclamo');
+        }
+    }
+
     async sendTeamMemberCredentials(email: string, fullName: string, password: string, placeName: string, role: string) {
         try {
             const { data, error } = await this.resend.emails.send({

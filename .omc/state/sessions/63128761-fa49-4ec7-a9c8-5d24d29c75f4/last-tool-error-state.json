@@ -1,0 +1,7 @@
+{
+  "tool_name": "Bash",
+  "tool_input_preview": "{\"command\":\"cd \\\"D:\\\\Github\\\\wuarikes\\\\huarique_backend\\\" && railway run -s backend_warike -- node \\\"C:\\\\Users\\\\HP\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\D--Github-wuarikes\\\\63128761-fa49-4ec7-a9c8-5d24d29c75...",
+  "error": "Exit code 1\nnode:internal/modules/cjs/loader:1368\r\n  throw err;\r\n  ^\r\n\r\nError: Cannot find module 'pg'\r\nRequire stack:\r\n- C:\\Users\\HP\\AppData\\Local\\Temp\\claude\\D--Github-wuarikes\\63128761-fa49-4ec7-a9c8-5d24d29c75f4\\scratchpad\\run-migration.js\r\n    at Function._resolveFilename (node:internal/modules/cjs/loader:1365:15)\r\n    at defaultResolveImpl (node:internal/modules/cjs/loader:1021:19)\r\n    at resolveForCJSWithHooks (node:internal/modules/cjs/loader:1026:22)\r\n    at Function._load (node:intern...",
+  "timestamp": "2026-08-25T19:10:56.857Z",
+  "retry_count": 3
+}
