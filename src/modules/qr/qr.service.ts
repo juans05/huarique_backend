@@ -78,6 +78,8 @@ export class QrService {
             )
             .leftJoin(Place, 'place', 'place.id = assignment.placeId')
             .addSelect('place.name', 'currentPlaceName')
+            .addSelect('place.logoUrl', 'currentPlaceLogoUrl')
+            .addSelect('place.showLogoOnQr', 'currentPlaceShowLogo')
             .orderBy('qrCode.createdAt', 'DESC')
             .take(200);
 
@@ -85,7 +87,12 @@ export class QrService {
         if (search) query.andWhere('qrCode.code ILIKE :search', { search: `%${search}%` });
 
         const { entities, raw } = await query.getRawAndEntities();
-        return entities.map((qrCode, i) => ({ ...qrCode, currentPlaceName: raw[i].currentPlaceName ?? null }));
+        return entities.map((qrCode, i) => ({
+            ...qrCode,
+            currentPlaceName: raw[i].currentPlaceName ?? null,
+            currentPlaceLogoUrl: raw[i].currentPlaceLogoUrl ?? null,
+            currentPlaceShowLogo: raw[i].currentPlaceShowLogo ?? false,
+        }));
     }
 
     async findOne(id: string) {
