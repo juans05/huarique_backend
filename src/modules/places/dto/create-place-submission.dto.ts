@@ -1,6 +1,7 @@
 import {
     IsString,
     IsOptional,
+    IsNotEmpty,
     IsNumber,
     IsLatitude,
     IsLongitude,
@@ -54,8 +55,8 @@ export class CreatePlaceSubmissionDto {
     @IsUrl()
     website?: string;
 
-    @ApiPropertyOptional()
-    @IsOptional()
+    @ApiProperty()
+    @IsNotEmpty()
     @IsUrl()
-    coverImageUrl?: string;
+    coverImageUrl: string;
 }

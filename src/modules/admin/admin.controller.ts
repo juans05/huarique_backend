@@ -125,6 +125,44 @@ export class AdminController {
         return this.adminService.verifyClaim(id, admin.id);
     }
 
+    @Post('claims/:id/reject')
+    @HttpCode(200)
+    @ApiOperation({ summary: 'Reject a business claim' })
+    @ApiParam({ name: 'id', description: 'Claim UUID' })
+    @ApiResponse({ status: 200, description: 'Claim rejected.' })
+    @ApiResponse({ status: 401, description: 'Not authenticated.' })
+    @ApiResponse({ status: 403, description: 'Forbidden — admin role required.' })
+    @ApiResponse({ status: 404, description: 'Claim not found.' })
+    async rejectClaim(@Param('id') id: string, @CurrentUser() admin: any) {
+        return this.adminService.rejectClaim(id, admin.id);
+    }
+
+    @Get('complaints')
+    @ApiOperation({ summary: 'List Libro de Reclamaciones entries' })
+    @ApiResponse({ status: 200, description: 'Array of complaint book entries.' })
+    @ApiResponse({ status: 401, description: 'Not authenticated.' })
+    @ApiResponse({ status: 403, description: 'Forbidden — admin role required.' })
+    async getComplaints() {
+        return this.adminService.getComplaints();
+    }
+
+    @Post('complaints/:id/resolve')
+    @HttpCode(200)
+    @ApiOperation({ summary: 'Register the provider response and resolve a complaint' })
+    @ApiParam({ name: 'id', description: 'Complaint UUID' })
+    @ApiBody({ schema: { type: 'object', properties: { response: { type: 'string' } } } })
+    @ApiResponse({ status: 200, description: 'Complaint resolved.' })
+    @ApiResponse({ status: 401, description: 'Not authenticated.' })
+    @ApiResponse({ status: 403, description: 'Forbidden — admin role required.' })
+    @ApiResponse({ status: 404, description: 'Complaint not found.' })
+    async resolveComplaint(
+        @Param('id') id: string,
+        @Body('response') response: string,
+        @CurrentUser() admin: any,
+    ) {
+        return this.adminService.resolveComplaint(id, admin.id, response);
+    }
+
     // --- Users ---
 
     @Get('users')

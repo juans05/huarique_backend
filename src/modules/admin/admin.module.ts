@@ -5,6 +5,7 @@ import { AdminController } from './admin.controller';
 import { Place } from '../places/entities/place.entity';
 import { PlaceSubmission } from '../places/entities/place-submission.entity';
 import { PlaceClaim } from '../places/entities/place-claim.entity';
+import { ComplaintBookEntry } from '../complaint-book/entities/complaint-book-entry.entity';
 import { Category } from '../places/entities/category.entity';
 import { Ubigeo } from '../ubigeo/entities/ubigeo.entity';
 import { UsersModule } from '../users/users.module';
@@ -25,6 +26,7 @@ import { GoogleReview } from '../places/entities/google-review.entity';
             Checkin,
             User,
             GoogleReview,
+            ComplaintBookEntry,
         ]),
         UsersModule,
         GamificationModule,

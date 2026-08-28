@@ -115,9 +115,6 @@ export class UsersService {
     }
 
     async updateFromSocial(userId: string, provider: string, socialId: string, avatarUrl?: string): Promise<void> {
-        const updates: any = { socialProvider: provider, socialIdSocial: socialId };
-        if (avatarUrl) updates.avatarUrl = avatarUrl;
-        // Fix socialId mapping error if any
         await this.usersRepository.update(userId, {
             socialProvider: provider,
             socialId: socialId,

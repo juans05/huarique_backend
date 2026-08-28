@@ -16,6 +16,8 @@ import { CheckinsModule } from './modules/checkins/checkins.module';
 import { GamificationModule } from './modules/gamification/gamification.module';
 import { MissionsModule } from './modules/missions/missions.module';
 import { AdminModule } from './modules/admin/admin.module';
+import { ComplaintBookModule } from './modules/complaint-book/complaint-book.module';
+import { PlatformSettingsModule } from './modules/platform-settings/platform-settings.module';
 import { UploadModule } from './modules/upload/upload.module';
 import { UbigeoModule } from './modules/ubigeo/ubigeo.module';
 import { SocialModule } from './modules/social/social.module';
@@ -93,6 +95,8 @@ import { QrModule } from './modules/qr/qr.module';
         GamificationModule,
         MissionsModule,
         AdminModule,
+        ComplaintBookModule,
+        PlatformSettingsModule,
         UploadModule,
         UbigeoModule,
         SocialModule,

@@ -18,6 +18,8 @@ import { AdminUpdatePlaceDto } from './dto/update-place.dto';
 import { ImportScrapedPlaceDto } from './dto/import-scraped-place.dto';
 import { ImportScrapedReviewDto } from './dto/import-scraped-reviews.dto';
 import { GoogleReview } from '../places/entities/google-review.entity';
+import { ComplaintBookEntry } from '../complaint-book/entities/complaint-book-entry.entity';
+import { buildFolio } from '../complaint-book/complaint-book.service';
 
 // "Lima Cercado" en el scraper corresponde al distrito "Lima" en la tabla ubigeos
 const DISTRICT_ALIASES: Record<string, string> = { 'Lima Cercado': 'Lima' };
@@ -74,6 +76,8 @@ export class AdminService {
         private usersRepository: Repository<User>,
         @InjectRepository(GoogleReview)
         private googleReviewsRepository: Repository<GoogleReview>,
+        @InjectRepository(ComplaintBookEntry)
+        private complaintsRepository: Repository<ComplaintBookEntry>,
         private usersService: UsersService,
         private gamificationService: GamificationService,
     ) { }
@@ -125,7 +129,7 @@ export class AdminService {
     async getPendingSubmissions() {
         return this.submissionsRepository.find({
             where: { status: 'pending' },
-            relations: ['submittedBy'],
+            relations: ['submittedBy', 'category'],
             order: { createdAt: 'DESC' },
         });
     }
@@ -245,6 +249,50 @@ export class AdminService {
         await this.usersService.updateRole(claim.userId, 'business');
 
         return { message: 'Negocio verificado exitosamente' };
+    }
+
+    async rejectClaim(claimId: string, adminId: string) {
+        const claim = await this.claimsRepository.findOne({
+            where: { id: claimId },
+        });
+
+        if (!claim || claim.status !== 'pending') {
+            throw new NotFoundException('Reclamo no encontrado o ya procesado');
+        }
+
+        claim.status = 'rejected';
+        claim.verifiedByAdminId = adminId;
+        claim.verifiedAt = new Date();
+
+        await this.claimsRepository.save(claim);
+
+        return { message: 'Reclamo rechazado' };
+    }
+
+    async getComplaints() {
+        const complaints = await this.complaintsRepository.find({
+            order: { createdAt: 'DESC' },
+        });
+        return complaints.map((c) => ({ ...c, folio: buildFolio(c) }));
+    }
+
+    async resolveComplaint(complaintId: string, adminId: string, response: string) {
+        const complaint = await this.complaintsRepository.findOne({
+            where: { id: complaintId },
+        });
+
+        if (!complaint || complaint.status !== 'pending') {
+            throw new NotFoundException('Reclamo no encontrado o ya fue respondido');
+        }
+
+        complaint.status = 'resolved';
+        complaint.providerResponse = response;
+        complaint.respondedByAdminId = adminId;
+        complaint.respondedAt = new Date();
+
+        await this.complaintsRepository.save(complaint);
+
+        return { message: 'Respuesta registrada' };
     }
 
     // --- User Management ---
