@@ -87,6 +87,9 @@ export class Place {
     @Column({ name: 'logo_url', nullable: true })
     logoUrl: string | null;
 
+    @Column({ name: 'show_logo_on_qr', default: true })
+    showLogoOnQr: boolean;
+
     @Column({ default: 'active' })
     status: 'active' | 'inactive' | 'pending';
 

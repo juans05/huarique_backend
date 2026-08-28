@@ -277,6 +277,7 @@ export class BusinessPlacesController {
         if (data.coverImageUrl !== undefined) place.coverImageUrl = data.coverImageUrl;
         if (data.menuImageUrl !== undefined) place.menuImageUrl = data.menuImageUrl;
         if (data.logoUrl !== undefined) place.logoUrl = data.logoUrl;
+        if (data.showLogoOnQr !== undefined) place.showLogoOnQr = data.showLogoOnQr;
         if (data.googlePlaceId !== undefined) place.googlePlaceId = data.googlePlaceId;
         if (data.countryCode !== undefined) place.countryCode = data.countryCode;
         if (data.spainCommunity !== undefined) place.spainCommunity = data.spainCommunity;
