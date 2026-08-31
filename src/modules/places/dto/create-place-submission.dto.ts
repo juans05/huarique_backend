@@ -8,6 +8,8 @@ import {
     MinLength,
     IsUrl,
     IsUUID,
+    IsArray,
+    ArrayMaxSize,
 } from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 
@@ -59,4 +61,14 @@ export class CreatePlaceSubmissionDto {
     @IsNotEmpty()
     @IsUrl()
     coverImageUrl: string;
+
+    @ApiPropertyOptional({
+        example: ['https://res.cloudinary.com/wuarike/catalogs/foto1.jpg'],
+        description: 'All submitted photos, including the cover image. Max 6.',
+    })
+    @IsOptional()
+    @IsArray()
+    @ArrayMaxSize(6)
+    @IsUrl({}, { each: true })
+    photoUrls?: string[];
 }

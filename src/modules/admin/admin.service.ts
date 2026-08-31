@@ -6,6 +6,7 @@ import {
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Place } from '../places/entities/place.entity';
+import { PlacePhoto } from '../places/entities/place-photo.entity';
 import { PlaceSubmission } from '../places/entities/place-submission.entity';
 import { PlaceClaim } from '../places/entities/place-claim.entity';
 import { Category } from '../places/entities/category.entity';
@@ -62,6 +63,8 @@ export class AdminService {
     constructor(
         @InjectRepository(Place)
         private placesRepository: Repository<Place>,
+        @InjectRepository(PlacePhoto)
+        private placePhotosRepository: Repository<PlacePhoto>,
         @InjectRepository(PlaceSubmission)
         private submissionsRepository: Repository<PlaceSubmission>,
         @InjectRepository(PlaceClaim)
@@ -175,6 +178,16 @@ export class AdminService {
         });
 
         const savedPlace = await this.placesRepository.save(place);
+
+        // Todas las fotos enviadas (incluida la portada) pasan a la galería del
+        // restaurante — así no depende de que alguien haga check-in para tener fotos.
+        const photoUrls = submission.photoUrls?.length ? submission.photoUrls : [submission.coverImageUrl].filter(Boolean);
+        if (photoUrls.length > 0) {
+            const photos = photoUrls.map((url) =>
+                this.placePhotosRepository.create({ url, placeId: savedPlace.id, userId: submission.submittedByUserId }),
+            );
+            await this.placePhotosRepository.save(photos);
+        }
 
         // Update submission status
         submission.status = 'approved';

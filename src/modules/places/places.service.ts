@@ -14,6 +14,7 @@ import { PlaceSubmission } from './entities/place-submission.entity';
 import { PlaceClaim } from './entities/place-claim.entity';
 import { FavoritePlace } from './entities/favorite-place.entity';
 import { PlaceVideo } from './entities/place-video.entity';
+import { PlacePhoto } from './entities/place-photo.entity';
 import { UploadService } from '../upload/upload.service';
 
 import { CreatePlaceSubmissionDto } from './dto/create-place-submission.dto';
@@ -39,6 +40,8 @@ export class PlacesService {
         private favoritesRepository: Repository<FavoritePlace>,
         @InjectRepository(PlaceVideo)
         private videosRepository: Repository<PlaceVideo>,
+        @InjectRepository(PlacePhoto)
+        private photosRepository: Repository<PlacePhoto>,
         private uploadService: UploadService,
     ) { }
 
@@ -453,5 +456,26 @@ export class PlacesService {
 
         return this.videosRepository.save(video);
     }
+
+    // --- Photos ---
+
+    async findAllPhotos(placeId: string, page: number = 1, limit: number = 20) {
+        const [data, total] = await this.photosRepository.findAndCount({
+            where: { placeId },
+            relations: ['user'],
+            order: { createdAt: 'DESC' },
+            skip: (page - 1) * limit,
+            take: limit,
+        });
+
+        return {
+            data,
+            total,
+            page,
+            limit,
+            totalPages: Math.ceil(total / limit),
+        };
+    }
+
 }
 

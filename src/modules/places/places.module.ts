@@ -17,6 +17,7 @@ import { Amenity } from './entities/amenity.entity';
 import { Dish } from './entities/dish.entity';
 import { MenuCategory } from './entities/menu-category.entity';
 import { PlaceVideo } from './entities/place-video.entity';
+import { PlacePhoto } from './entities/place-photo.entity';
 import { GoogleReview } from './entities/google-review.entity';
 import { Promotion } from './entities/promotion.entity';
 
@@ -47,6 +48,7 @@ import { SubscriptionsModule } from '../subscriptions/subscriptions.module';
             Dish,
             MenuCategory,
             PlaceVideo,
+            PlacePhoto,
             GoogleReview,
             Promotion,
             User,

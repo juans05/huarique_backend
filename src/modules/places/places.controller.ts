@@ -258,5 +258,20 @@ export class PlacesController {
         if (place.claimedByUserId !== user.id) throw new ForbiddenException('No tienes permiso para gestionar este local');
         return this.placesService.addVideo(user.id, id, file);
     }
+
+    // --- Photos ---
+
+    @Get(':id/photos')
+    @ApiOperation({ summary: 'List photos for a place' })
+    @ApiParam({ name: 'id', description: 'Place UUID' })
+    @ApiQuery({ name: 'page', required: false, type: Number })
+    @ApiQuery({ name: 'limit', required: false, type: Number })
+    async getPhotos(
+        @Param('id') id: string,
+        @Query('page') page: number = 1,
+        @Query('limit') limit: number = 20,
+    ) {
+        return this.placesService.findAllPhotos(id, Number(page), Number(limit));
+    }
 }
 
