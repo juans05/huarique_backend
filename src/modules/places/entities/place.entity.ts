@@ -85,6 +85,9 @@ export class Place {
     @Column({ name: 'menu_image_url', nullable: true })
     menuImageUrl: string | null;
 
+    @Column({ name: 'menu_image_urls', type: 'jsonb', nullable: true })
+    menuImageUrls: string[] | null;
+
     @Column({ name: 'logo_url', nullable: true })
     logoUrl: string | null;
 

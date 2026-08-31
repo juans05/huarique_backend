@@ -71,4 +71,24 @@ export class CreatePlaceSubmissionDto {
     @ArrayMaxSize(6)
     @IsUrl({}, { each: true })
     photoUrls?: string[];
+
+    @ApiPropertyOptional({ example: '12:00 PM - 10:00 PM' })
+    @IsOptional()
+    @IsString()
+    openHoursText?: string;
+
+    @ApiPropertyOptional({
+        example: ['https://res.cloudinary.com/wuarike/catalogs/carta1.jpg'],
+        description: 'Photos of the physical menu. Max 6.',
+    })
+    @IsOptional()
+    @IsArray()
+    @ArrayMaxSize(6)
+    @IsUrl({}, { each: true })
+    menuImageUrls?: string[];
+
+    @ApiPropertyOptional({ example: 'https://res.cloudinary.com/wuarike/videos/local.mp4' })
+    @IsOptional()
+    @IsUrl()
+    videoUrl?: string;
 }

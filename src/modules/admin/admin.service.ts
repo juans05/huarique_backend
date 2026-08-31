@@ -7,6 +7,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Place } from '../places/entities/place.entity';
 import { PlacePhoto } from '../places/entities/place-photo.entity';
+import { PlaceVideo } from '../places/entities/place-video.entity';
 import { PlaceSubmission } from '../places/entities/place-submission.entity';
 import { PlaceClaim } from '../places/entities/place-claim.entity';
 import { Category } from '../places/entities/category.entity';
@@ -65,6 +66,8 @@ export class AdminService {
         private placesRepository: Repository<Place>,
         @InjectRepository(PlacePhoto)
         private placePhotosRepository: Repository<PlacePhoto>,
+        @InjectRepository(PlaceVideo)
+        private placeVideosRepository: Repository<PlaceVideo>,
         @InjectRepository(PlaceSubmission)
         private submissionsRepository: Repository<PlaceSubmission>,
         @InjectRepository(PlaceClaim)
@@ -174,6 +177,8 @@ export class AdminService {
             phone: submission.phone,
             website: submission.website,
             coverImageUrl: submission.coverImageUrl,
+            openHoursText: submission.openHoursText,
+            menuImageUrls: submission.menuImageUrls,
             status: 'active',
         });
 
@@ -187,6 +192,16 @@ export class AdminService {
                 this.placePhotosRepository.create({ url, placeId: savedPlace.id, userId: submission.submittedByUserId }),
             );
             await this.placePhotosRepository.save(photos);
+        }
+
+        if (submission.videoUrl) {
+            await this.placeVideosRepository.save(
+                this.placeVideosRepository.create({
+                    url: submission.videoUrl,
+                    placeId: savedPlace.id,
+                    userId: submission.submittedByUserId,
+                }),
+            );
         }
 
         // Update submission status
