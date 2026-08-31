@@ -15,6 +15,8 @@ import {
     FileTypeValidator,
     NotFoundException,
     ForbiddenException,
+    DefaultValuePipe,
+    ParseIntPipe,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 
@@ -228,10 +230,10 @@ export class PlacesController {
     @ApiQuery({ name: 'limit', required: false, type: Number })
     async getVideos(
         @Param('id') id: string,
-        @Query('page') page: number = 1,
-        @Query('limit') limit: number = 10,
+        @Query('page', new DefaultValuePipe(1), ParseIntPipe) page: number,
+        @Query('limit', new DefaultValuePipe(10), ParseIntPipe) limit: number,
     ) {
-        return this.placesService.findAllVideos(id, Number(page), Number(limit));
+        return this.placesService.findAllVideos(id, page, limit);
     }
 
     @Post(':id/videos')
@@ -268,10 +270,10 @@ export class PlacesController {
     @ApiQuery({ name: 'limit', required: false, type: Number })
     async getPhotos(
         @Param('id') id: string,
-        @Query('page') page: number = 1,
-        @Query('limit') limit: number = 20,
+        @Query('page', new DefaultValuePipe(1), ParseIntPipe) page: number,
+        @Query('limit', new DefaultValuePipe(20), ParseIntPipe) limit: number,
     ) {
-        return this.placesService.findAllPhotos(id, Number(page), Number(limit));
+        return this.placesService.findAllPhotos(id, page, limit);
     }
 }
 
