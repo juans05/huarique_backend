@@ -195,7 +195,7 @@ export class GamificationService {
         );
 
         const districts = await this.pointsLogRepository.query(
-            `SELECT COUNT(DISTINCT p.district) as districts_visited
+            `SELECT COUNT(DISTINCT p.district_id) as districts_visited
        FROM checkins c
        JOIN places p ON c.place_id = p.id
        WHERE c.user_id = $1`,
