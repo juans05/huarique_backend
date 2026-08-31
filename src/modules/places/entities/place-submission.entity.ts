@@ -58,6 +58,9 @@ export class PlaceSubmission {
     @Column({ name: 'cover_image_url', nullable: true })
     coverImageUrl: string;
 
+    @Column({ name: 'photo_urls', type: 'jsonb', nullable: true })
+    photoUrls: string[] | null;
+
     @Column({ default: 'pending' })
     status: 'pending' | 'approved' | 'rejected';
 

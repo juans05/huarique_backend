@@ -20,6 +20,7 @@ import { Ubigeo } from '../../ubigeo/entities/ubigeo.entity';
 import { Category } from './category.entity';
 import { Dish } from './dish.entity';
 import { PlaceVideo } from './place-video.entity';
+import { PlacePhoto } from './place-photo.entity';
 import { GoogleReview } from './google-review.entity';
 import { encryptTransformer } from '../../../common/utils/encryption-transformer';
 
@@ -221,6 +222,9 @@ export class Place {
 
     @OneToMany(() => PlaceVideo, (video) => video.place)
     videos: PlaceVideo[];
+
+    @OneToMany(() => PlacePhoto, (photo) => photo.place)
+    photos: PlacePhoto[];
 
     @OneToMany(() => GoogleReview, (review) => review.place)
     googleReviews: GoogleReview[];
