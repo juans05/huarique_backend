@@ -61,6 +61,15 @@ export class PlaceSubmission {
     @Column({ name: 'photo_urls', type: 'jsonb', nullable: true })
     photoUrls: string[] | null;
 
+    @Column({ name: 'open_hours_text', nullable: true })
+    openHoursText: string | null;
+
+    @Column({ name: 'menu_image_urls', type: 'jsonb', nullable: true })
+    menuImageUrls: string[] | null;
+
+    @Column({ name: 'video_url', nullable: true })
+    videoUrl: string | null;
+
     @Column({ default: 'pending' })
     status: 'pending' | 'approved' | 'rejected';
 

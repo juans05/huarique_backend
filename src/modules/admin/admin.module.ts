@@ -4,6 +4,7 @@ import { AdminService } from './admin.service';
 import { AdminController } from './admin.controller';
 import { Place } from '../places/entities/place.entity';
 import { PlacePhoto } from '../places/entities/place-photo.entity';
+import { PlaceVideo } from '../places/entities/place-video.entity';
 import { PlaceSubmission } from '../places/entities/place-submission.entity';
 import { PlaceClaim } from '../places/entities/place-claim.entity';
 import { ComplaintBookEntry } from '../complaint-book/entities/complaint-book-entry.entity';
@@ -21,6 +22,7 @@ import { GoogleReview } from '../places/entities/google-review.entity';
         TypeOrmModule.forFeature([
             Place,
             PlacePhoto,
+            PlaceVideo,
             PlaceSubmission,
             PlaceClaim,
             Category,
