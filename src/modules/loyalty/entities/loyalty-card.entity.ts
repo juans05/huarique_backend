@@ -37,6 +37,15 @@ export class LoyaltyCard {
   @Column({ name: 'last_visit_at', type: 'timestamp', nullable: true })
   lastVisitAt: Date;
 
+  // Se llenan solo por el callback firmado de Google (evento real save/del),
+  // no por nuestra propia lógica — reflejan si el cliente de verdad tiene la
+  // tarjeta guardada en su Wallet, no solo si existe el registro en esta tabla.
+  @Column({ name: 'google_wallet_saved_at', type: 'timestamp', nullable: true })
+  googleWalletSavedAt: Date | null;
+
+  @Column({ name: 'google_wallet_deleted_at', type: 'timestamp', nullable: true })
+  googleWalletDeletedAt: Date | null;
+
   @CreateDateColumn({ name: 'created_at' })
   createdAt: Date;
 
