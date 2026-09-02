@@ -86,6 +86,16 @@ export class LoyaltyController {
     return { message: 'Premio eliminado' };
   }
 
+  // ── CAMPAÑA — notificación masiva por Wallet ─────────────────────────────
+
+  @Post('wallet-campaign')
+  @ApiOperation({ summary: 'Send a Google Wallet notification to every customer with a saved card' })
+  async sendWalletCampaign(@Param('placeId') placeId: string, @Body() body: { header: string; body: string }, @CurrentUser() user: any) {
+    await this.assertOwner(placeId, user.id);
+    if (!body.header || !body.body) throw new Error('Título y mensaje son requeridos');
+    return this.loyaltyService.sendWalletCampaign(placeId, body.header, body.body);
+  }
+
   // ── CANJEAR PREMIO ────────────────────────────────────────────────────
 
   @Post('redeem')

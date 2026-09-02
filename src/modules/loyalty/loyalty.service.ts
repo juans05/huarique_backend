@@ -1,10 +1,15 @@
 import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { MoreThan, Repository } from 'typeorm';
+import { Queue } from 'bullmq';
+import { InjectQueue } from '@nestjs/bullmq';
 import { LoyaltyProgram } from './entities/loyalty-program.entity';
 import { LoyaltyCard } from './entities/loyalty-card.entity';
 import { LoyaltyTransaction } from './entities/loyalty-transaction.entity';
 import { Reward } from './entities/reward.entity';
+import { WalletCampaign } from './entities/wallet-campaign.entity';
+
+const MAX_WALLET_CAMPAIGNS_PER_DAY = 3;
 
 @Injectable()
 export class LoyaltyService {
@@ -13,6 +18,8 @@ export class LoyaltyService {
     @InjectRepository(LoyaltyCard) private cardRepo: Repository<LoyaltyCard>,
     @InjectRepository(LoyaltyTransaction) private txRepo: Repository<LoyaltyTransaction>,
     @InjectRepository(Reward) private rewardRepo: Repository<Reward>,
+    @InjectRepository(WalletCampaign) private walletCampaignRepo: Repository<WalletCampaign>,
+    @InjectQueue('wallet-campaign') private walletCampaignQueue: Queue,
   ) {}
 
   // ── PROGRAMA ────────────────────────────────────────────────────────────
@@ -157,6 +164,49 @@ export class LoyaltyService {
     }));
 
     return { card, reward };
+  }
+
+  // ── CALLBACK DE GOOGLE WALLET — guardado/borrado real ────────────────────
+
+  async recordWalletEvent(cardId: string, eventType: 'save' | 'del'): Promise<void> {
+    const card = await this.cardRepo.findOne({ where: { id: cardId } });
+    if (!card) return;
+    if (eventType === 'save') {
+      card.googleWalletSavedAt = new Date();
+      card.googleWalletDeletedAt = null;
+    } else {
+      card.googleWalletDeletedAt = new Date();
+    }
+    await this.cardRepo.save(card);
+  }
+
+  // ── CAMPAÑA — mensaje a todos los que tienen tarjeta guardada ────────────
+
+  async sendWalletCampaign(placeId: string, header: string, body: string): Promise<{ totalQueued: number }> {
+    const since24h = new Date(Date.now() - 24 * 3600_000);
+    const sentToday = await this.walletCampaignRepo.count({
+      where: { placeId, createdAt: MoreThan(since24h) },
+    });
+    if (sentToday >= MAX_WALLET_CAMPAIGNS_PER_DAY) {
+      throw new BadRequestException(
+        `Ya enviaste ${MAX_WALLET_CAMPAIGNS_PER_DAY} campañas en las últimas 24 horas. Google Wallet no notifica más de ${MAX_WALLET_CAMPAIGNS_PER_DAY} veces por tarjeta en ese período — espera antes de enviar otra.`,
+      );
+    }
+
+    const cards = await this.cardRepo.find({ where: { placeId } });
+    for (const card of cards) {
+      await this.walletCampaignQueue.add(
+        'send-wallet-message',
+        { cardId: card.id, header, body },
+        { attempts: 3, backoff: { type: 'exponential', delay: 2000 } },
+      );
+    }
+
+    await this.walletCampaignRepo.save(
+      this.walletCampaignRepo.create({ placeId, header, body, totalQueued: cards.length }),
+    );
+
+    return { totalQueued: cards.length };
   }
 
   // ── CRM — clientes del restaurante ──────────────────────────────────────

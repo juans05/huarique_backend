@@ -30,7 +30,37 @@ export class LoyaltyPublicController {
   ) {
     if (!body.phone) throw new Error('El número de teléfono es requerido');
     const phone = body.phone.replace(/\D/g, '');
-    return this.loyaltyService.scan(placeId, phone, body.name);
+    const result = await this.loyaltyService.scan(placeId, phone, body.name);
+
+    if (result.stampsEarned > 0 || result.pointsEarned > 0) {
+      this.pushWalletUpdate(placeId, result.card, result.program);
+    }
+
+    return result;
+  }
+
+  @Post('wallet/google/callback')
+  @ApiOperation({ summary: 'Google Wallet callback — save/delete events (public, signature-verified)' })
+  async googleWalletCallback(@Body() body: any) {
+    try {
+      const message = await this.walletService.verifyGoogleCallback(body);
+      const cardId = message.objectId ? this.walletService.extractCardIdFromObjectId(message.objectId) : null;
+      if (cardId && (message.eventType === 'save' || message.eventType === 'del')) {
+        await this.loyaltyService.recordWalletEvent(cardId, message.eventType);
+      }
+    } catch (err) {
+      console.error('Google Wallet callback descartado:', err.message);
+    }
+    // Google reintenta en bucle si no respondemos 200, incluso si descartamos el evento.
+    return { message: 'ok' };
+  }
+
+  // Fire-and-forget: la tarjeta de Google Wallet ya guardada se actualiza sola,
+  // pero no debe demorar ni romper la respuesta del escaneo si Google falla.
+  private pushWalletUpdate(placeId: string, card: any, program: any): void {
+    this.placesRepo.findOne({ where: { id: placeId } })
+      .then((place) => place && this.walletService.updateGoogleWalletObject(place, card, program))
+      .catch((err) => console.error('No se pudo actualizar Google Wallet tras el escaneo:', err.message));
   }
 
   @Get(':placeId/card/:phone')
