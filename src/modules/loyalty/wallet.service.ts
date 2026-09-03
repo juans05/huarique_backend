@@ -29,6 +29,15 @@ export class WalletService {
     return raw;
   }
 
+  // Google Wallet rechaza la clase entera si la imagen no es una URL http(s)
+  // absoluta — algunos restaurantes tienen coverImageUrl guardado como ruta
+  // relativa (bug de otra parte del flujo de subida), así que no confiamos en él tal cual.
+  private absoluteImageUrl(url: string | null | undefined): string {
+    const fallback = 'https://placehold.co/512x512/EE5924/white?text=W';
+    if (url && /^https?:\/\//i.test(url)) return url;
+    return fallback;
+  }
+
   getGoogleWalletSaveUrl(place: any, card: any, program: any): string {
     const issuerId = process.env.GOOGLE_WALLET_ISSUER_ID;
     const saEmail = process.env.GOOGLE_WALLET_SA_EMAIL;
@@ -46,7 +55,7 @@ export class WalletService {
       issuerName: place.name || 'Wuarike',
       programName: place.name || 'Programa de Fidelización',
       programLogo: {
-        sourceUri: { uri: place.coverImageUrl || 'https://placehold.co/512x512/EE5924/white?text=W' },
+        sourceUri: { uri: this.absoluteImageUrl(place.coverImageUrl) },
         contentDescription: { defaultValue: { language: 'es', value: place.name } },
       },
       reviewStatus: 'UNDER_REVIEW',
