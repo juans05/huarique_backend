@@ -15,10 +15,24 @@ export class WalletService {
 
   // ── GOOGLE WALLET ─────────────────────────────────────────────────────────
 
+  // La clave llega a la variable de entorno de formas distintas según cómo se pegó
+  // (con \n literales del JSON, con saltos de línea reales, o con las comillas del
+  // JSON incluidas por error) — se normaliza acá una sola vez para las dos veces
+  // que se firma (save URL y OAuth2 access token).
+  private getPrivateKey(): string | null {
+    let raw = process.env.GOOGLE_WALLET_SA_PRIVATE_KEY;
+    if (!raw) return null;
+    raw = raw.trim();
+    if (raw.startsWith('"') && raw.endsWith('"')) raw = raw.slice(1, -1);
+    raw = raw.replace(/\\n/g, '\n');
+    if (!raw.includes('-----BEGIN PRIVATE KEY-----')) return null;
+    return raw;
+  }
+
   getGoogleWalletSaveUrl(place: any, card: any, program: any): string {
     const issuerId = process.env.GOOGLE_WALLET_ISSUER_ID;
     const saEmail = process.env.GOOGLE_WALLET_SA_EMAIL;
-    const saKey = process.env.GOOGLE_WALLET_SA_PRIVATE_KEY?.replace(/\\n/g, '\n');
+    const saKey = this.getPrivateKey();
 
     if (!issuerId || !saEmail || !saKey) {
       throw new ServiceUnavailableException('Google Wallet no está configurado. Agrega GOOGLE_WALLET_ISSUER_ID, GOOGLE_WALLET_SA_EMAIL y GOOGLE_WALLET_SA_PRIVATE_KEY al servidor.');
@@ -115,7 +129,7 @@ export class WalletService {
   // Server-to-server: intercambia la service account por un access token (JWT Bearer Grant, RFC 7523).
   private async getGoogleAccessToken(): Promise<string> {
     const saEmail = process.env.GOOGLE_WALLET_SA_EMAIL;
-    const saKey = process.env.GOOGLE_WALLET_SA_PRIVATE_KEY?.replace(/\\n/g, '\n');
+    const saKey = this.getPrivateKey();
     if (!saEmail || !saKey) {
       throw new ServiceUnavailableException('Google Wallet no está configurado.');
     }
