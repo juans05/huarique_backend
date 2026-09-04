@@ -30,8 +30,8 @@ export class UsersController {
     @Get(':id')
     @ApiOperation({ summary: 'Public-safe profile of another user' })
     @ApiParam({ name: 'id', description: 'User UUID' })
-    async getPublicProfile(@Param('id') id: string) {
-        return this.usersService.getPublicProfile(id);
+    async getPublicProfile(@CurrentUser() user: any, @Param('id') id: string) {
+        return this.usersService.getPublicProfile(id, user.id);
     }
 
     @Get(':id/follow')
