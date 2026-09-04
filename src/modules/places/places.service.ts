@@ -14,6 +14,8 @@ import { PlaceSubmission } from './entities/place-submission.entity';
 import { PlaceClaim } from './entities/place-claim.entity';
 import { FavoritePlace } from './entities/favorite-place.entity';
 import { PlaceInterest } from './entities/place-interest.entity';
+import { WuarikesHereRequest } from './entities/wuarikes-here-request.entity';
+import { SubmitWuarikesHereDto } from './dto/submit-wuarikes-here.dto';
 import { PlaceVideo } from './entities/place-video.entity';
 import { PlacePhoto } from './entities/place-photo.entity';
 import { UploadService } from '../upload/upload.service';
@@ -43,6 +45,8 @@ export class PlacesService {
         private favoritesRepository: Repository<FavoritePlace>,
         @InjectRepository(PlaceInterest)
         private interestsRepository: Repository<PlaceInterest>,
+        @InjectRepository(WuarikesHereRequest)
+        private wuarikesHereRepository: Repository<WuarikesHereRequest>,
         @InjectRepository(PlaceVideo)
         private videosRepository: Repository<PlaceVideo>,
         @InjectRepository(PlacePhoto)
@@ -492,6 +496,20 @@ export class PlacesService {
 
     async getInterestCount(placeId: string): Promise<number> {
         return this.interestsRepository.count({ where: { placeId } });
+    }
+
+    // "Quiero Wuarikes aquí" — demanda por un restaurante que no está en la
+    // plataforma todavía. Se alimenta al panel de oportunidades comerciales.
+    async submitWuarikesHere(userId: string, dto: SubmitWuarikesHereDto): Promise<WuarikesHereRequest> {
+        return this.wuarikesHereRepository.save(
+            this.wuarikesHereRepository.create({
+                requestedByUserId: userId,
+                restaurantName: dto.restaurantName,
+                address: dto.address || null,
+                district: dto.district || null,
+                notes: dto.notes || null,
+            }),
+        );
     }
 
     // "3 amigos visitaron" — entre la gente que sigo, quiénes hicieron check-in acá.

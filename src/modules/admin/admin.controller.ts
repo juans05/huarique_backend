@@ -28,6 +28,36 @@ import { ImportScrapedReviewsDto } from './dto/import-scraped-reviews.dto';
 export class AdminController {
     constructor(private readonly adminService: AdminService) { }
 
+    @Get('opportunities')
+    @ApiOperation({ summary: 'Restaurantes sin reclamar rankeados por actividad — oportunidades comerciales' })
+    @ApiQuery({ name: 'status', required: false, type: String })
+    async getOpportunities(@Query('status') status?: string) {
+        return this.adminService.getOpportunities(status);
+    }
+
+    @Patch('opportunities/:placeId')
+    @ApiOperation({ summary: 'Actualizar el estado comercial de un local (nuevo/contactado/reunion/negociacion/afiliado/no_interesado)' })
+    @ApiParam({ name: 'placeId', description: 'Place UUID' })
+    async updateOpportunityStatus(@Param('placeId') placeId: string, @Body('status') status: string) {
+        await this.adminService.updateOpportunityStatus(placeId, status);
+        return { message: 'Estado actualizado' };
+    }
+
+    @Get('wuarikes-here-requests')
+    @ApiOperation({ summary: 'Solicitudes de "Quiero Wuarikes aquí"' })
+    @ApiQuery({ name: 'status', required: false, type: String })
+    async getWuarikesHereRequests(@Query('status') status?: string) {
+        return this.adminService.getWuarikesHereRequests(status);
+    }
+
+    @Patch('wuarikes-here-requests/:id')
+    @ApiOperation({ summary: 'Actualizar el estado de una solicitud de "Quiero Wuarikes aquí"' })
+    @ApiParam({ name: 'id', description: 'Request UUID' })
+    async updateWuarikesHereRequestStatus(@Param('id') id: string, @Body('status') status: string) {
+        await this.adminService.updateWuarikesHereRequestStatus(id, status);
+        return { message: 'Estado actualizado' };
+    }
+
     @Get('submissions')
     @ApiOperation({ summary: 'List pending place submissions' })
     @ApiResponse({ status: 200, description: 'Array of pending place submissions.' })

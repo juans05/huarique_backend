@@ -16,6 +16,8 @@ import { GamificationModule } from '../gamification/gamification.module';
 import { Checkin } from '../checkins/entities/checkin.entity';
 import { User } from '../users/entities/user.entity';
 import { GoogleReview } from '../places/entities/google-review.entity';
+import { FavoritePlace } from '../places/entities/favorite-place.entity';
+import { WuarikesHereRequest } from '../places/entities/wuarikes-here-request.entity';
 
 @Module({
     imports: [
@@ -31,6 +33,8 @@ import { GoogleReview } from '../places/entities/google-review.entity';
             User,
             GoogleReview,
             ComplaintBookEntry,
+            FavoritePlace,
+            WuarikesHereRequest,
         ]),
         UsersModule,
         GamificationModule,

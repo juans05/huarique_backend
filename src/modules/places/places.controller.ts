@@ -30,6 +30,7 @@ import { PromotionsService } from './promotions.service';
 import { TikTokSearchService } from './tiktok-search.service';
 import { CreatePlaceSubmissionDto } from './dto/create-place-submission.dto';
 import { CreatePlaceClaimDto } from './dto/create-place-claim.dto';
+import { SubmitWuarikesHereDto } from './dto/submit-wuarikes-here.dto';
 import { GetPlacesDto } from './dto/get-places.dto';
 import { PlaceResponseDto } from './dto/place-response.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
@@ -188,6 +189,15 @@ export class PlacesController {
         @Body() dto: CreatePlaceClaimDto,
     ) {
         return this.placesService.claimPlace(user.id, id, dto);
+    }
+
+    @Post('wuarikes-here')
+    @UseGuards(JwtAuthGuard)
+    @ApiBearerAuth()
+    @ApiOperation({ summary: '"Quiero Wuarikes aquí" — pedir que un restaurante que no está en la plataforma se una' })
+    async submitWuarikesHere(@CurrentUser() user: any, @Body() dto: SubmitWuarikesHereDto) {
+        await this.placesService.submitWuarikesHere(user.id, dto);
+        return { message: '¡Gracias! Le avisamos a este restaurante que quieres verlo en Wuarikes.' };
     }
 
     @Get(':id/friends-visited')

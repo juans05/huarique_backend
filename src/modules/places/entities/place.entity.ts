@@ -185,6 +185,16 @@ export class Place {
     @Column({ name: 'menu_needs_review', default: false })
     menuNeedsReview: boolean;
 
+    // Pipeline de ventas para locales sin reclamar — null = todavía sin triage.
+    @Column({
+        name: 'commercial_status',
+        type: 'enum',
+        enum: ['nuevo', 'contactado', 'reunion', 'negociacion', 'afiliado', 'no_interesado'],
+        enumName: 'wuarikes_here_requests_status_enum',
+        nullable: true,
+    })
+    commercialStatus: 'nuevo' | 'contactado' | 'reunion' | 'negociacion' | 'afiliado' | 'no_interesado' | null;
+
     @ManyToOne(() => User, { nullable: true })
     @JoinColumn({ name: 'claimed_by_user_id' })
     claimedBy: User;
