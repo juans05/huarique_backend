@@ -71,6 +71,25 @@ export class AntiFraudService {
     }
 
     /**
+     * Validate that the device is actually near the place being checked into.
+     * 200m de margen para el drift normal de GPS (dentro de un local, entre
+     * edificios) sin dejar pasar check-ins a varias cuadras de distancia.
+     */
+    validateProximity(
+        userLat: number,
+        userLng: number,
+        placeLat: number,
+        placeLng: number,
+    ): { isValid: boolean; distanceMeters: number } {
+        const MAX_DISTANCE_METERS = 200;
+        const distanceMeters = this.calculateDistance(placeLat, placeLng, userLat, userLng) * 1000;
+        return {
+            isValid: distanceMeters <= MAX_DISTANCE_METERS,
+            distanceMeters: Math.round(distanceMeters),
+        };
+    }
+
+    /**
      * Detect suspicious speed between check-ins
      * Flags if user moved > 50 km/h between check-ins
      */

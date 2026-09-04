@@ -88,6 +88,22 @@ export class CheckinsService {
             });
         }
 
+        if (dto.latitude != null && dto.longitude != null && place.latitude != null && place.longitude != null) {
+            const proximity = this.antiFraudService.validateProximity(
+                dto.latitude,
+                dto.longitude,
+                Number(place.latitude),
+                Number(place.longitude),
+            );
+            if (!proximity.isValid) {
+                throw new BadRequestException({
+                    message: `Estás muy lejos de ${place.name} para hacer check-in (${(proximity.distanceMeters / 1000).toFixed(1)} km). Acércate al local.`,
+                    error: 'TOO_FAR_FROM_PLACE',
+                    distanceMeters: proximity.distanceMeters,
+                });
+            }
+        }
+
         if (dto.latitude != null && dto.longitude != null) {
             const speedCheck = await this.antiFraudService.validateSpeed(userId, dto.latitude, dto.longitude);
             if (speedCheck.suspicious) {
