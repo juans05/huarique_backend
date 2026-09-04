@@ -39,6 +39,20 @@ export class CheckinsController {
         return this.checkinsService.create(user.id, dto);
     }
 
+    @Get('feed/following')
+    @UseGuards(JwtAuthGuard)
+    @ApiBearerAuth()
+    @ApiOperation({ summary: 'Feed de check-ins de la gente que sigo' })
+    @ApiQuery({ name: 'page', required: false, type: Number, example: 1 })
+    @ApiQuery({ name: 'size', required: false, type: Number, example: 20 })
+    async getFriendsFeed(
+        @CurrentUser() user: any,
+        @Query('page', new DefaultValuePipe(1), ParseIntPipe) page: number,
+        @Query('size', new DefaultValuePipe(20), ParseIntPipe) size: number,
+    ) {
+        return this.checkinsService.getFriendsFeed(user.id, page, size);
+    }
+
     @Get('feed')
     @ApiOperation({ summary: 'Get global feed of recent check-ins, optionally scoped to a single place' })
     @ApiQuery({ name: 'page', required: false, type: Number, example: 1 })

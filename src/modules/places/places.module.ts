@@ -33,6 +33,7 @@ import { GoogleCallbackController } from './google-callback.controller';
 import { User } from '../users/entities/user.entity';
 import { TeamModule } from '../team/team.module';
 import { SubscriptionsModule } from '../subscriptions/subscriptions.module';
+import { UsersModule } from '../users/users.module';
 
 
 @Module({
@@ -58,6 +59,7 @@ import { SubscriptionsModule } from '../subscriptions/subscriptions.module';
         UploadModule,
         TeamModule,
         SubscriptionsModule,
+        UsersModule,
     ],
 
     controllers: [PlacesController, BusinessPlacesController, GoogleCallbackController],

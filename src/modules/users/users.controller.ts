@@ -1,5 +1,5 @@
-import { Controller, Get, Patch, Body, Query, UseGuards, ParseIntPipe, DefaultValuePipe, Post, UseInterceptors, UploadedFile, ParseFilePipe, MaxFileSizeValidator, FileTypeValidator, Logger, BadRequestException } from '@nestjs/common';
-import { ApiBearerAuth, ApiTags, ApiOperation, ApiQuery, ApiConsumes, ApiResponse, ApiBody } from '@nestjs/swagger';
+import { Controller, Get, Patch, Delete, Param, HttpCode, Body, Query, UseGuards, ParseIntPipe, DefaultValuePipe, Post, UseInterceptors, UploadedFile, ParseFilePipe, MaxFileSizeValidator, FileTypeValidator, Logger, BadRequestException } from '@nestjs/common';
+import { ApiBearerAuth, ApiTags, ApiOperation, ApiQuery, ApiParam, ApiConsumes, ApiResponse, ApiBody } from '@nestjs/swagger';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
@@ -26,6 +26,35 @@ export class UsersController {
         @InjectRepository(Place)
         private placesRepo: Repository<Place>,
     ) { }
+
+    @Get(':id/follow')
+    @ApiOperation({ summary: 'Check if current user follows :id, plus follower/following counts' })
+    @ApiParam({ name: 'id', description: 'User UUID' })
+    async getFollowStatus(@CurrentUser() user: any, @Param('id') id: string) {
+        const [isFollowing, counts] = await Promise.all([
+            this.usersService.isFollowing(user.id, id),
+            this.usersService.getFollowCounts(id),
+        ]);
+        return { isFollowing, ...counts };
+    }
+
+    @Post(':id/follow')
+    @HttpCode(200)
+    @ApiOperation({ summary: 'Follow a user' })
+    @ApiParam({ name: 'id', description: 'User UUID' })
+    async follow(@CurrentUser() user: any, @Param('id') id: string) {
+        await this.usersService.follow(user.id, id);
+        return { message: 'Ahora sigues a este usuario' };
+    }
+
+    @Delete(':id/follow')
+    @HttpCode(200)
+    @ApiOperation({ summary: 'Unfollow a user' })
+    @ApiParam({ name: 'id', description: 'User UUID' })
+    async unfollow(@CurrentUser() user: any, @Param('id') id: string) {
+        await this.usersService.unfollow(user.id, id);
+        return { message: 'Dejaste de seguir a este usuario' };
+    }
 
     @Get('me/profile')
     @ApiOperation({ summary: 'Get current user profile' })
