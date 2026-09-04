@@ -1,4 +1,4 @@
-import { IsString, IsOptional, MaxLength, IsUrl, IsUUID, IsLatitude, IsLongitude } from 'class-validator';
+import { IsString, IsOptional, MaxLength, IsUrl, IsUUID, IsLatitude, IsLongitude, IsNumber, Min } from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 
 export class CreateCheckinDto {
@@ -35,4 +35,16 @@ export class CreateCheckinDto {
     @IsOptional()
     @IsLongitude()
     longitude?: number;
+
+    @ApiPropertyOptional({ example: 'Lomo saltado', maxLength: 100, description: '¿Qué pediste?' })
+    @IsOptional()
+    @IsString()
+    @MaxLength(100)
+    dishName?: string;
+
+    @ApiPropertyOptional({ example: 28, description: 'Precio aproximado del plato' })
+    @IsOptional()
+    @IsNumber()
+    @Min(0)
+    dishPrice?: number;
 }

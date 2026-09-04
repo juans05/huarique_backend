@@ -38,6 +38,12 @@ export class WalletService {
     return fallback;
   }
 
+  // Color de marca por restaurante: se guarda en place.metadata.walletColor (sin migración
+  // de columna nueva) hasta que se necesite un selector dedicado en el panel administrativo.
+  private walletColor(hex: string | null | undefined): string {
+    return hex && /^#[0-9A-Fa-f]{6}$/.test(hex) ? hex : '#EE5924';
+  }
+
   getGoogleWalletSaveUrl(place: any, card: any, program: any): string {
     const issuerId = process.env.GOOGLE_WALLET_ISSUER_ID;
     const saEmail = process.env.GOOGLE_WALLET_SA_EMAIL;
@@ -55,11 +61,11 @@ export class WalletService {
       issuerName: place.name || 'Wuarike',
       programName: place.name || 'Programa de Fidelización',
       programLogo: {
-        sourceUri: { uri: this.absoluteImageUrl(place.coverImageUrl) },
+        sourceUri: { uri: this.absoluteImageUrl(place.logoUrl || place.coverImageUrl) },
         contentDescription: { defaultValue: { language: 'es', value: place.name } },
       },
       reviewStatus: 'UNDER_REVIEW',
-      hexBackgroundColor: '#EE5924',
+      hexBackgroundColor: this.walletColor(place.metadata?.walletColor),
     };
 
     // Notificación nativa de Google Wallet cuando el cliente está cerca del local

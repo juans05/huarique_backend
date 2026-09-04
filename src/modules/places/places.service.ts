@@ -13,6 +13,7 @@ import { Amenity } from './entities/amenity.entity';
 import { PlaceSubmission } from './entities/place-submission.entity';
 import { PlaceClaim } from './entities/place-claim.entity';
 import { FavoritePlace } from './entities/favorite-place.entity';
+import { PlaceInterest } from './entities/place-interest.entity';
 import { PlaceVideo } from './entities/place-video.entity';
 import { PlacePhoto } from './entities/place-photo.entity';
 import { UploadService } from '../upload/upload.service';
@@ -38,6 +39,8 @@ export class PlacesService {
         private claimsRepository: Repository<PlaceClaim>,
         @InjectRepository(FavoritePlace)
         private favoritesRepository: Repository<FavoritePlace>,
+        @InjectRepository(PlaceInterest)
+        private interestsRepository: Repository<PlaceInterest>,
         @InjectRepository(PlaceVideo)
         private videosRepository: Repository<PlaceVideo>,
         @InjectRepository(PlacePhoto)
@@ -416,6 +419,35 @@ export class PlacesService {
         }
 
         await this.favoritesRepository.remove(favorite);
+    }
+
+    // "Quiero ir" — señal de intención, separada de favorito.
+    async addInterest(userId: string, placeId: string): Promise<void> {
+        await this.findOne(placeId);
+
+        const existing = await this.interestsRepository.findOne({ where: { userId, placeId } });
+        if (existing) {
+            throw new ConflictException('Ya marcaste que quieres ir a este lugar');
+        }
+
+        await this.interestsRepository.save(this.interestsRepository.create({ userId, placeId }));
+    }
+
+    async isInterested(userId: string, placeId: string): Promise<boolean> {
+        const existing = await this.interestsRepository.findOne({ where: { userId, placeId } });
+        return existing !== null;
+    }
+
+    async removeInterest(userId: string, placeId: string): Promise<void> {
+        const interest = await this.interestsRepository.findOne({ where: { userId, placeId } });
+        if (!interest) {
+            throw new NotFoundException('No habías marcado que querías ir a este lugar');
+        }
+        await this.interestsRepository.remove(interest);
+    }
+
+    async getInterestCount(placeId: string): Promise<number> {
+        return this.interestsRepository.count({ where: { placeId } });
     }
 
     // --- Videos ---

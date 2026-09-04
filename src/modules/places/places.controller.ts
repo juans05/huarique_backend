@@ -221,6 +221,41 @@ export class PlacesController {
         return { message: 'Lugar eliminado de favoritos' };
     }
 
+    @Get(':id/interest')
+    @UseGuards(JwtAuthGuard)
+    @ApiBearerAuth()
+    @ApiOperation({ summary: 'Check if "quiero ir" is marked for this place, plus total count' })
+    @ApiParam({ name: 'id', description: 'Place UUID' })
+    async getInterest(@CurrentUser() user: any, @Param('id') id: string) {
+        const [isInterested, count] = await Promise.all([
+            this.placesService.isInterested(user.id, id),
+            this.placesService.getInterestCount(id),
+        ]);
+        return { isInterested, count };
+    }
+
+    @Post(':id/interest')
+    @UseGuards(JwtAuthGuard)
+    @ApiBearerAuth()
+    @HttpCode(200)
+    @ApiOperation({ summary: 'Mark "quiero ir" (want to visit) for a place' })
+    @ApiParam({ name: 'id', description: 'Place UUID' })
+    async addInterest(@CurrentUser() user: any, @Param('id') id: string) {
+        await this.placesService.addInterest(user.id, id);
+        return { message: 'Marcado como "quiero ir"' };
+    }
+
+    @Delete(':id/interest')
+    @UseGuards(JwtAuthGuard)
+    @ApiBearerAuth()
+    @HttpCode(200)
+    @ApiOperation({ summary: 'Remove "quiero ir" mark for a place' })
+    @ApiParam({ name: 'id', description: 'Place UUID' })
+    async removeInterest(@CurrentUser() user: any, @Param('id') id: string) {
+        await this.placesService.removeInterest(user.id, id);
+        return { message: 'Quitado de "quiero ir"' };
+    }
+
     // --- Videos ---
 
     @Get(':id/videos')

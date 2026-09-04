@@ -17,11 +17,15 @@ import { CreateCheckinDto } from './dto/create-checkin.dto';
 import { SubmitInfoSuggestionDto } from './dto/submit-info-suggestion.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
+import { PlaceTeamService } from '../team/place-team.service';
 
 @ApiTags('checkins')
 @Controller('checkins')
 export class CheckinsController {
-    constructor(private readonly checkinsService: CheckinsService) { }
+    constructor(
+        private readonly checkinsService: CheckinsService,
+        private readonly placeTeamService: PlaceTeamService,
+    ) { }
 
     @Post()
     @UseGuards(JwtAuthGuard)
@@ -78,6 +82,23 @@ export class CheckinsController {
     async unlike(@CurrentUser() user: any, @Param('id') id: string) {
         const likesCount = await this.checkinsService.unlike(user.id, id);
         return { message: 'Like eliminado', likesCount };
+    }
+
+    @Get('places/:placeId/top-dishes')
+    @ApiOperation({ summary: 'Get most-ordered dishes for a place, from check-ins' })
+    @ApiParam({ name: 'placeId', description: 'Place UUID' })
+    async getTopDishes(@Param('placeId') placeId: string) {
+        return this.checkinsService.getTopDishes(placeId);
+    }
+
+    @Get('business/places/:placeId/stats')
+    @UseGuards(JwtAuthGuard)
+    @ApiBearerAuth()
+    @ApiOperation({ summary: 'Check-in stats for the place owner (checkins this week/month, best day, top dish)' })
+    @ApiParam({ name: 'placeId', description: 'Place UUID' })
+    async getRestaurantStats(@Param('placeId') placeId: string, @CurrentUser() user: any) {
+        await this.placeTeamService.assertAccess(user.id, placeId);
+        return this.checkinsService.getRestaurantStats(placeId);
     }
 
     @Post('info-suggestions')
