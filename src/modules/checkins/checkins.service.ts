@@ -88,7 +88,9 @@ export class CheckinsService {
             });
         }
 
-        if (dto.latitude != null && dto.longitude != null && place.latitude != null && place.longitude != null) {
+        // latitude/longitude ya son obligatorias en el DTO — lo único que puede
+        // faltar acá es la coordenada del LOCAL (dato del negocio, no del cliente).
+        if (place.latitude != null && place.longitude != null) {
             const proximity = this.antiFraudService.validateProximity(
                 dto.latitude,
                 dto.longitude,
@@ -104,18 +106,16 @@ export class CheckinsService {
             }
         }
 
-        if (dto.latitude != null && dto.longitude != null) {
-            const speedCheck = await this.antiFraudService.validateSpeed(userId, dto.latitude, dto.longitude);
-            if (speedCheck.suspicious) {
-                await this.auditLogService.log({
-                    action: 'checkin_suspicious_speed',
-                    entityType: 'checkin',
-                    placeId: dto.placeId,
-                    userId,
-                    metadata: { speedKmh: speedCheck.speed, latitude: dto.latitude, longitude: dto.longitude },
-                    description: `Check-in marcado como sospechoso: ${speedCheck.speed} km/h desde el check-in anterior`,
-                });
-            }
+        const speedCheck = await this.antiFraudService.validateSpeed(userId, dto.latitude, dto.longitude);
+        if (speedCheck.suspicious) {
+            await this.auditLogService.log({
+                action: 'checkin_suspicious_speed',
+                entityType: 'checkin',
+                placeId: dto.placeId,
+                userId,
+                metadata: { speedKmh: speedCheck.speed, latitude: dto.latitude, longitude: dto.longitude },
+                description: `Check-in marcado como sospechoso: ${speedCheck.speed} km/h desde el check-in anterior`,
+            });
         }
 
         const { photos, latitude, longitude, ...checkinData } = dto;
