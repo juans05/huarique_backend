@@ -2,6 +2,7 @@ import {
     Controller,
     Get,
     Post,
+    Patch,
     Delete,
     Body,
     Param,
@@ -14,6 +15,7 @@ import {
 import { ApiTags, ApiBearerAuth, ApiOperation, ApiResponse, ApiParam, ApiQuery } from '@nestjs/swagger';
 import { CheckinsService } from './checkins.service';
 import { CreateCheckinDto } from './dto/create-checkin.dto';
+import { AddDishDto } from './dto/add-dish.dto';
 import { SubmitInfoSuggestionDto } from './dto/submit-info-suggestion.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
@@ -82,6 +84,15 @@ export class CheckinsController {
     async unlike(@CurrentUser() user: any, @Param('id') id: string) {
         const likesCount = await this.checkinsService.unlike(user.id, id);
         return { message: 'Like eliminado', likesCount };
+    }
+
+    @Patch(':id/dish')
+    @UseGuards(JwtAuthGuard)
+    @ApiBearerAuth()
+    @ApiOperation({ summary: '¿Qué pediste? — agregar el plato a un check-in ya hecho' })
+    @ApiParam({ name: 'id', description: 'Check-in UUID' })
+    async addDish(@CurrentUser() user: any, @Param('id') id: string, @Body() dto: AddDishDto) {
+        return this.checkinsService.addDish(user.id, id, dto.dishName, dto.dishPrice);
     }
 
     @Get('places/:placeId/top-dishes')
