@@ -2,6 +2,7 @@ import {
     Injectable,
     NotFoundException,
     BadRequestException,
+    ForbiddenException,
 } from '@nestjs/common';
 import { InjectDataSource, InjectRepository } from '@nestjs/typeorm';
 import { DataSource, Repository, In } from 'typeorm';
@@ -252,6 +253,18 @@ export class CheckinsService {
         }
 
         return checkin.likesCount;
+    }
+
+    // El check-in en sí no debe tener fricción — el plato se pregunta después,
+    // sobre un check-in que ya existe, en vez de meterlo en el form principal.
+    async addDish(userId: string, checkinId: string, dishName: string, dishPrice?: number): Promise<Checkin> {
+        const checkin = await this.checkinsRepository.findOne({ where: { id: checkinId } });
+        if (!checkin) throw new NotFoundException('Check-in no encontrado');
+        if (checkin.userId !== userId) throw new ForbiddenException('No es tu check-in');
+
+        checkin.dishName = dishName;
+        if (dishPrice != null) checkin.dishPrice = dishPrice;
+        return this.checkinsRepository.save(checkin);
     }
 
     async getTopDishes(placeId: string): Promise<{ dishName: string; orders: number }[]> {
