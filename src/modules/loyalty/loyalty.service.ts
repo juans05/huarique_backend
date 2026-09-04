@@ -225,7 +225,9 @@ export class LoyaltyService {
           card.lastWinbackSentAt = new Date();
           await this.cardRepo.save(card);
         } catch (err) {
-          this.logger.error(`No se pudo mandar winback a ${card.customerPhone} (place ${program.placeId}): ${err.message}`);
+          // No loguear card.customerPhone en texto plano — el id de la tarjeta
+          // alcanza para rastrear el error sin dejar PII en los logs.
+          this.logger.error(`No se pudo mandar winback (card ${card.id}, place ${program.placeId}): ${err.message}`);
         }
       }
     }
