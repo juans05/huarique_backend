@@ -27,6 +27,13 @@ export class UsersController {
         private placesRepo: Repository<Place>,
     ) { }
 
+    @Get(':id')
+    @ApiOperation({ summary: 'Public-safe profile of another user' })
+    @ApiParam({ name: 'id', description: 'User UUID' })
+    async getPublicProfile(@Param('id') id: string) {
+        return this.usersService.getPublicProfile(id);
+    }
+
     @Get(':id/follow')
     @ApiOperation({ summary: 'Check if current user follows :id, plus follower/following counts' })
     @ApiParam({ name: 'id', description: 'User UUID' })
