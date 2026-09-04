@@ -58,7 +58,7 @@ export class UsersService {
         return rows.map((r) => r.followingId);
     }
 
-    async getPublicProfile(userId: string): Promise<{
+    async getPublicProfile(userId: string, viewerId?: string): Promise<{
         id: string;
         fullName: string;
         avatarUrl: string | null;
@@ -67,7 +67,12 @@ export class UsersService {
         following: number;
     }> {
         const user = await this.usersRepository.findOne({ where: { id: userId } });
-        if (!user) throw new NotFoundException('Usuario no encontrado');
+        // Mismo 404 tanto si no existe como si es privado y no eres tú — no le
+        // regalamos a un extraño la información de que la cuenta sí existe
+        // pero está oculta.
+        if (!user || (!user.isProfilePublic && viewerId !== userId)) {
+            throw new NotFoundException('Usuario no encontrado');
+        }
 
         const counts = await this.getFollowCounts(userId);
         return {
