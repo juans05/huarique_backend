@@ -287,6 +287,8 @@ export class CheckinsService {
         checkinsThisMonth: number;
         bestDayOfWeek: string | null;
         topDish: { dishName: string; orders: number } | null;
+        newCustomersThisMonth: number;
+        returningCustomersThisMonth: number;
     }> {
         const now = new Date();
         const startOfWeek = new Date(now);
@@ -294,7 +296,7 @@ export class CheckinsService {
         startOfWeek.setHours(0, 0, 0, 0);
         const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
 
-        const [checkinsThisWeek, checkinsThisMonth, bestDayRows, topDishes] = await Promise.all([
+        const [checkinsThisWeek, checkinsThisMonth, bestDayRows, topDishes, customerRows] = await Promise.all([
             this.checkinsRepository.createQueryBuilder('c')
                 .where('c.placeId = :placeId', { placeId })
                 .andWhere('c.createdAt >= :start', { start: startOfWeek })
@@ -313,6 +315,19 @@ export class CheckinsService {
                 .limit(1)
                 .getRawOne(),
             this.getTopDishes(placeId),
+            this.dataSource.query(
+                `WITH period_visitors AS (
+                    SELECT DISTINCT user_id FROM wuarike_db.checkins WHERE place_id = $1 AND created_at >= $2
+                ), first_visits AS (
+                    SELECT user_id, MIN(created_at) as first_visit FROM wuarike_db.checkins WHERE place_id = $1 GROUP BY user_id
+                )
+                SELECT
+                    COUNT(*) FILTER (WHERE fv.first_visit >= $2) as new_customers,
+                    COUNT(*) FILTER (WHERE fv.first_visit < $2) as returning_customers
+                FROM period_visitors pv
+                JOIN first_visits fv ON fv.user_id = pv.user_id`,
+                [placeId, startOfMonth],
+            ),
         ]);
 
         return {
@@ -320,6 +335,8 @@ export class CheckinsService {
             checkinsThisMonth,
             bestDayOfWeek: bestDayRows?.day?.trim() || null,
             topDish: topDishes[0] || null,
+            newCustomersThisMonth: parseInt(customerRows[0]?.new_customers || 0, 10),
+            returningCustomersThisMonth: parseInt(customerRows[0]?.returning_customers || 0, 10),
         };
     }
 

@@ -17,6 +17,7 @@ import { PlaceInterest } from './entities/place-interest.entity';
 import { PlaceVideo } from './entities/place-video.entity';
 import { PlacePhoto } from './entities/place-photo.entity';
 import { UploadService } from '../upload/upload.service';
+import { SubscriptionsService } from '../subscriptions/subscriptions.service';
 
 import { CreatePlaceSubmissionDto } from './dto/create-place-submission.dto';
 import { CreatePlaceClaimDto } from './dto/create-place-claim.dto';
@@ -46,6 +47,7 @@ export class PlacesService {
         @InjectRepository(PlacePhoto)
         private photosRepository: Repository<PlacePhoto>,
         private uploadService: UploadService,
+        private subscriptionsService: SubscriptionsService,
     ) { }
 
 
@@ -366,6 +368,46 @@ export class PlacesService {
         });
     }
 
+    // "¿Dónde comemos hoy?" — reutiliza el mismo filtro de findAll (categoría,
+    // presupuesto, distancia, openNow) y solo agrega la curación: de los
+    // mejor calificados que cumplen el filtro, sortea 3 en vez de devolver
+    // siempre los mismos.
+    async getRecommendations(query: GetPlacesDto): Promise<PlaceResponseDto[]> {
+        const pool = await this.findAll({ ...query, page: 1, size: 30 } as GetPlacesDto);
+        const candidates = pool.data;
+        if (candidates.length <= 3) return candidates;
+
+        const ranked = [...candidates].sort((a, b) => {
+            const ratingA = Math.max(Number(a.rating) || 0, Number(a.googleRating) || 0);
+            const ratingB = Math.max(Number(b.rating) || 0, Number(b.googleRating) || 0);
+            return ratingB - ratingA;
+        });
+        const top = ranked.slice(0, Math.min(10, ranked.length));
+
+        for (let i = top.length - 1; i > 0; i--) {
+            const j = Math.floor(Math.random() * (i + 1));
+            [top[i], top[j]] = [top[j], top[i]];
+        }
+        return top.slice(0, 3);
+    }
+
+    async getMostFavorited(limit = 10): Promise<PlaceResponseDto[]> {
+        const query = this.placesRepository.createQueryBuilder('place')
+            .leftJoinAndSelect('place.category', 'category')
+            .leftJoinAndSelect('place.district', 'district')
+            .leftJoin(FavoritePlace, 'favorite', 'favorite.placeId = place.id')
+            .addSelect('COUNT(favorite.id)', 'favoritesCount')
+            .where('place.status = :status', { status: 'active' })
+            .groupBy('place.id')
+            .addGroupBy('category.id')
+            .addGroupBy('district.id')
+            .orderBy('COUNT(favorite.id)', 'DESC')
+            .limit(limit);
+
+        const places = await query.getMany();
+        return plainToInstance(PlaceResponseDto, places, { excludeExtraneousValues: true });
+    }
+
     async updateRating(id: string, newRating: number, newTotalReviews: number): Promise<void> {
         await this.placesRepository.update(id, {
             rating: newRating,
@@ -448,6 +490,35 @@ export class PlacesService {
 
     async getInterestCount(placeId: string): Promise<number> {
         return this.interestsRepository.count({ where: { placeId } });
+    }
+
+    // Escalera de confianza — se calcula, no se guarda: derivada de campos que
+    // ya existen (claimedByUserId, isVerified) + check-ins reales + suscripción
+    // activa, así nunca queda desincronizada de la realidad.
+    async getTrustStage(placeId: string): Promise<{
+        stage: 'comunidad' | 'verificado' | 'reclamado' | 'negocio_wuarike';
+        label: string;
+    }> {
+        const place = await this.findOne(placeId);
+
+        if (place.claimedByUserId) {
+            const subscription = await this.subscriptionsService.getSubscriptionForPlace(placeId);
+            if (subscription?.status === 'active') {
+                return { stage: 'negocio_wuarike', label: 'Negocio Wuarikes' };
+            }
+            return { stage: 'reclamado', label: 'Reclamado por el propietario' };
+        }
+
+        const checkinsCount = await this.placesRepository.manager.query(
+            `SELECT COUNT(*) as total FROM checkins WHERE place_id = $1`,
+            [placeId],
+        );
+        const COMMUNITY_VERIFIED_THRESHOLD = 10;
+        if (parseInt(checkinsCount[0]?.total || 0, 10) >= COMMUNITY_VERIFIED_THRESHOLD) {
+            return { stage: 'verificado', label: 'Verificado por la comunidad' };
+        }
+
+        return { stage: 'comunidad', label: 'Registrado por la comunidad' };
     }
 
     // --- Videos ---

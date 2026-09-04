@@ -82,6 +82,21 @@ export class PlacesController {
         return this.placesService.getDiscovery(district, category, limit);
     }
 
+    @Get('recommendations')
+    @ApiOperation({ summary: '"¿Dónde comemos hoy?" — 3 recomendaciones curadas según presupuesto/tipo/distancia/horario' })
+    @ApiResponse({ status: 200, type: PlaceResponseDto, isArray: true })
+    async getRecommendations(@Query() query: GetPlacesDto) {
+        return this.placesService.getRecommendations(query);
+    }
+
+    @Get('discovery/most-favorited')
+    @ApiOperation({ summary: 'Most-favorited places — "más guardados"' })
+    @ApiQuery({ name: 'limit', required: false, type: Number, example: 10 })
+    @ApiResponse({ status: 200, type: PlaceResponseDto, isArray: true })
+    async getMostFavorited(@Query('limit') limit?: number) {
+        return this.placesService.getMostFavorited(limit);
+    }
+
     @Get('my-submissions')
     @UseGuards(JwtAuthGuard)
     @ApiBearerAuth()
@@ -173,6 +188,13 @@ export class PlacesController {
         @Body() dto: CreatePlaceClaimDto,
     ) {
         return this.placesService.claimPlace(user.id, id, dto);
+    }
+
+    @Get(':id/trust-stage')
+    @ApiOperation({ summary: 'Get the trust ladder stage for a place (comunidad/verificado/reclamado/negocio_wuarike)' })
+    @ApiParam({ name: 'id', description: 'Place UUID' })
+    async getTrustStage(@Param('id') id: string) {
+        return this.placesService.getTrustStage(id);
     }
 
     @Get(':id/favorite')
