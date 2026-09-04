@@ -1,12 +1,16 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable, NotFoundException, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
+import { Cron, CronExpression } from '@nestjs/schedule';
 import { Repository } from 'typeorm';
 import { Badge } from './entities/badge.entity';
 import { UserBadge } from './entities/user-badge.entity';
 import { UserPointsLog } from './entities/user-points-log.entity';
+import { UserStreak } from './entities/user-streak.entity';
 
 @Injectable()
 export class GamificationService {
+    private readonly logger = new Logger(GamificationService.name);
+
     constructor(
         @InjectRepository(Badge)
         private badgesRepository: Repository<Badge>,
@@ -14,7 +18,31 @@ export class GamificationService {
         private userBadgesRepository: Repository<UserBadge>,
         @InjectRepository(UserPointsLog)
         private pointsLogRepository: Repository<UserPointsLog>,
+        @InjectRepository(UserStreak)
+        private streaksRepository: Repository<UserStreak>,
     ) { }
+
+    // Llamar en cada check-in — el schema no tenía nada actualizando esta tabla.
+    async updateStreak(userId: string): Promise<UserStreak> {
+        const today = new Date().toISOString().slice(0, 10);
+        let streak = await this.streaksRepository.findOne({ where: { userId } });
+
+        if (!streak) {
+            streak = this.streaksRepository.create({ userId, currentStreak: 1, longestStreak: 1, lastCheckinDate: today as any });
+            return this.streaksRepository.save(streak);
+        }
+
+        const lastDate = streak.lastCheckinDate ? new Date(streak.lastCheckinDate).toISOString().slice(0, 10) : null;
+        if (lastDate === today) {
+            return streak; // ya hizo check-in hoy, la racha no cambia
+        }
+
+        const yesterday = new Date(Date.now() - 86400_000).toISOString().slice(0, 10);
+        streak.currentStreak = lastDate === yesterday ? streak.currentStreak + 1 : 1;
+        streak.longestStreak = Math.max(streak.longestStreak, streak.currentStreak);
+        streak.lastCheckinDate = today as any;
+        return this.streaksRepository.save(streak);
+    }
 
     async logPoints(
         userId: string,
@@ -56,16 +84,23 @@ export class GamificationService {
 
             switch (criteria.type) {
                 case 'checkins_count':
-                    if (stats.totalCheckins >= criteria.threshold) isEligible = true;
+                case 'checkins': // nombre usado por el seed original de badges
+                    if (stats.totalCheckins >= (criteria.threshold ?? criteria.count)) isEligible = true;
                     break;
                 case 'place_approved':
-                    if (stats.approvedSubmissions >= criteria.threshold) isEligible = true;
+                    if (stats.approvedSubmissions >= (criteria.threshold ?? criteria.count)) isEligible = true;
                     break;
                 case 'likes_received':
-                    if (stats.totalLikesReceived >= criteria.threshold) isEligible = true;
+                    if (stats.totalLikesReceived >= (criteria.threshold ?? criteria.count)) isEligible = true;
                     break;
                 case 'districts_visited':
-                    if (stats.districtsVisited >= criteria.threshold) isEligible = true;
+                    if (stats.districtsVisited >= (criteria.threshold ?? criteria.count)) isEligible = true;
+                    break;
+                case 'checkins_in_one_district':
+                    if (stats.maxCheckinsInOneDistrict >= (criteria.threshold ?? criteria.count)) isEligible = true;
+                    break;
+                case 'streak':
+                    if (stats.currentStreak >= (criteria.threshold ?? criteria.count)) isEligible = true;
                     break;
             }
 
@@ -156,18 +191,74 @@ export class GamificationService {
         };
     }
 
-    async getLeaderboard(): Promise<any[]> {
+    async getLeaderboard(district?: string): Promise<any[]> {
+        if (!district) {
+            const rows = await this.pointsLogRepository.query(
+                `SELECT full_name, current_level, total_points
+         FROM users
+         ORDER BY total_points DESC
+         LIMIT 10`,
+            );
+            return rows.map((row: any) => ({
+                username: row.full_name,
+                level: parseInt(row.current_level ?? 1),
+                xp: parseInt(row.total_points ?? 0),
+            }));
+        }
+
+        // Ranking por distrito: no hay XP por distrito, así que se ordena por
+        // cantidad de check-ins en ese distrito — es la señal directa de
+        // "top wuarikero de San Miguel", no la XP global del usuario.
         const rows = await this.pointsLogRepository.query(
-            `SELECT full_name, current_level, total_points
-       FROM users
-       ORDER BY total_points DESC
+            `SELECT u.full_name, u.current_level, COUNT(c.id) as checkins_in_district
+       FROM checkins c
+       JOIN users u ON u.id = c.user_id
+       JOIN places p ON p.id = c.place_id
+       JOIN ubigeos d ON d.id = p.district_id
+       WHERE d.district = $1
+       GROUP BY u.id, u.full_name, u.current_level
+       ORDER BY checkins_in_district DESC
        LIMIT 10`,
+            [district],
         );
         return rows.map((row: any) => ({
             username: row.full_name,
             level: parseInt(row.current_level ?? 1),
-            xp: parseInt(row.total_points ?? 0),
+            checkins: parseInt(row.checkins_in_district ?? 0),
         }));
+    }
+
+    // Corre cada lunes a medianoche — le da el badge "Top de la Semana" a quien
+    // más check-ins hizo en los últimos 7 días. Se otorga una sola vez por
+    // usuario (igual que el resto de badges): si ya la tiene, ser top otra
+    // semana no la vuelve a dar, queda como logro permanente.
+    @Cron(CronExpression.EVERY_WEEK)
+    async awardWeeklyTopBadge(): Promise<void> {
+        const badge = await this.badgesRepository.findOne({ where: { name: 'Top de la Semana' } });
+        if (!badge) {
+            this.logger.warn('Badge "Top de la Semana" no existe todavía, saltando el cron semanal.');
+            return;
+        }
+
+        const sevenDaysAgo = new Date(Date.now() - 7 * 86400_000);
+        const top = await this.pointsLogRepository.query(
+            `SELECT user_id, COUNT(*) as total
+       FROM checkins
+       WHERE created_at >= $1
+       GROUP BY user_id
+       ORDER BY total DESC
+       LIMIT 1`,
+            [sevenDaysAgo],
+        );
+
+        const winnerId = top[0]?.user_id;
+        if (!winnerId) return;
+
+        const alreadyHas = await this.userBadgesRepository.findOne({ where: { userId: winnerId, badgeId: badge.id } });
+        if (alreadyHas) return;
+
+        await this.userBadgesRepository.save(this.userBadgesRepository.create({ userId: winnerId, badgeId: badge.id }));
+        this.logger.log(`Badge "Top de la Semana" otorgado a ${winnerId}`);
     }
 
     private getTitleForLevel(level: number): string {
@@ -215,6 +306,19 @@ export class GamificationService {
             [userId],
         );
 
+        const maxDistrict = await this.pointsLogRepository.query(
+            `SELECT COUNT(*) as total
+       FROM checkins c
+       JOIN places p ON c.place_id = p.id
+       WHERE c.user_id = $1 AND p.district_id IS NOT NULL
+       GROUP BY p.district_id
+       ORDER BY total DESC
+       LIMIT 1`,
+            [userId],
+        );
+
+        const streak = await this.streaksRepository.findOne({ where: { userId } });
+
         return {
             totalCheckins: parseInt(checkins[0]?.total_checkins || 0),
             approvedSubmissions: parseInt(submissions[0]?.approved_submissions || 0),
@@ -222,6 +326,8 @@ export class GamificationService {
             districtsVisited: parseInt(districts[0]?.districts_visited || 0),
             totalPhotos: parseInt(photos[0]?.total_photos || 0),
             totalVideos: parseInt(videos[0]?.total_videos || 0),
+            maxCheckinsInOneDistrict: parseInt(maxDistrict[0]?.total || 0),
+            currentStreak: streak?.currentStreak || 0,
         };
     }
 }

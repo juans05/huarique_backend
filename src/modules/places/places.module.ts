@@ -10,6 +10,7 @@ import { BusinessPlacesController } from './business-places.controller';
 import { Place } from './entities/place.entity';
 import { Category } from './entities/category.entity';
 import { FavoritePlace } from './entities/favorite-place.entity';
+import { PlaceInterest } from './entities/place-interest.entity';
 import { PlaceSubmission } from './entities/place-submission.entity';
 import { PlaceClaim } from './entities/place-claim.entity';
 import { Tag } from './entities/tag.entity';
@@ -45,6 +46,7 @@ import { SubscriptionsModule } from '../subscriptions/subscriptions.module';
             Amenity,
             Category,
             FavoritePlace,
+            PlaceInterest,
             Dish,
             MenuCategory,
             PlaceVideo,

@@ -16,6 +16,8 @@ import { UsersModule } from '../users/users.module';
 import { PlacesModule } from '../places/places.module';
 import { AuditLogModule } from '../audit-log/audit-log.module';
 import { AntiFraudService } from './services/anti-fraud.service';
+import { TeamModule } from '../team/team.module';
+import { GamificationModule } from '../gamification/gamification.module';
 
 @Module({
     imports: [
@@ -33,6 +35,8 @@ import { AntiFraudService } from './services/anti-fraud.service';
         UsersModule,
         PlacesModule,
         AuditLogModule,
+        TeamModule,
+        GamificationModule,
     ],
     controllers: [CheckinsController, PublicFeedbackController],
     providers: [CheckinsService, AntiFraudService],

@@ -1,5 +1,5 @@
-import { Controller, Get, Param, UseGuards, Request } from '@nestjs/common';
-import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth, ApiParam } from '@nestjs/swagger';
+import { Controller, Get, Param, Query, UseGuards, Request } from '@nestjs/common';
+import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth, ApiParam, ApiQuery } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { XpCalculatorService } from './services/xp-calculator.service';
 import { GamificationService } from './gamification.service';
@@ -44,9 +44,10 @@ export class GamificationController {
     }
 
     @Get('leaderboard')
-    @ApiOperation({ summary: 'Get global leaderboard' })
+    @ApiOperation({ summary: 'Get global leaderboard, or top wuarikeros of a district by check-ins' })
+    @ApiQuery({ name: 'district', required: false, type: String, example: 'San Miguel' })
     @ApiResponse({ status: 200, description: 'Returns top 10 users.' })
-    async getLeaderboard() {
-        return this.gamificationService.getLeaderboard();
+    async getLeaderboard(@Query('district') district?: string) {
+        return this.gamificationService.getLeaderboard(district);
     }
 }

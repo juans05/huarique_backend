@@ -19,6 +19,7 @@ import { Amenity } from '../places/entities/amenity.entity';
 import { AuditLogService } from '../audit-log/audit-log.service';
 import { AntiFraudService } from './services/anti-fraud.service';
 import { PaginatedResponse } from '../../common/dto/pagination.dto';
+import { GamificationService } from '../gamification/gamification.service';
 
 // Cantidad de votantes distintos que deben coincidir en el mismo valor
 // sugerido antes de aplicar el cambio al local.
@@ -61,6 +62,7 @@ export class CheckinsService {
         private placesService: PlacesService,
         private auditLogService: AuditLogService,
         private antiFraudService: AntiFraudService,
+        private gamificationService: GamificationService,
         @InjectDataSource()
         private dataSource: DataSource,
     ) { }
@@ -138,6 +140,8 @@ export class CheckinsService {
             points += 5;
         }
         await this.usersService.addPoints(userId, points);
+        await this.gamificationService.updateStreak(userId);
+        await this.gamificationService.checkAndAwardBadges(userId);
 
         return savedCheckin;
     }
@@ -248,6 +252,62 @@ export class CheckinsService {
         }
 
         return checkin.likesCount;
+    }
+
+    async getTopDishes(placeId: string): Promise<{ dishName: string; orders: number }[]> {
+        const rows = await this.checkinsRepository
+            .createQueryBuilder('checkin')
+            .select('checkin.dishName', 'dishName')
+            .addSelect('COUNT(*)', 'orders')
+            .where('checkin.placeId = :placeId', { placeId })
+            .andWhere('checkin.dishName IS NOT NULL')
+            .groupBy('checkin.dishName')
+            .orderBy('orders', 'DESC')
+            .limit(10)
+            .getRawMany();
+        return rows.map((r) => ({ dishName: r.dishName, orders: parseInt(r.orders, 10) }));
+    }
+
+    // Para el dueño del restaurante — resumen entendible, no un dashboard de gráficos.
+    async getRestaurantStats(placeId: string): Promise<{
+        checkinsThisWeek: number;
+        checkinsThisMonth: number;
+        bestDayOfWeek: string | null;
+        topDish: { dishName: string; orders: number } | null;
+    }> {
+        const now = new Date();
+        const startOfWeek = new Date(now);
+        startOfWeek.setDate(now.getDate() - now.getDay());
+        startOfWeek.setHours(0, 0, 0, 0);
+        const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+
+        const [checkinsThisWeek, checkinsThisMonth, bestDayRows, topDishes] = await Promise.all([
+            this.checkinsRepository.createQueryBuilder('c')
+                .where('c.placeId = :placeId', { placeId })
+                .andWhere('c.createdAt >= :start', { start: startOfWeek })
+                .getCount(),
+            this.checkinsRepository.createQueryBuilder('c')
+                .where('c.placeId = :placeId', { placeId })
+                .andWhere('c.createdAt >= :start', { start: startOfMonth })
+                .getCount(),
+            this.checkinsRepository.createQueryBuilder('c')
+                .select("TO_CHAR(c.createdAt, 'Day')", 'day')
+                .addSelect('COUNT(*)', 'total')
+                .where('c.placeId = :placeId', { placeId })
+                .andWhere('c.createdAt >= :start', { start: startOfMonth })
+                .groupBy('day')
+                .orderBy('total', 'DESC')
+                .limit(1)
+                .getRawOne(),
+            this.getTopDishes(placeId),
+        ]);
+
+        return {
+            checkinsThisWeek,
+            checkinsThisMonth,
+            bestDayOfWeek: bestDayRows?.day?.trim() || null,
+            topDish: topDishes[0] || null,
+        };
     }
 
     async submitInfoSuggestion(

@@ -40,6 +40,12 @@ export class Checkin {
     @Column({ name: 'photo_url', nullable: true })
     photoUrl: string;
 
+    @Column({ name: 'dish_name', length: 100, nullable: true })
+    dishName: string;
+
+    @Column({ name: 'dish_price', type: 'decimal', precision: 10, scale: 2, nullable: true })
+    dishPrice: number;
+
     @Column({ name: 'likes_count', default: 0 })
     likesCount: number;
 
