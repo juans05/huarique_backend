@@ -379,7 +379,10 @@ export class PlacesService {
     // mejor calificados que cumplen el filtro, sortea 3 en vez de devolver
     // siempre los mismos.
     async getRecommendations(query: GetPlacesDto): Promise<PlaceResponseDto[]> {
-        const pool = await this.findAll({ ...query, page: 1, size: 30 } as GetPlacesDto);
+        // findAll lee query.limitOrSize, un getter de la clase GetPlacesDto — un
+        // objeto armado con spread no lo hereda, así que hay que ponerlo a mano
+        // o page/size terminan en NaN y explota el .skip() de TypeORM.
+        const pool = await this.findAll({ ...query, page: 1, limitOrSize: 30 } as unknown as GetPlacesDto);
         const candidates = pool.data;
         if (candidates.length <= 3) return candidates;
 
