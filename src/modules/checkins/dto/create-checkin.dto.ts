@@ -26,15 +26,17 @@ export class CreateCheckinDto {
     @IsOptional()
     rating?: number;
 
-    @ApiPropertyOptional({ description: 'Ubicación GPS del dispositivo al hacer check-in, para detectar viajes imposibles entre locales.' })
-    @IsOptional()
+    // Obligatorias: sin esto no hay forma de verificar que el check-in es real
+    // (proximidad al local) ni de detectar viajes imposibles entre check-ins —
+    // dejarlas opcionales significaba que bastaba con no mandarlas para saltarse
+    // ambos chequeos.
+    @ApiProperty({ description: 'Ubicación GPS del dispositivo al hacer check-in — obligatoria, se valida contra la ubicación del local.' })
     @IsLatitude()
-    latitude?: number;
+    latitude: number;
 
-    @ApiPropertyOptional()
-    @IsOptional()
+    @ApiProperty()
     @IsLongitude()
-    longitude?: number;
+    longitude: number;
 
     @ApiPropertyOptional({ example: 'Lomo saltado', maxLength: 100, description: '¿Qué pediste?' })
     @IsOptional()
