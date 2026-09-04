@@ -46,6 +46,9 @@ export class LoyaltyCard {
   @Column({ name: 'google_wallet_deleted_at', type: 'timestamp', nullable: true })
   googleWalletDeletedAt: Date | null;
 
+  @Column({ name: 'last_winback_sent_at', type: 'timestamp', nullable: true })
+  lastWinbackSentAt: Date | null;
+
   @CreateDateColumn({ name: 'created_at' })
   createdAt: Date;
 

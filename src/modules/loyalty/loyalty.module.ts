@@ -14,6 +14,7 @@ import { WalletCampaignProcessor } from './wallet-campaign.processor';
 import { Place } from '../places/entities/place.entity';
 import { SubscriptionsModule } from '../subscriptions/subscriptions.module';
 import { TeamModule } from '../team/team.module';
+import { WhatsAppModule } from '../whatsapp/whatsapp.module';
 
 @Module({
   imports: [
@@ -21,6 +22,7 @@ import { TeamModule } from '../team/team.module';
     BullModule.registerQueue({ name: 'wallet-campaign' }),
     SubscriptionsModule,
     TeamModule,
+    WhatsAppModule,
   ],
   controllers: [LoyaltyController, LoyaltyPublicController],
   providers: [LoyaltyService, WalletService, WalletCampaignProcessor],

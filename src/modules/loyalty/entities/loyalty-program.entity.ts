@@ -32,6 +32,12 @@ export class LoyaltyProgram {
   @Column({ name: 'is_active', default: true })
   isActive: boolean;
 
+  @Column({ name: 'winback_enabled', default: false })
+  winbackEnabled: boolean;
+
+  @Column({ name: 'winback_message', type: 'text', nullable: true })
+  winbackMessage: string;
+
   @CreateDateColumn({ name: 'created_at' })
   createdAt: Date;
 

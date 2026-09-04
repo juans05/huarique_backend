@@ -22,6 +22,8 @@ import { ImportScrapedReviewDto } from './dto/import-scraped-reviews.dto';
 import { GoogleReview } from '../places/entities/google-review.entity';
 import { ComplaintBookEntry } from '../complaint-book/entities/complaint-book-entry.entity';
 import { buildFolio } from '../complaint-book/complaint-book.service';
+import { FavoritePlace } from '../places/entities/favorite-place.entity';
+import { WuarikesHereRequest } from '../places/entities/wuarikes-here-request.entity';
 
 // "Lima Cercado" en el scraper corresponde al distrito "Lima" en la tabla ubigeos
 const DISTRICT_ALIASES: Record<string, string> = { 'Lima Cercado': 'Lima' };
@@ -84,6 +86,10 @@ export class AdminService {
         private googleReviewsRepository: Repository<GoogleReview>,
         @InjectRepository(ComplaintBookEntry)
         private complaintsRepository: Repository<ComplaintBookEntry>,
+        @InjectRepository(FavoritePlace)
+        private favoritesRepository: Repository<FavoritePlace>,
+        @InjectRepository(WuarikesHereRequest)
+        private wuarikesHereRepository: Repository<WuarikesHereRequest>,
         private usersService: UsersService,
         private gamificationService: GamificationService,
     ) { }
@@ -559,6 +565,61 @@ export class AdminService {
             errors,
             total: rows.length,
         };
+    }
+
+    // ── CRM COMERCIAL — oportunidades ────────────────────────────────────────
+
+    // Restaurantes ya en la plataforma pero sin reclamar, rankeados por
+    // actividad real (check-ins pesan más que favoritos, que pesan más que
+    // reseñas) — para que el equipo sepa a quién contactar primero sin adivinar.
+    async getOpportunities(status?: string): Promise<any[]> {
+        const query = this.placesRepository.createQueryBuilder('place')
+            .leftJoinAndSelect('place.district', 'district')
+            .leftJoin(Checkin, 'checkin', 'checkin.placeId = place.id')
+            .leftJoin(FavoritePlace, 'favorite', 'favorite.placeId = place.id')
+            .addSelect('COUNT(DISTINCT checkin.id)', 'checkinsCount')
+            .addSelect('COUNT(DISTINCT favorite.id)', 'favoritesCount')
+            .where('place.claimedByUserId IS NULL')
+            .andWhere('place.status = :status', { status: 'active' });
+
+        if (status) {
+            query.andWhere('place.commercialStatus = :commercialStatus', { commercialStatus: status });
+        }
+
+        query.groupBy('place.id').addGroupBy('district.id');
+
+        const raw = await query.getRawAndEntities();
+        return raw.entities
+            .map((place, i) => {
+                const row = raw.raw[i];
+                const checkinsCount = parseInt(row.checkinsCount || 0, 10);
+                const favoritesCount = parseInt(row.favoritesCount || 0, 10);
+                const score = checkinsCount * 3 + favoritesCount * 2 + (place.totalReviews || 0);
+                return { ...place, checkinsCount, favoritesCount, score };
+            })
+            .sort((a, b) => b.score - a.score);
+    }
+
+    async updateOpportunityStatus(placeId: string, status: string): Promise<void> {
+        const place = await this.placesRepository.findOne({ where: { id: placeId } });
+        if (!place) throw new NotFoundException('Local no encontrado');
+        place.commercialStatus = status as any;
+        await this.placesRepository.save(place);
+    }
+
+    async getWuarikesHereRequests(status?: string): Promise<WuarikesHereRequest[]> {
+        return this.wuarikesHereRepository.find({
+            where: status ? { status: status as any } : {},
+            relations: ['requestedBy'],
+            order: { createdAt: 'DESC' },
+        });
+    }
+
+    async updateWuarikesHereRequestStatus(id: string, status: string): Promise<void> {
+        const request = await this.wuarikesHereRepository.findOne({ where: { id } });
+        if (!request) throw new NotFoundException('Solicitud no encontrada');
+        request.status = status as any;
+        await this.wuarikesHereRepository.save(request);
     }
 
     private pickCategoryId(rawCategory: string | undefined, categories: Category[]): string | null {

@@ -1,5 +1,6 @@
-import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
+import { Injectable, NotFoundException, BadRequestException, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
+import { Cron, CronExpression } from '@nestjs/schedule';
 import { MoreThan, Repository } from 'typeorm';
 import { Queue } from 'bullmq';
 import { InjectQueue } from '@nestjs/bullmq';
@@ -8,18 +9,25 @@ import { LoyaltyCard } from './entities/loyalty-card.entity';
 import { LoyaltyTransaction } from './entities/loyalty-transaction.entity';
 import { Reward } from './entities/reward.entity';
 import { WalletCampaign } from './entities/wallet-campaign.entity';
+import { WhatsAppNumber } from '../whatsapp/entities/whatsapp-number.entity';
+import { WhatsappService } from '../whatsapp/whatsapp.service';
 
 const MAX_WALLET_CAMPAIGNS_PER_DAY = 3;
+const WINBACK_INACTIVITY_DAYS = 30;
 
 @Injectable()
 export class LoyaltyService {
+  private readonly logger = new Logger(LoyaltyService.name);
+
   constructor(
     @InjectRepository(LoyaltyProgram) private programRepo: Repository<LoyaltyProgram>,
     @InjectRepository(LoyaltyCard) private cardRepo: Repository<LoyaltyCard>,
     @InjectRepository(LoyaltyTransaction) private txRepo: Repository<LoyaltyTransaction>,
     @InjectRepository(Reward) private rewardRepo: Repository<Reward>,
     @InjectRepository(WalletCampaign) private walletCampaignRepo: Repository<WalletCampaign>,
+    @InjectRepository(WhatsAppNumber) private whatsappNumberRepo: Repository<WhatsAppNumber>,
     @InjectQueue('wallet-campaign') private walletCampaignQueue: Queue,
+    private whatsappService: WhatsappService,
   ) {}
 
   // ── PROGRAMA ────────────────────────────────────────────────────────────
@@ -178,6 +186,49 @@ export class LoyaltyService {
       card.googleWalletDeletedAt = new Date();
     }
     await this.cardRepo.save(card);
+  }
+
+  // ── CAMPAÑA AUTOMÁTICA POR INACTIVIDAD ───────────────────────────────────
+  // Corre una vez al día: si un cliente no vuelve en 30 días, le manda solo
+  // el mensaje de reactivación que el dueño configuró — nadie tiene que
+  // acordarse de mandarlo a mano. Se marca lastWinbackSentAt para no volver
+  // a mandarlo todos los días una vez que ya cruzó el umbral.
+  @Cron(CronExpression.EVERY_DAY_AT_10AM)
+  async sendInactivityWinbacks(): Promise<void> {
+    const programs = await this.programRepo.find({ where: { winbackEnabled: true, isActive: true } });
+    if (programs.length === 0) return;
+
+    const cutoff = new Date(Date.now() - WINBACK_INACTIVITY_DAYS * 86400_000);
+
+    for (const program of programs) {
+      if (!program.winbackMessage) continue;
+
+      const whatsapp = await this.whatsappNumberRepo.findOne({
+        where: { placeId: program.placeId, isActive: true },
+      });
+      if (!whatsapp) continue;
+
+      const eligibleCards = await this.cardRepo.createQueryBuilder('card')
+        .where('card.placeId = :placeId', { placeId: program.placeId })
+        .andWhere('card.lastVisitAt < :cutoff', { cutoff })
+        .andWhere('(card.lastWinbackSentAt IS NULL OR card.lastWinbackSentAt < :cutoff)', { cutoff })
+        .getMany();
+
+      for (const card of eligibleCards) {
+        try {
+          await this.whatsappService.sendWhatsAppMessage(
+            whatsapp.phoneNumberId,
+            whatsapp.whatsappApiToken,
+            card.customerPhone,
+            program.winbackMessage,
+          );
+          card.lastWinbackSentAt = new Date();
+          await this.cardRepo.save(card);
+        } catch (err) {
+          this.logger.error(`No se pudo mandar winback a ${card.customerPhone} (place ${program.placeId}): ${err.message}`);
+        }
+      }
+    }
   }
 
   // ── CAMPAÑA — mensaje a todos los que tienen tarjeta guardada ────────────

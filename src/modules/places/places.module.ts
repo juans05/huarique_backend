@@ -11,6 +11,7 @@ import { Place } from './entities/place.entity';
 import { Category } from './entities/category.entity';
 import { FavoritePlace } from './entities/favorite-place.entity';
 import { PlaceInterest } from './entities/place-interest.entity';
+import { WuarikesHereRequest } from './entities/wuarikes-here-request.entity';
 import { PlaceSubmission } from './entities/place-submission.entity';
 import { PlaceClaim } from './entities/place-claim.entity';
 import { Tag } from './entities/tag.entity';
@@ -48,6 +49,7 @@ import { UsersModule } from '../users/users.module';
             Category,
             FavoritePlace,
             PlaceInterest,
+            WuarikesHereRequest,
             Dish,
             MenuCategory,
             PlaceVideo,
