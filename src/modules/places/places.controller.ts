@@ -190,6 +190,15 @@ export class PlacesController {
         return this.placesService.claimPlace(user.id, id, dto);
     }
 
+    @Get(':id/friends-visited')
+    @UseGuards(JwtAuthGuard)
+    @ApiBearerAuth()
+    @ApiOperation({ summary: '"3 amigos visitaron" — gente que sigo que hizo check-in acá' })
+    @ApiParam({ name: 'id', description: 'Place UUID' })
+    async getFriendsVisited(@CurrentUser() user: any, @Param('id') id: string) {
+        return this.placesService.getFriendsWhoVisited(user.id, id);
+    }
+
     @Get(':id/trust-stage')
     @ApiOperation({ summary: 'Get the trust ladder stage for a place (comunidad/verificado/reclamado/negocio_wuarike)' })
     @ApiParam({ name: 'id', description: 'Place UUID' })

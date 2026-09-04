@@ -1,8 +1,9 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable, NotFoundException, ConflictException, BadRequestException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { In, Repository } from 'typeorm';
 import { plainToInstance } from 'class-transformer';
 import { User } from './entities/user.entity';
+import { UserFollow } from './entities/user-follow.entity';
 import { Place } from '../places/entities/place.entity';
 import { PlaceResponseDto } from '../places/dto/place-response.dto';
 import * as bcrypt from 'bcryptjs';
@@ -14,7 +15,48 @@ export class UsersService {
         private usersRepository: Repository<User>,
         @InjectRepository(Place)
         private placesRepository: Repository<Place>,
+        @InjectRepository(UserFollow)
+        private followsRepository: Repository<UserFollow>,
     ) { }
+
+    // ── SEGUIR USUARIOS ──────────────────────────────────────────────────────
+
+    async follow(followerId: string, followingId: string): Promise<void> {
+        if (followerId === followingId) {
+            throw new BadRequestException('No puedes seguirte a ti mismo');
+        }
+        const target = await this.usersRepository.findOne({ where: { id: followingId } });
+        if (!target) throw new NotFoundException('Usuario no encontrado');
+
+        const existing = await this.followsRepository.findOne({ where: { followerId, followingId } });
+        if (existing) throw new ConflictException('Ya sigues a este usuario');
+
+        await this.followsRepository.save(this.followsRepository.create({ followerId, followingId }));
+    }
+
+    async unfollow(followerId: string, followingId: string): Promise<void> {
+        const existing = await this.followsRepository.findOne({ where: { followerId, followingId } });
+        if (!existing) throw new NotFoundException('No sigues a este usuario');
+        await this.followsRepository.remove(existing);
+    }
+
+    async isFollowing(followerId: string, followingId: string): Promise<boolean> {
+        const existing = await this.followsRepository.findOne({ where: { followerId, followingId } });
+        return existing !== null;
+    }
+
+    async getFollowCounts(userId: string): Promise<{ followers: number; following: number }> {
+        const [followers, following] = await Promise.all([
+            this.followsRepository.count({ where: { followingId: userId } }),
+            this.followsRepository.count({ where: { followerId: userId } }),
+        ]);
+        return { followers, following };
+    }
+
+    async getFollowingIds(userId: string): Promise<string[]> {
+        const rows = await this.followsRepository.find({ where: { followerId: userId } });
+        return rows.map((r) => r.followingId);
+    }
 
     async create(
         email: string,

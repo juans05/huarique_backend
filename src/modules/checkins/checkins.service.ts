@@ -222,6 +222,35 @@ export class CheckinsService {
         };
     }
 
+    // Feed de gente que sigo — reusa getFeed pero acotado a sus check-ins.
+    async getFriendsFeed(userId: string, page = 1, size = 20): Promise<PaginatedResponse<any>> {
+        const followingIds = await this.usersService.getFollowingIds(userId);
+        if (followingIds.length === 0) {
+            return { data: [], meta: { total: 0, page, size, totalPages: 0 } };
+        }
+
+        const skip = (page - 1) * size;
+        const [data, total] = await this.checkinsRepository.createQueryBuilder('checkin')
+            .leftJoinAndSelect('checkin.user', 'user')
+            .leftJoinAndSelect('checkin.place', 'place')
+            .leftJoinAndSelect('checkin.photos', 'photos')
+            .where('checkin.userId IN (:...followingIds)', { followingIds })
+            .orderBy('checkin.createdAt', 'DESC')
+            .skip(skip)
+            .take(size)
+            .getManyAndCount();
+
+        const checkinIds = data.map((c) => c.id);
+        let results: any[] = data;
+        if (checkinIds.length > 0) {
+            const myLikes = await this.likesRepository.find({ where: { userId, checkinId: In(checkinIds) } } as any);
+            const likedIds = new Set(myLikes.map((l) => l.checkinId));
+            results = data.map((c) => ({ ...c, isLikedByMe: likedIds.has(c.id) }));
+        }
+
+        return { data: results, meta: { total, page, size, totalPages: Math.ceil(total / size) } };
+    }
+
     async like(userId: string, checkinId: string): Promise<number> {
         const checkin = await this.checkinsRepository.findOne({ where: { id: checkinId } });
         if (!checkin) throw new NotFoundException('Check-in no encontrado');

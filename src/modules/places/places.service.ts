@@ -18,6 +18,7 @@ import { PlaceVideo } from './entities/place-video.entity';
 import { PlacePhoto } from './entities/place-photo.entity';
 import { UploadService } from '../upload/upload.service';
 import { SubscriptionsService } from '../subscriptions/subscriptions.service';
+import { UsersService } from '../users/users.service';
 
 import { CreatePlaceSubmissionDto } from './dto/create-place-submission.dto';
 import { CreatePlaceClaimDto } from './dto/create-place-claim.dto';
@@ -48,6 +49,7 @@ export class PlacesService {
         private photosRepository: Repository<PlacePhoto>,
         private uploadService: UploadService,
         private subscriptionsService: SubscriptionsService,
+        private usersService: UsersService,
     ) { }
 
 
@@ -490,6 +492,28 @@ export class PlacesService {
 
     async getInterestCount(placeId: string): Promise<number> {
         return this.interestsRepository.count({ where: { placeId } });
+    }
+
+    // "3 amigos visitaron" — entre la gente que sigo, quiénes hicieron check-in acá.
+    async getFriendsWhoVisited(currentUserId: string, placeId: string): Promise<{
+        count: number;
+        friends: { id: string; fullName: string; avatarUrl: string | null }[];
+    }> {
+        const followingIds = await this.usersService.getFollowingIds(currentUserId);
+        if (followingIds.length === 0) return { count: 0, friends: [] };
+
+        const rows = await this.placesRepository.manager.query(
+            `SELECT DISTINCT u.id, u.full_name, u.avatar_url
+       FROM checkins c
+       JOIN users u ON u.id = c.user_id
+       WHERE c.place_id = $1 AND c.user_id = ANY($2::uuid[])`,
+            [placeId, followingIds],
+        );
+
+        return {
+            count: rows.length,
+            friends: rows.slice(0, 3).map((r: any) => ({ id: r.id, fullName: r.full_name, avatarUrl: r.avatar_url })),
+        };
     }
 
     // Escalera de confianza — se calcula, no se guarda: derivada de campos que
