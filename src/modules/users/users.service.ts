@@ -58,6 +58,27 @@ export class UsersService {
         return rows.map((r) => r.followingId);
     }
 
+    async getPublicProfile(userId: string): Promise<{
+        id: string;
+        fullName: string;
+        avatarUrl: string | null;
+        currentLevel: number;
+        followers: number;
+        following: number;
+    }> {
+        const user = await this.usersRepository.findOne({ where: { id: userId } });
+        if (!user) throw new NotFoundException('Usuario no encontrado');
+
+        const counts = await this.getFollowCounts(userId);
+        return {
+            id: user.id,
+            fullName: user.fullName,
+            avatarUrl: user.avatarUrl,
+            currentLevel: user.currentLevel ?? 1,
+            ...counts,
+        };
+    }
+
     async create(
         email: string,
         password: string,
