@@ -625,5 +625,22 @@ export class PlacesService {
         };
     }
 
+    async addPhoto(userId: string, placeId: string, file: Express.Multer.File) {
+        // Verify place exists
+        await this.findOne(placeId);
+
+        // Upload to Cloudinary
+        const result = await this.uploadService.uploadImage(file);
+
+        // Save to DB
+        const photo = this.photosRepository.create({
+            url: result.secure_url,
+            placeId,
+            userId,
+        });
+
+        return this.photosRepository.save(photo);
+    }
+
 }
 
