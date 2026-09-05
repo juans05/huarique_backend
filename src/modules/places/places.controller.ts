@@ -351,5 +351,30 @@ export class PlacesController {
     ) {
         return this.placesService.findAllPhotos(id, page, limit);
     }
+
+    @Post(':id/photos')
+    @UseGuards(JwtAuthGuard)
+    @ApiBearerAuth()
+    @ApiOperation({ summary: 'Upload a photo for a place' })
+    @ApiParam({ name: 'id', description: 'Place UUID' })
+    @UseInterceptors(FileInterceptor('photo'))
+    async uploadPhoto(
+        @CurrentUser() user: any,
+        @Param('id') id: string,
+        @UploadedFile(
+            new ParseFilePipe({
+                validators: [
+                    new MaxFileSizeValidator({ maxSize: 1024 * 1024 * 10 }), // 10MB
+                    new FileTypeValidator({ fileType: '.(jpg|jpeg|png|webp)' }),
+                ],
+            }),
+        )
+        file: Express.Multer.File,
+    ) {
+        const place = await this.placesRepo.findOne({ where: { id } });
+        if (!place) throw new NotFoundException('Local no encontrado');
+        if (place.claimedByUserId !== user.id) throw new ForbiddenException('No tienes permiso para gestionar este local');
+        return this.placesService.addPhoto(user.id, id, file);
+    }
 }
 
