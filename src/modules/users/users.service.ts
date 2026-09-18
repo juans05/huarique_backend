@@ -58,6 +58,22 @@ export class UsersService {
         return rows.map((r) => r.followingId);
     }
 
+    async searchUsers(query: string, currentUserId: string): Promise<{ id: string; fullName: string; avatarUrl: string | null }[]> {
+        const q = query?.trim();
+        if (!q) return [];
+        const users = await this.usersRepository
+            .createQueryBuilder('user')
+            .where('user.id != :currentUserId', { currentUserId })
+            .andWhere('user.isDiscoverable = true')
+            .andWhere('user.isBanned = false')
+            .andWhere('LOWER(user.fullName) LIKE LOWER(:q)', { q: `%${q}%` })
+            .select(['user.id', 'user.fullName', 'user.avatarUrl'])
+            .orderBy('user.fullName', 'ASC')
+            .limit(20)
+            .getMany();
+        return users.map((u) => ({ id: u.id, fullName: u.fullName, avatarUrl: u.avatarUrl }));
+    }
+
     async getPublicProfile(userId: string, viewerId?: string): Promise<{
         id: string;
         fullName: string;

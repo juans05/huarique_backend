@@ -27,6 +27,13 @@ export class UsersController {
         private placesRepo: Repository<Place>,
     ) { }
 
+    @Get('search')
+    @ApiOperation({ summary: 'Search registered Wuarikes users by name' })
+    @ApiQuery({ name: 'q', required: true, type: String })
+    async searchUsers(@CurrentUser() user: any, @Query('q') q: string) {
+        return this.usersService.searchUsers(q, user.id);
+    }
+
     @Get(':id')
     @ApiOperation({ summary: 'Public-safe profile of another user' })
     @ApiParam({ name: 'id', description: 'User UUID' })
