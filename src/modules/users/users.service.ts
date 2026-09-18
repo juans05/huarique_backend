@@ -227,6 +227,7 @@ export class UsersService {
             city: user.city,
             hometown: user.hometown,
             role: user.role,
+            phone: user.phone,
             pronouns: user.pronouns,
             gender: user.gender,
             birthDate: user.birthDate,
@@ -338,6 +339,7 @@ export class UsersService {
             pronouns?: string;
             gender?: string;
             birthDate?: string;
+            phone?: string;
         },
     ): Promise<void> {
         const updateData: any = { ...updates };

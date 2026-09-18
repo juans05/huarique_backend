@@ -52,4 +52,10 @@ export class UpdateProfileDto {
     @IsOptional()
     @IsDateString()
     birthDate?: string;
+
+    @ApiPropertyOptional({ description: 'Teléfono (usado para la tarjeta de fidelización)', example: '987654321' })
+    @IsOptional()
+    @IsString()
+    @MaxLength(20)
+    phone?: string;
 }
