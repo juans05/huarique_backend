@@ -111,7 +111,7 @@ export class AuthService {
     async socialLogin(
         provider: string,
         token: string,
-        email: string,
+        email?: string,
         name?: string,
         photoUrl?: string,
         userAgent?: string,
