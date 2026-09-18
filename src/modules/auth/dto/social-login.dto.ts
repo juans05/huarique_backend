@@ -16,9 +16,10 @@ export class SocialLoginDto {
     @IsString()
     token: string; // Firebase token or Access Token from provider
 
-    @ApiProperty()
+    @ApiPropertyOptional()
+    @IsOptional()
     @IsEmail()
-    email: string;
+    email?: string;
 
     @ApiPropertyOptional()
     @IsOptional()
