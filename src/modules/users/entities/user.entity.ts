@@ -51,6 +51,9 @@ export class User {
     @Column({ name: 'birth_date', type: 'date', nullable: true })
     birthDate: Date;
 
+    @Column({ type: 'varchar', length: 20, nullable: true })
+    phone: string; // Usado para vincular la tarjeta de fidelización por restaurante
+
     @Column({ default: 'user' })
     role: 'user' | 'admin' | 'business';
 
