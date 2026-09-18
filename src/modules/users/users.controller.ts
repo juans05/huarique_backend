@@ -187,6 +187,15 @@ export class UsersController {
         return this.usersService.getFollowing(user.id, page, limit);
     }
 
+    @Delete('me')
+    @HttpCode(200)
+    @ApiOperation({ summary: 'Delete (anonymize) the current user account' })
+    @ApiResponse({ status: 200, description: 'Account deleted.' })
+    async deleteMyAccount(@CurrentUser() user: any) {
+        await this.usersService.deleteAccount(user.id);
+        return { message: 'Cuenta eliminada' };
+    }
+
     @Get('me/favorites')
     @ApiOperation({ summary: 'Get current user favourite places' })
     @ApiResponse({ status: 200, description: 'List of favourite places.' })

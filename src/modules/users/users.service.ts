@@ -58,6 +58,33 @@ export class UsersService {
         return rows.map((r) => r.followingId);
     }
 
+    async deleteAccount(userId: string): Promise<void> {
+        const user = await this.usersRepository.findOne({ where: { id: userId } });
+        if (!user) throw new NotFoundException('Usuario no encontrado');
+        // Anonimizar en vez de borrar la fila: sus check-ins/reseñas siguen
+        // existiendo para no romper el historial de otros usuarios ni de los
+        // restaurantes, pero ya no puede iniciar sesión (el email deja de
+        // coincidir con ninguna cuenta real) ni aparece en búsquedas.
+        await this.usersRepository.update(userId, {
+            fullName: 'Usuario eliminado',
+            email: `deleted_${Date.now()}_${user.email}`,
+            avatarUrl: null,
+            coverImageUrl: null,
+            bio: null,
+            city: null,
+            hometown: null,
+            pronouns: null,
+            gender: null,
+            birthDate: null,
+            phone: null,
+            isProfilePublic: false,
+            areFavoritesPublic: false,
+            allowBusinessMessages: false,
+            isDiscoverable: false,
+            deletedAt: new Date(),
+        });
+    }
+
     async searchUsers(query: string, currentUserId: string): Promise<{ id: string; fullName: string; avatarUrl: string | null }[]> {
         const q = query?.trim();
         if (!q) return [];

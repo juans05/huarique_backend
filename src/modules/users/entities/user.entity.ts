@@ -121,4 +121,7 @@ export class User {
 
     @Column({ name: 'is_discoverable', default: true })
     isDiscoverable: boolean;
+
+    @Column({ name: 'deleted_at', type: 'timestamp', nullable: true })
+    deletedAt: Date | null;
 }
