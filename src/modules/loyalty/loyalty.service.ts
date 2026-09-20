@@ -1,7 +1,7 @@
 import { Injectable, NotFoundException, BadRequestException, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Cron, CronExpression } from '@nestjs/schedule';
-import { MoreThan, Repository } from 'typeorm';
+import { In, MoreThan, Repository } from 'typeorm';
 import { Queue } from 'bullmq';
 import { InjectQueue } from '@nestjs/bullmq';
 import { LoyaltyProgram } from './entities/loyalty-program.entity';
@@ -11,6 +11,7 @@ import { Reward } from './entities/reward.entity';
 import { WalletCampaign } from './entities/wallet-campaign.entity';
 import { WhatsAppNumber } from '../whatsapp/entities/whatsapp-number.entity';
 import { WhatsappService } from '../whatsapp/whatsapp.service';
+import { Place } from '../places/entities/place.entity';
 
 const MAX_WALLET_CAMPAIGNS_PER_DAY = 3;
 const WINBACK_INACTIVITY_DAYS = 30;
@@ -26,6 +27,7 @@ export class LoyaltyService {
     @InjectRepository(Reward) private rewardRepo: Repository<Reward>,
     @InjectRepository(WalletCampaign) private walletCampaignRepo: Repository<WalletCampaign>,
     @InjectRepository(WhatsAppNumber) private whatsappNumberRepo: Repository<WhatsAppNumber>,
+    @InjectRepository(Place) private placesRepo: Repository<Place>,
     @InjectQueue('wallet-campaign') private walletCampaignQueue: Queue,
     private whatsappService: WhatsappService,
   ) {}
@@ -299,6 +301,60 @@ export class LoyaltyService {
 
   async deleteReward(rewardId: string) {
     await this.rewardRepo.update(rewardId, { isActive: false });
+  }
+
+  // ── MIS TARJETAS — agregado del cliente en todos los restaurantes ───────
+  // El cliente ya no tiene que entrar restaurante por restaurante a ver si
+  // tiene sellos ahí: esto junta todas sus tarjetas activas, ordenadas por
+  // la más cerca de canjear premio primero.
+
+  async getMyCards(phone: string) {
+    if (!phone) return [];
+
+    const cards = await this.cardRepo.find({ where: { customerPhone: phone } });
+    if (cards.length === 0) return [];
+
+    const placeIds = cards.map((c) => c.placeId);
+    const [programs, places] = await Promise.all([
+      this.programRepo.find({ where: { placeId: In(placeIds), isActive: true } }),
+      this.placesRepo.find({ where: { id: In(placeIds) } }),
+    ]);
+    const programByPlace = new Map(programs.map((p) => [p.placeId, p]));
+    const placeById = new Map(places.map((p) => [p.id, p]));
+
+    return cards
+      .map((card) => {
+        const program = programByPlace.get(card.placeId);
+        const place = placeById.get(card.placeId);
+        if (!program || !place) return null; // programa desactivado o restaurante eliminado
+
+        const stampsRemaining =
+          program.type === 'stamps' ? program.stampsToReward - (card.stamps % program.stampsToReward) : null;
+
+        return {
+          placeId: place.id,
+          placeName: place.name,
+          placeCoverImageUrl: place.coverImageUrl,
+          latitude: place.latitude,
+          longitude: place.longitude,
+          programType: program.type,
+          stamps: card.stamps,
+          points: card.points,
+          stampsToReward: program.type === 'stamps' ? program.stampsToReward : null,
+          stampsRemaining,
+          level: card.level,
+          rewardTitle: program.rewardTitle,
+        };
+      })
+      .filter((c): c is NonNullable<typeof c> => c !== null)
+      .sort((a, b) => {
+        if (a.programType === 'stamps' && b.programType === 'stamps') {
+          return (a.stampsRemaining ?? 0) - (b.stampsRemaining ?? 0);
+        }
+        if (a.programType === 'stamps') return -1;
+        if (b.programType === 'stamps') return 1;
+        return b.points - a.points;
+      });
   }
 
   private calculateLevel(totalVisits: number): 'BRONCE' | 'PLATA' | 'ORO' | 'VIP' {
