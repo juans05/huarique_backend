@@ -10,11 +10,13 @@ import { LoyaltyService } from './loyalty.service';
 import { WalletService } from './wallet.service';
 import { LoyaltyController } from './loyalty.controller';
 import { LoyaltyPublicController } from './loyalty-public.controller';
+import { LoyaltyMeController } from './loyalty-me.controller';
 import { WalletCampaignProcessor } from './wallet-campaign.processor';
 import { Place } from '../places/entities/place.entity';
 import { SubscriptionsModule } from '../subscriptions/subscriptions.module';
 import { TeamModule } from '../team/team.module';
 import { WhatsAppModule } from '../whatsapp/whatsapp.module';
+import { UsersModule } from '../users/users.module';
 
 @Module({
   imports: [
@@ -23,8 +25,9 @@ import { WhatsAppModule } from '../whatsapp/whatsapp.module';
     SubscriptionsModule,
     TeamModule,
     WhatsAppModule,
+    UsersModule,
   ],
-  controllers: [LoyaltyController, LoyaltyPublicController],
+  controllers: [LoyaltyController, LoyaltyPublicController, LoyaltyMeController],
   providers: [LoyaltyService, WalletService, WalletCampaignProcessor],
   exports: [LoyaltyService],
 })
