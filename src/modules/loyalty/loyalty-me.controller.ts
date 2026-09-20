@@ -17,7 +17,11 @@ export class LoyaltyMeController {
   @Get('my-cards')
   @ApiOperation({ summary: "Get all of the current user's loyalty cards, across every restaurant" })
   async getMyCards(@Request() req) {
+    console.log('[LoyaltyMe] GET /loyalty/my-cards - userId:', req.user.id);
     const user = await this.usersService.findById(req.user.id);
-    return this.loyaltyService.getMyCards(user.phone);
+    console.log('[LoyaltyMe] User phone:', user.phone);
+    const cards = await this.loyaltyService.getMyCards(user.phone);
+    console.log('[LoyaltyMe] Found', cards?.length || 0, 'cards');
+    return cards;
   }
 }
