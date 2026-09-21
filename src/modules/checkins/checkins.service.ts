@@ -88,8 +88,9 @@ export class CheckinsService {
             });
         }
 
-        // latitude/longitude ya son obligatorias en el DTO — lo único que puede
-        // faltar acá es la coordenada del LOCAL (dato del negocio, no del cliente).
+        // Estar lejos del local sí se rechaza de frente: es la única señal que
+        // el usuario puede corregir por su cuenta (acercándose), así que
+        // ocultársela sería sólo confuso.
         if (place.latitude != null && place.longitude != null) {
             const proximity = this.antiFraudService.validateProximity(
                 dto.latitude,
@@ -106,19 +107,48 @@ export class CheckinsService {
             }
         }
 
+        // El resto de señales se shadow-flaggean en vez de rechazarse: si le
+        // decimos al tramposo qué lo delató, itera hasta esquivarlo. Guardamos
+        // el check-in, pero sin puntos, sin rating y fuera del feed.
+        const suspicionReasons: string[] = [];
+
+        if (place.latitude == null || place.longitude == null) {
+            // Sin coordenadas del local no hay nada contra qué validar, así que
+            // el check-in no prueba que la persona haya estado ahí.
+            suspicionReasons.push('PLACE_WITHOUT_COORDINATES');
+        }
+
+        const deviceCheck = this.antiFraudService.validateDevice(dto.isMocked, dto.accuracyMeters);
+        if (deviceCheck.suspicious && deviceCheck.reason) {
+            suspicionReasons.push(deviceCheck.reason);
+        }
+
         const speedCheck = await this.antiFraudService.validateSpeed(userId, dto.latitude, dto.longitude);
         if (speedCheck.suspicious) {
+            suspicionReasons.push(`IMPOSSIBLE_SPEED_${speedCheck.speed}KMH`);
+        }
+
+        const isSuspicious = suspicionReasons.length > 0;
+        const suspiciousReason = isSuspicious ? suspicionReasons.join(',').slice(0, 200) : null;
+
+        if (isSuspicious) {
             await this.auditLogService.log({
-                action: 'checkin_suspicious_speed',
+                action: 'checkin_shadow_flagged',
                 entityType: 'checkin',
                 placeId: dto.placeId,
                 userId,
-                metadata: { speedKmh: speedCheck.speed, latitude: dto.latitude, longitude: dto.longitude },
-                description: `Check-in marcado como sospechoso: ${speedCheck.speed} km/h desde el check-in anterior`,
+                metadata: {
+                    reasons: suspicionReasons,
+                    latitude: dto.latitude,
+                    longitude: dto.longitude,
+                    accuracyMeters: dto.accuracyMeters,
+                    isMocked: dto.isMocked,
+                },
+                description: `Check-in marcado como sospechoso: ${suspicionReasons.join(', ')}`,
             });
         }
 
-        const { photos, latitude, longitude, ...checkinData } = dto;
+        const { photos, latitude, longitude, isMocked, accuracyMeters, ...checkinData } = dto;
 
         // The check-in and its photos must land together: run them in a single
         // DB transaction so a failed photo insert can't leave an orphaned
@@ -127,6 +157,8 @@ export class CheckinsService {
             const checkin = manager.create(Checkin, {
                 ...checkinData,
                 userId,
+                isSuspicious,
+                suspiciousReason,
             });
             const saved = await manager.save(checkin);
 
@@ -140,6 +172,12 @@ export class CheckinsService {
 
             return saved;
         });
+
+        // Un check-in marcado no mueve ninguna métrica: ni el rating del local
+        // (que es lo que el restaurante compra), ni puntos, racha o insignias
+        // (que es lo que el tramposo busca). Devolvemos el check-in igual para
+        // que en la app se vea idéntico a uno válido.
+        if (isSuspicious) return savedCheckin;
 
         // Update Place Rating
         if (dto.rating && dto.rating > 0) {
@@ -178,6 +216,17 @@ export class CheckinsService {
             .leftJoinAndSelect('checkin.user', 'user')
             .leftJoinAndSelect('checkin.place', 'place')
             .leftJoinAndSelect('checkin.photos', 'photos');
+
+        // Shadow-ban: el autor sigue viendo su propio check-in marcado (si
+        // desapareciera sabría que lo detectamos), pero nadie más lo ve.
+        if (userId) {
+            queryBuilder.andWhere(
+                '(checkin.isSuspicious = false OR checkin.userId = :viewerId)',
+                { viewerId: userId },
+            );
+        } else {
+            queryBuilder.andWhere('checkin.isSuspicious = false');
+        }
 
         switch (sort) {
             case 'top_rated':
@@ -251,6 +300,7 @@ export class CheckinsService {
             .leftJoinAndSelect('checkin.place', 'place')
             .leftJoinAndSelect('checkin.photos', 'photos')
             .where('checkin.userId IN (:...followingIds)', { followingIds })
+            .andWhere('checkin.isSuspicious = false')
             .orderBy('checkin.createdAt', 'DESC')
             .skip(skip)
             .take(size)
@@ -319,6 +369,7 @@ export class CheckinsService {
             .addSelect('COUNT(*)', 'orders')
             .where('checkin.placeId = :placeId', { placeId })
             .andWhere('checkin.dishName IS NOT NULL')
+            .andWhere('checkin.isSuspicious = false')
             .groupBy('checkin.dishName')
             .orderBy('orders', 'DESC')
             .limit(10)
@@ -345,16 +396,19 @@ export class CheckinsService {
             this.checkinsRepository.createQueryBuilder('c')
                 .where('c.placeId = :placeId', { placeId })
                 .andWhere('c.createdAt >= :start', { start: startOfWeek })
+                .andWhere('c.isSuspicious = false')
                 .getCount(),
             this.checkinsRepository.createQueryBuilder('c')
                 .where('c.placeId = :placeId', { placeId })
                 .andWhere('c.createdAt >= :start', { start: startOfMonth })
+                .andWhere('c.isSuspicious = false')
                 .getCount(),
             this.checkinsRepository.createQueryBuilder('c')
                 .select("TO_CHAR(c.createdAt, 'Day')", 'day')
                 .addSelect('COUNT(*)', 'total')
                 .where('c.placeId = :placeId', { placeId })
                 .andWhere('c.createdAt >= :start', { start: startOfMonth })
+                .andWhere('c.isSuspicious = false')
                 .groupBy('day')
                 .orderBy('total', 'DESC')
                 .limit(1)
@@ -362,9 +416,9 @@ export class CheckinsService {
             this.getTopDishes(placeId),
             this.dataSource.query(
                 `WITH period_visitors AS (
-                    SELECT DISTINCT user_id FROM wuarike_db.checkins WHERE place_id = $1 AND created_at >= $2
+                    SELECT DISTINCT user_id FROM wuarike_db.checkins WHERE place_id = $1 AND created_at >= $2 AND is_suspicious = false
                 ), first_visits AS (
-                    SELECT user_id, MIN(created_at) as first_visit FROM wuarike_db.checkins WHERE place_id = $1 GROUP BY user_id
+                    SELECT user_id, MIN(created_at) as first_visit FROM wuarike_db.checkins WHERE place_id = $1 AND is_suspicious = false GROUP BY user_id
                 )
                 SELECT
                     COUNT(*) FILTER (WHERE fv.first_visit >= $2) as new_customers,

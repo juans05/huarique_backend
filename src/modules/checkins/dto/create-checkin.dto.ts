@@ -1,4 +1,4 @@
-import { IsString, IsOptional, MaxLength, IsUrl, IsUUID, IsLatitude, IsLongitude, IsNumber, Min } from 'class-validator';
+import { IsString, IsOptional, MaxLength, IsUrl, IsUUID, IsLatitude, IsLongitude, IsNumber, IsBoolean, Min } from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 
 export class CreateCheckinDto {
@@ -49,4 +49,19 @@ export class CreateCheckinDto {
     @IsNumber()
     @Min(0)
     dishPrice?: number;
+
+    // Señales del dispositivo para anti-fraude. Son opcionales a propósito:
+    // un cliente viejo (o uno manipulado que las omita) no debe romperse, pero
+    // tampoco debe salir premiado — su ausencia se trata como señal sospechosa
+    // en AntiFraudService.validateDevice.
+    @ApiPropertyOptional({ description: 'true si Android reporta la posición como simulada (apps de mock location).' })
+    @IsOptional()
+    @IsBoolean()
+    isMocked?: boolean;
+
+    @ApiPropertyOptional({ example: 25, description: 'Precisión del GPS en metros. Sin esto no se puede confiar en la validación de proximidad.' })
+    @IsOptional()
+    @IsNumber()
+    @Min(0)
+    accuracyMeters?: number;
 }
