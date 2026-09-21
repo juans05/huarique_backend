@@ -49,6 +49,15 @@ export class Checkin {
     @Column({ name: 'likes_count', default: 0 })
     likesCount: number;
 
+    // Shadow-flagging: un check-in tramposo se guarda igual (para poder
+    // auditarlo y para que el tramposo no note el bloqueo y busque la vuelta),
+    // pero no suma puntos, no afecta el rating del local y no sale en el feed.
+    @Column({ name: 'is_suspicious', default: false })
+    isSuspicious: boolean;
+
+    @Column({ name: 'suspicious_reason', length: 200, nullable: true })
+    suspiciousReason: string;
+
     @CreateDateColumn({ name: 'created_at' })
     createdAt: Date;
 

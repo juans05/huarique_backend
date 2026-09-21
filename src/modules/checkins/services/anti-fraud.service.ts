@@ -9,6 +9,34 @@ interface AntiFraudValidation {
     remainingTime?: number;
 }
 
+/**
+ * Tope de error del GPS aceptable. Se fija igual al radio de proximidad: si el
+ * margen de error del dispositivo supera el radio contra el que validamos, la
+ * validación de proximidad deja de significar nada.
+ */
+const MAX_ACCURACY_METERS = 200;
+
+/**
+ * Umbral de "viaje imposible": más rápido que un avión comercial. Debe dejar
+ * pasar TODO medio de transporte real (monopatín, bici, auto, bus
+ * interprovincial, vuelo a Cusco) y atrapar sólo el teletransporte de quien
+ * falsea coordenadas, que da miles de km/h.
+ *
+ * El valor anterior era 50 km/h, que marcaba un viaje en bus a Asia como
+ * fraude. Mientras sólo escribía un log daba igual; desde que el marcado
+ * cuesta puntos y saca el check-in del feed, un falso positivo hace daño real.
+ */
+const IMPOSSIBLE_SPEED_KMH = 900;
+
+/**
+ * Debajo de esta distancia no se evalúa velocidad. El cooldown es por local,
+ * así que dos check-ins en sitios distintos pueden estar a segundos uno del
+ * otro: dividir por un lapso diminuto convierte el ruido normal del GPS en
+ * velocidades absurdas. Además, dos locales a menos de 1 km jamás prueban
+ * teletransporte.
+ */
+const MIN_DISTANCE_FOR_SPEED_KM = 1;
+
 @Injectable()
 export class AntiFraudService {
     constructor(
@@ -90,8 +118,8 @@ export class AntiFraudService {
     }
 
     /**
-     * Detect suspicious speed between check-ins
-     * Flags if user moved > 50 km/h between check-ins
+     * Detecta viajes imposibles entre check-ins: sólo velocidades que ningún
+     * medio de transporte real alcanza (ver IMPOSSIBLE_SPEED_KMH).
      */
     async validateSpeed(
         userId: string,
@@ -117,16 +145,52 @@ export class AntiFraudService {
             newLng,
         );
 
+        if (distance < MIN_DISTANCE_FOR_SPEED_KM) {
+            return { suspicious: false };
+        }
+
         const timeDiff = (Date.now() - lastCheckin.createdAt.getTime()) / (1000 * 60 * 60); // hours
+        if (timeDiff <= 0) {
+            return { suspicious: false };
+        }
+
         const speed = distance / timeDiff; // km/h
 
-        if (speed > 50) {
+        if (speed > IMPOSSIBLE_SPEED_KMH) {
             return {
                 suspicious: true,
                 speed: Math.round(speed),
             };
         }
 
+        return { suspicious: false };
+    }
+
+    /**
+     * Señales del propio dispositivo. La ubicación simulada es el vector de
+     * fraude a escala (basta una app de mock location), y una precisión peor
+     * que el radio de proximidad vuelve esa validación inútil: un punto con
+     * ±2 km de error "cae dentro" de 200 m por pura casualidad.
+     *
+     * La ausencia de las señales también cuenta: un cliente manipulado que
+     * simplemente no las envíe no puede salir mejor parado que uno honesto.
+     */
+    validateDevice(
+        isMocked: boolean | undefined,
+        accuracyMeters: number | undefined,
+    ): { suspicious: boolean; reason?: string } {
+        if (isMocked === true) {
+            return { suspicious: true, reason: 'MOCKED_LOCATION' };
+        }
+        if (accuracyMeters == null) {
+            return { suspicious: true, reason: 'NO_ACCURACY_REPORTED' };
+        }
+        if (accuracyMeters > MAX_ACCURACY_METERS) {
+            return {
+                suspicious: true,
+                reason: `LOW_GPS_ACCURACY_${Math.round(accuracyMeters)}M`,
+            };
+        }
         return { suspicious: false };
     }
 
