@@ -138,7 +138,8 @@ export class GoogleBusinessService {
       const status = data.error?.status;
       if (res.status === 401) throw new GoogleApiError('token_expired', 'Tu sesión de Google expiró. Vuelve a conectar tu cuenta.');
       if (status === 'PERMISSION_DENIED') throw new GoogleApiError('permission_denied', 'Tu cuenta de Google no administra este negocio o no está verificado.');
-      if (res.status === 429) throw new GoogleApiError('quota', 'Google limitó las consultas. Intenta en unos minutos.');
+      // Proyectos sin aprobación de la API de Business Profile tienen cuota 0: también da 429.
+      if (res.status === 429) throw new GoogleApiError('quota', 'Google aún no habilitó el acceso a sus reseñas para Wuarikes, o se superó el límite de consultas. Si persiste, falta la aprobación de Google.');
       throw new GoogleApiError('google_error', data.error?.message || 'Google no respondió correctamente.');
     }
     return data;
