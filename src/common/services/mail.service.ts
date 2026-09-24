@@ -167,6 +167,38 @@ export class MailService {
         }
     }
 
+    /** Respuesta del restaurante a la opinión privada que el cliente dejó al escanear el QR/NFC. */
+    async sendFeedbackReply(email: string, customerName: string | null, placeName: string, reply: string, originalComment: string | null) {
+        // Texto escrito por el dueño y por el cliente: escapar antes de meterlo en HTML.
+        const esc = (s: string) => s.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]!));
+        const nl = (s: string) => esc(s).replace(/\n/g, '<br>');
+        try {
+            const { data, error } = await this.resend.emails.send({
+                from: `${placeName.replace(/[<>"]/g, '')} vía Wuarikes <hola@wuarikes.com>`,
+                to: [email],
+                subject: `${placeName} respondió a tu opinión`,
+                html: `
+                    <div style="font-family: 'Inter', sans-serif; max-width: 600px; margin: 0 auto; background-color: #ffffff; padding: 40px; border-radius: 20px; border: 1px solid #eee;">
+                        <h1 style="color: #111827; font-size: 22px; font-weight: 900; margin-bottom: 10px;">Hola${customerName ? ` ${esc(customerName)}` : ''}</h1>
+                        <p style="color: #4b5563; font-size: 15px; margin-bottom: 20px;">
+                            El equipo de <b>${esc(placeName)}</b> leyó tu opinión y te respondió:
+                        </p>
+                        <div style="background: #f3f4f6; padding: 20px; border-radius: 12px; margin-bottom: 20px; color: #111827; font-size: 15px; line-height: 1.6;">
+                            ${nl(reply)}
+                        </div>
+                        ${originalComment ? `<p style="color: #9ca3af; font-size: 13px;">Tu comentario: “${nl(originalComment)}”</p>` : ''}
+                    </div>
+                `,
+            });
+
+            if (error) throw error;
+            return data;
+        } catch (error) {
+            console.error('Error sending feedback reply:', error);
+            throw new InternalServerErrorException('No se pudo enviar el correo al cliente');
+        }
+    }
+
     async sendTeamMemberCredentials(email: string, fullName: string, password: string, placeName: string, role: string) {
         try {
             const { data, error } = await this.resend.emails.send({
