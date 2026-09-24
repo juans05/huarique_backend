@@ -32,7 +32,8 @@ export class SocialCallbackController {
         // ventana principal — helmet pone COOP: same-origin por defecto, lo relajamos solo aquí.
         res.setHeader('Cross-Origin-Opener-Policy', 'unsafe-none');
 
-        const frontendUrl = process.env.FRONTEND_URL || 'https://warike.up.railway.app';
+        // /social vive en el panel administrativo, no en la web pública (FRONTEND_URL).
+        const frontendUrl = process.env.DASHBOARD_URL || process.env.FRONTEND_URL || 'https://admin.wuarikes.com';
         const place = await this.placesRepo.findOneBy({ id: placeId });
         const profileId = place?.metadata?.zernioProfileId;
         if (!place || !profileId) {
