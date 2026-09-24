@@ -17,8 +17,7 @@ export class GoogleCallbackController {
     @Res() res: Response,
   ) {
     if (error) {
-      const frontendUrl = process.env.FRONTEND_URL || 'https://warike.up.railway.app';
-      return res.redirect(`${frontendUrl}/reputacion?error=${error}`);
+      return res.redirect(`${this.googleBusiness.frontendUrl}/reputacion?error=${encodeURIComponent(error)}`);
     }
 
     const redirectUrl = await this.googleBusiness.handleCallback(code, state);
