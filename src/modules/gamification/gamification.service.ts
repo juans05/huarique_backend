@@ -134,11 +134,35 @@ export class GamificationService {
             level,
             xp,
             nextLevelXp,
+            weeklyStreak: await this.getWeeklyStreak(userId),
             checkinsCount: stats.totalCheckins,
             reviewsCount: stats.totalCheckins,
             photosCount: stats.totalPhotos,
             videosCount: stats.totalVideos,
         };
+    }
+
+    // Semanas consecutivas (lunes-domingo) con al menos un check-in. Una semana
+    // sin check-in todavía "en curso" no rompe la racha: cuenta desde la anterior.
+    private async getWeeklyStreak(userId: string): Promise<number> {
+        const rows = await this.pointsLogRepository.query(
+            `SELECT DISTINCT date_trunc('week', (created_at AT TIME ZONE 'UTC') AT TIME ZONE 'America/Lima')::date::text AS week
+       FROM checkins WHERE user_id = $1 ORDER BY week DESC`,
+            [userId],
+        );
+        const weeks = rows.map((r: any) => Date.parse(r.week + 'T00:00:00Z'));
+        const WEEK = 7 * 86400_000;
+        // Lima es UTC-5 todo el año; created_at se guarda como timestamp UTC.
+        const now = Date.now() - 5 * 3600_000;
+        const thisWeek = now - (((new Date(now).getUTCDay() + 6) % 7) * 86400_000) - (now % 86400_000);
+        let expected = weeks[0] === thisWeek ? thisWeek : thisWeek - WEEK;
+        let streak = 0;
+        for (const w of weeks) {
+            if (w !== expected) break;
+            streak++;
+            expected -= WEEK;
+        }
+        return streak;
     }
 
     async getUserBadges(userId: string): Promise<any[]> {
