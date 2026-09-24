@@ -28,10 +28,11 @@ export class GoogleBusinessService {
   private get clientSecret() { return this.config.get<string>('GOOGLE_CLIENT_SECRET') || ''; }
   private get redirectUri() {
     return this.config.get<string>('GOOGLE_REDIRECT_URI') ||
-      'https://backendwarike-production.up.railway.app/business/google/callback';
+      'https://backendwarike-production.up.railway.app/api/business/google/callback';
   }
+  /** Panel administrativo (/reputacion). FRONTEND_URL es la web pública, que no tiene esa ruta. */
   get frontendUrl() {
-    return this.config.get<string>('FRONTEND_URL') || 'https://warike.up.railway.app';
+    return this.config.get<string>('DASHBOARD_URL') || this.config.get<string>('FRONTEND_URL') || 'https://admin.wuarikes.com';
   }
 
   // ── OAuth state firmado ──────────────────────────────────────────────────
