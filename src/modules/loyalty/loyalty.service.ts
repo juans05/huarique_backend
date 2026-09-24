@@ -1,7 +1,7 @@
-import { Injectable, NotFoundException, BadRequestException, Logger } from '@nestjs/common';
+import { Injectable, NotFoundException, BadRequestException, Logger, ServiceUnavailableException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Cron, CronExpression } from '@nestjs/schedule';
-import { In, MoreThan, Repository } from 'typeorm';
+import { In, IsNull, MoreThan, Not, Repository } from 'typeorm';
 import { Queue } from 'bullmq';
 import { InjectQueue } from '@nestjs/bullmq';
 import { LoyaltyProgram } from './entities/loyalty-program.entity';
@@ -195,7 +195,8 @@ export class LoyaltyService {
   // el mensaje de reactivación que el dueño configuró — nadie tiene que
   // acordarse de mandarlo a mano. Se marca lastWinbackSentAt para no volver
   // a mandarlo todos los días una vez que ya cruzó el umbral.
-  @Cron(CronExpression.EVERY_DAY_AT_10AM)
+  // Hora de Lima: el servidor corre en UTC y a las 10:00 UTC serían las 5:00 en Perú.
+  @Cron(CronExpression.EVERY_DAY_AT_10AM, { timeZone: 'America/Lima' })
   async sendInactivityWinbacks(): Promise<void> {
     const programs = await this.programRepo.find({ where: { winbackEnabled: true, isActive: true } });
     if (programs.length === 0) return;
@@ -248,13 +249,20 @@ export class LoyaltyService {
       );
     }
 
-    const cards = await this.cardRepo.find({ where: { placeId } });
-    for (const card of cards) {
-      await this.walletCampaignQueue.add(
-        'send-wallet-message',
-        { cardId: card.id, header, body },
-        { attempts: 3, backoff: { type: 'exponential', delay: 2000 } },
-      );
+    // Solo las tarjetas que siguen guardadas en Google Wallet pueden recibir el aviso.
+    const cards = await this.cardRepo.find({ where: this.walletAudience(placeId), select: ['id'] });
+    if (cards.length === 0) {
+      throw new BadRequestException('Ninguno de tus clientes tiene su tarjeta guardada en Google Wallet todavía.');
+    }
+    try {
+      await this.walletCampaignQueue.addBulk(cards.map((card) => ({
+        name: 'send-wallet-message',
+        data: { cardId: card.id, header, body },
+        opts: { attempts: 3, backoff: { type: 'exponential', delay: 2000 } },
+      })));
+    } catch (err) {
+      this.logger.error(`No se pudo encolar la campaña de Wallet (place ${placeId}): ${err.message}`);
+      throw new ServiceUnavailableException('No se pudo enviar la campaña en este momento. Intenta más tarde.');
     }
 
     await this.walletCampaignRepo.save(
@@ -262,6 +270,19 @@ export class LoyaltyService {
     );
 
     return { totalQueued: cards.length };
+  }
+
+  private walletAudience(placeId: string) {
+    return { placeId, googleWalletSavedAt: Not(IsNull()), googleWalletDeletedAt: IsNull() };
+  }
+
+  /** Lo que el panel necesita saber antes de que el dueño envíe algo. */
+  async getNotificationsStatus(placeId: string) {
+    const [walletAudience, whatsapp] = await Promise.all([
+      this.cardRepo.count({ where: this.walletAudience(placeId) }),
+      this.whatsappNumberRepo.findOne({ where: { placeId, isActive: true } }),
+    ]);
+    return { walletAudience, whatsappConfigured: !!whatsapp };
   }
 
   // ── CRM — clientes del restaurante ──────────────────────────────────────

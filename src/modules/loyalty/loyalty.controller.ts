@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Put, Delete, Param, Body, Query, UseGuards } from '@nestjs/common';
+import { Controller, Get, Post, Put, Delete, Param, Body, Query, UseGuards, BadRequestException } from '@nestjs/common';
 import { ApiTags, ApiBearerAuth, ApiOperation } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
@@ -92,8 +92,15 @@ export class LoyaltyController {
   @ApiOperation({ summary: 'Send a Google Wallet notification to every customer with a saved card' })
   async sendWalletCampaign(@Param('placeId') placeId: string, @Body() body: { header: string; body: string }, @CurrentUser() user: any) {
     await this.assertOwner(placeId, user.id);
-    if (!body.header || !body.body) throw new Error('Título y mensaje son requeridos');
-    return this.loyaltyService.sendWalletCampaign(placeId, body.header, body.body);
+    if (!body.header?.trim() || !body.body?.trim()) throw new BadRequestException('Título y mensaje son requeridos');
+    return this.loyaltyService.sendWalletCampaign(placeId, body.header.trim(), body.body.trim());
+  }
+
+  @Get('notifications-status')
+  @ApiOperation({ summary: 'How many customers a Wallet campaign reaches and whether WhatsApp is set up' })
+  async getNotificationsStatus(@Param('placeId') placeId: string, @CurrentUser() user: any) {
+    await this.assertOwner(placeId, user.id);
+    return this.loyaltyService.getNotificationsStatus(placeId);
   }
 
   // ── CANJEAR PREMIO ────────────────────────────────────────────────────
