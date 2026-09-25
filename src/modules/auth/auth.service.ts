@@ -121,11 +121,18 @@ export class AuthService {
         let socialId: string;
 
         if (provider === 'google') {
-            const clientId = this.configService.get('GOOGLE_CLIENT_ID');
-            const client = new OAuth2Client(clientId);
+            // El login usa el cliente OAuth de siempre (el mismo que la app móvil y la web).
+            // GOOGLE_CLIENT_ID pasó a ser el cliente de Google Business (reseñas), de otro
+            // proyecto: aceptar ambos para no romper el login.
+            const audience = [
+                this.configService.get<string>('GOOGLE_LOGIN_CLIENT_ID'),
+                this.configService.get<string>('NEXT_PUBLIC_GOOGLE_CLIENT_ID'),
+                this.configService.get<string>('GOOGLE_CLIENT_ID'),
+            ].filter((id): id is string => !!id);
+            const client = new OAuth2Client();
             let payload;
             try {
-                const ticket = await client.verifyIdToken({ idToken: token, audience: clientId });
+                const ticket = await client.verifyIdToken({ idToken: token, audience });
                 payload = ticket.getPayload();
             } catch {
                 throw new UnauthorizedException('Token de Google inválido');
