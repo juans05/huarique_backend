@@ -167,6 +167,26 @@ export class MailService {
         }
     }
 
+    /** Aviso interno: un dueño registró un local y quedó pendiente de aprobación. */
+    async sendNewPlacePendingNotice(to: string, place: { name: string; address?: string | null }, ownerEmail: string, moderationUrl: string) {
+        const esc = (s: string) => s.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]!));
+        const { error } = await this.resend.emails.send({
+            from: 'Wuarikes <hola@wuarikes.com>',
+            to: [to],
+            subject: `Nuevo local por aprobar: ${place.name}`,
+            html: `
+                <div style="font-family: 'Inter', sans-serif; max-width: 600px; margin: 0 auto; padding: 32px; border: 1px solid #eee; border-radius: 16px;">
+                    <h1 style="font-size: 20px; font-weight: 900; color: #111827;">Nuevo local pendiente de aprobación</h1>
+                    <p style="color: #4b5563; font-size: 15px;"><b>${esc(place.name)}</b>${place.address ? `<br>${esc(place.address)}` : ''}</p>
+                    <p style="color: #4b5563; font-size: 14px;">Registrado por: ${esc(ownerEmail)}</p>
+                    <p style="color: #4b5563; font-size: 14px;">No aparecerá en el mapa ni en los filtros hasta que lo actives.</p>
+                    <a href="${moderationUrl}" style="display: inline-block; background: #C84B31; color: #fff; padding: 12px 20px; border-radius: 10px; font-weight: 800; text-decoration: none;">Revisar en Moderación</a>
+                </div>
+            `,
+        });
+        if (error) throw error;
+    }
+
     /** Respuesta del restaurante a la opinión privada que el cliente dejó al escanear el QR/NFC. */
     async sendFeedbackReply(email: string, customerName: string | null, placeName: string, reply: string, originalComment: string | null) {
         // Texto escrito por el dueño y por el cliente: escapar antes de meterlo en HTML.

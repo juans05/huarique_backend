@@ -12,7 +12,10 @@ import {
     BadRequestException,
     NotFoundException,
     Query,
+    Logger,
 } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
+import { MailService } from '../../common/services/mail.service';
 import { ApiTags, ApiBearerAuth, ApiOperation, ApiParam } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { PlacesService } from './places.service';
@@ -39,6 +42,8 @@ import { GoogleReview } from './entities/google-review.entity';
 @UseGuards(JwtAuthGuard)
 @ApiBearerAuth()
 export class BusinessPlacesController {
+    private readonly logger = new Logger(BusinessPlacesController.name);
+
     constructor(
         private readonly placesService: PlacesService,
         private readonly googleMapsService: GoogleMapsService,
@@ -56,7 +61,20 @@ export class BusinessPlacesController {
         private teamMemberRepo: Repository<PlaceTeamMember>,
         private placeTeamService: PlaceTeamService,
         private subscriptionsService: SubscriptionsService,
+        private readonly mailService: MailService,
+        private readonly config: ConfigService,
     ) { }
+
+    // Los locales creados por dueños quedan 'pending' (ocultos en el mapa) hasta que un
+    // admin los activa: avisar para que no se queden olvidados. Sin await: un fallo de
+    // correo no debe romper el registro del local.
+    private notifyPendingPlace(place: Place, user: any) {
+        const to = this.config.get<string>('ADMIN_NOTIFY_EMAIL') || 'contacto@wuarikes.com';
+        const dashboard = this.config.get<string>('DASHBOARD_URL') || 'https://admin.wuarikes.com';
+        this.mailService
+            .sendNewPlacePendingNotice(to, place, user.email || user.id, `${dashboard}/moderacion`)
+            .catch((err) => this.logger.error(`No se pudo avisar del local pendiente ${place.id}: ${err?.message}`));
+    }
 
     @Get('onboarding/search')
     @ApiOperation({ summary: 'Search for places in Wuarike and Google for onboarding' })
@@ -134,6 +152,7 @@ export class BusinessPlacesController {
         });
 
         const saved = await this.placesRepo.save(newPlace);
+        this.notifyPendingPlace(saved, user);
         return { message: 'Local importado y reclamado', placeId: saved.id };
     }
 
@@ -158,6 +177,7 @@ export class BusinessPlacesController {
         });
 
         const saved = await this.placesRepo.save(newPlace);
+        this.notifyPendingPlace(saved, user);
         return { message: 'Local creado con éxito', placeId: saved.id };
     }
 
@@ -186,6 +206,7 @@ export class BusinessPlacesController {
             name: p.name,
             coverImageUrl: p.coverImageUrl,
             category: p.category,
+            status: p.status,
         }));
     }
 
