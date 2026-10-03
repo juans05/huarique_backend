@@ -10,6 +10,9 @@ import { WhatsAppNumber } from './entities/whatsapp-number.entity';
 import { Conversation } from './entities/conversation.entity';
 import { Message } from './entities/message.entity';
 import { Place } from '../places/entities/place.entity';
+import { Dish } from '../places/entities/dish.entity';
+import { PlaceBotConfig } from '../plazbot-config/entities/place-bot-config.entity';
+import { KnowledgeBase } from '../ai/entities/knowledge-base.entity';
 import { PlacesModule } from '../places/places.module';
 import { AiModule } from '../ai/ai.module';
 import { AuthModule } from '../auth/auth.module';
@@ -22,7 +25,7 @@ import { UploadModule } from '../upload/upload.module';
 
 @Module({
     imports: [
-        TypeOrmModule.forFeature([WhatsAppNumber, Conversation, Message, Place]),
+        TypeOrmModule.forFeature([WhatsAppNumber, Conversation, Message, Place, PlaceBotConfig, Dish, KnowledgeBase]),
         PlacesModule,
         AiModule,
         AuthModule,

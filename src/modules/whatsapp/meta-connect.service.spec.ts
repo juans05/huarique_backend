@@ -18,7 +18,12 @@ const build = (over: { place?: any; existing?: any } = {}) => {
         findOne: jest.fn().mockResolvedValue('place' in over ? over.place : { id: 'p1', claimedByUserId: 'u1', metadata: { whatsappMetaEnabled: true } }),
         save: jest.fn(async (v) => v),
     };
-    return { svc: new MetaConnectService(numbers as any, places as any), numbers, places };
+    const q = { innerJoin: jest.fn().mockReturnThis(), where: jest.fn().mockReturnThis(), andWhere: jest.fn().mockReturnThis(), getCount: jest.fn() };
+    const messages = { createQueryBuilder: jest.fn(() => q) };
+    const dishes = { count: jest.fn().mockResolvedValue(0) };
+    const botConfigs = { findOne: jest.fn().mockResolvedValue(null) };
+    const knowledgeBases = { count: jest.fn().mockResolvedValue(0) };
+    return { svc: new MetaConnectService(numbers as any, places as any, messages as any, dishes as any, botConfigs as any, knowledgeBases as any), numbers, places, q, dishes, botConfigs, knowledgeBases };
 };
 
 describe('MetaConnectService', () => {
@@ -111,6 +116,30 @@ describe('MetaConnectService', () => {
         const { svc, numbers } = build();
         await expect(svc.connectExisting({ placeId: 'p1', phoneNumberId: 'PN1', wabaId: 'W', token: 'MALO' })).rejects.toThrow('Invalid OAuth access token');
         expect(numbers.save).not.toHaveBeenCalled();
+    });
+
+    it('estado del asistente: sin número, todo pendiente', async () => {
+        const { svc } = build({ place: { id: 'p1', claimedByUserId: 'u1', metadata: {} } });
+        expect(await svc.getStatus('u1', 'p1')).toMatchObject({
+            metaEnabled: false, number: null, testReceived: false, botReplied: false, botConfigured: false, hasMenuOrKnowledge: false,
+        });
+    });
+
+    it('estado del asistente: deduce cada paso de datos reales', async () => {
+        const { svc, numbers, q, botConfigs, dishes } = build();
+        numbers.findOne.mockResolvedValue({ id: 'n1', phoneNumber: '51900000000', isActive: true });
+        q.getCount.mockResolvedValueOnce(2).mockResolvedValueOnce(1); // 2 mensajes recibidos, 1 respuesta del bot
+        botConfigs.findOne.mockResolvedValue({ botName: 'Pica' });
+        dishes.count.mockResolvedValue(12);
+
+        const st = await svc.getStatus('u1', 'p1');
+        expect(st).toMatchObject({
+            metaEnabled: true, number: { id: 'n1', phoneNumber: '51900000000' }, testReceived: true, botReplied: true, botConfigured: true, hasMenuOrKnowledge: true,
+        });
+    });
+
+    it('el estado solo lo ve el dueño del local', async () => {
+        await expect(build({ place: { id: 'p1', claimedByUserId: 'otro', metadata: {} } }).svc.getStatus('u1', 'p1')).rejects.toThrow(ForbiddenException);
     });
 
     it('sin META_APP_SECRET responde que no está configurado', async () => {

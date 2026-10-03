@@ -5,6 +5,10 @@ import { randomInt } from 'crypto';
 import axios from 'axios';
 import { WhatsAppNumber } from './entities/whatsapp-number.entity';
 import { Place } from '../places/entities/place.entity';
+import { Message } from './entities/message.entity';
+import { Dish } from '../places/entities/dish.entity';
+import { PlaceBotConfig } from '../plazbot-config/entities/place-bot-config.entity';
+import { KnowledgeBase } from '../ai/entities/knowledge-base.entity';
 
 export interface CompleteSignupDto {
     placeId: string;
@@ -27,6 +31,10 @@ export class MetaConnectService {
     constructor(
         @InjectRepository(WhatsAppNumber) private readonly numbers: Repository<WhatsAppNumber>,
         @InjectRepository(Place) private readonly places: Repository<Place>,
+        @InjectRepository(Message) private readonly messages: Repository<Message>,
+        @InjectRepository(Dish) private readonly dishes: Repository<Dish>,
+        @InjectRepository(PlaceBotConfig) private readonly botConfigs: Repository<PlaceBotConfig>,
+        @InjectRepository(KnowledgeBase) private readonly knowledgeBases: Repository<KnowledgeBase>,
     ) {}
 
     private get version() {
@@ -70,6 +78,44 @@ export class MetaConnectService {
         if (!place) throw new NotFoundException('Local no encontrado');
         if (place.claimedByUserId !== userId) throw new ForbiddenException('No tienes permiso para gestionar este local');
         return place;
+    }
+
+    /**
+     * Estado del asistente "Conecta tu WhatsApp en 4 pasos". Todo se deduce de datos reales, así cada paso se
+     * marca solo cuando de verdad se cumplió (número conectado, mensaje recibido, bot respondió, bot configurado).
+     */
+    async getStatus(userId: string, placeId: string) {
+        const place = await this.ownedPlace(userId, placeId);
+        const metaEnabled = place.metadata?.whatsappMetaEnabled === true;
+
+        const number = await this.numbers.findOne({ where: { placeId, provider: 'meta' }, order: { createdAt: 'DESC' } });
+
+        const countMessages = (type: 'INCOMING' | 'OUTGOING', fromAi?: boolean) => {
+            const q = this.messages
+                .createQueryBuilder('m')
+                .innerJoin('m.conversation', 'c')
+                .where('c.whatsappNumberId = :id', { id: number!.id })
+                .andWhere('m.messageType = :type', { type });
+            if (fromAi) q.andWhere('m.isFromAi = true');
+            return q.getCount();
+        };
+        const [received, aiReplied] = number ? await Promise.all([countMessages('INCOMING'), countMessages('OUTGOING', true)]) : [0, 0];
+
+        const botConfig = await this.botConfigs.findOne({ where: { placeId } });
+        const [dishCount, kbCount] = await Promise.all([
+            this.dishes.count({ where: { placeId } }),
+            this.knowledgeBases.count({ where: { placeId } }),
+        ]);
+
+        return {
+            metaEnabled,
+            serverConfigured: this.config().configured,
+            number: number ? { id: number.id, phoneNumber: number.phoneNumber, isActive: number.isActive } : null,
+            testReceived: received > 0,
+            botReplied: aiReplied > 0,
+            botConfigured: !!botConfig?.botName,
+            hasMenuOrKnowledge: dishCount > 0 || kbCount > 0,
+        };
     }
 
     /** ¿Este local activó la conexión directa con Facebook? (checkbox en el panel; por defecto, no: sigue PlazBot) */
