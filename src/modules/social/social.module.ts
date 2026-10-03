@@ -10,10 +10,12 @@ import { SocialBotRule } from './entities/social-bot-rule.entity';
 import { Place } from '../places/entities/place.entity';
 import { ZernioService } from './zernio.service';
 import { SocialAiService } from './social-ai.service';
+import { ChatModule } from '../chat/chat.module';
 
 @Module({
     imports: [
         TypeOrmModule.forFeature([SocialAccount, SocialComment, SocialBotRule, Place]),
+        ChatModule, // agente inteligente (carta + base de conocimiento) para los DM
     ],
     controllers: [SocialController, SocialStatsController, SocialCallbackController, ZernioWebhookController],
     providers: [ZernioService, SocialAiService],

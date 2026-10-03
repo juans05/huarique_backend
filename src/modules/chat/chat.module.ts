@@ -1,7 +1,7 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { AiModule } from '../ai/ai.module';
-import { PlazBotModule } from '../plazbot/plazbot.module';
+import { MessagingModule } from '../messaging/messaging.module';
 import { PlacesModule } from '../places/places.module';
 import { PlazbotConfigModule } from '../plazbot-config/plazbot-config.module';
 import { Conversation } from '../whatsapp/entities/conversation.entity';
@@ -17,10 +17,11 @@ import { DemoChatController } from './demo-chat.controller';
     TypeOrmModule.forFeature([Conversation, Message, WhatsAppNumber, Place]),
     PlacesModule,
     AiModule,
-    PlazBotModule,
+    MessagingModule,
     PlazbotConfigModule,  // provee PlaceBotConfigService
   ],
   providers: [ChatProcessorService],
+  exports: [ChatProcessorService],
   controllers: [PlazBotWebhookController, DemoChatController],
 })
 export class ChatModule {}

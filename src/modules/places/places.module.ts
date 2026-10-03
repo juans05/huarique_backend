@@ -2,6 +2,8 @@ import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { PlacesService } from './places.service';
 import { MenuService } from './menu.service';
+import { MenuAssistantService } from './menu-assistant.service';
+import { MenuImportService } from './menu-import.service';
 import { PromotionsService } from './promotions.service';
 import { TikTokSearchService } from './tiktok-search.service';
 import { MenuFormatterService } from './menu-formatter.service';
@@ -65,7 +67,7 @@ import { UsersModule } from '../users/users.module';
     ],
 
     controllers: [PlacesController, BusinessPlacesController, GoogleCallbackController],
-    providers: [PlacesService, MenuService, MenuFormatterService, PromotionsService, TikTokSearchService, GeolocationService, RarityCalculatorService, GoogleMapsService, GoogleBusinessService, WeeklyReportService],
+    providers: [PlacesService, MenuService, MenuAssistantService, MenuImportService, MenuFormatterService, PromotionsService, TikTokSearchService, GeolocationService, RarityCalculatorService, GoogleMapsService, GoogleBusinessService, WeeklyReportService],
     exports: [PlacesService, MenuService, MenuFormatterService, GeolocationService, GoogleMapsService],
 })
 export class PlacesModule { }

@@ -27,6 +27,10 @@ export class Dish {
     @Column({ name: 'image_url', nullable: true })
     imageUrl: string | null;
 
+    /** Galería del plato (carrusel). images[0] es la portada y se espeja en imageUrl. */
+    @Column({ type: 'jsonb', nullable: true })
+    images: string[] | null;
+
     @Column({ name: 'video_url', nullable: true })
     videoUrl: string | null;
 

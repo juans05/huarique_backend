@@ -22,6 +22,14 @@ export class WhatsAppNumber {
     @Column({ name: 'whatsapp_api_token', type: 'text', nullable: true })
     whatsappApiToken: string | null;
 
+    /** Quién entrega los mensajes de este número: la API de WhatsApp Cloud (Meta) o PlazBot (legado). */
+    @Column({ type: 'varchar', length: 10, default: 'plazbot' })
+    provider: 'meta' | 'plazbot';
+
+    /** ID de la cuenta de WhatsApp Business (WABA) — lo entrega Embedded Signup; sirve para plantillas. */
+    @Column({ name: 'waba_id', type: 'varchar', nullable: true })
+    wabaId: string | null;
+
     @Column({ name: 'is_active', default: true })
     isActive: boolean;
 

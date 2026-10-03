@@ -14,6 +14,7 @@ import {
     MaxFileSizeValidator,
     FileTypeValidator,
     NotFoundException,
+    BadRequestException,
     ForbiddenException,
     DefaultValuePipe,
     ParseIntPipe,
@@ -26,6 +27,8 @@ import { Repository } from 'typeorm';
 import { Place } from './entities/place.entity';
 import { PlacesService } from './places.service';
 import { MenuService } from './menu.service';
+import { MenuAssistantService, AssistantTurn } from './menu-assistant.service';
+import { Throttle } from '@nestjs/throttler';
 import { PromotionsService } from './promotions.service';
 import { TikTokSearchService } from './tiktok-search.service';
 import { CreatePlaceSubmissionDto } from './dto/create-place-submission.dto';
@@ -42,6 +45,7 @@ export class PlacesController {
     constructor(
         private readonly placesService: PlacesService,
         private readonly menuService: MenuService,
+        private readonly menuAssistant: MenuAssistantService,
         private readonly promotionsService: PromotionsService,
         private readonly tiktokSearchService: TikTokSearchService,
         @InjectRepository(Place)
@@ -147,6 +151,20 @@ export class PlacesController {
         if (!place) throw new NotFoundException('Local no encontrado');
         const categories = await this.menuService.getMenu(id);
         return { place, categories };
+    }
+
+    @Post(':id/menu/recommend')
+    @HttpCode(200)
+    @Throttle({ default: { ttl: 60000, limit: 10 } })
+    @ApiOperation({ summary: 'AI assistant that recommends dishes from the place menu (public)' })
+    @ApiParam({ name: 'id', description: 'Place UUID' })
+    async recommendDish(
+        @Param('id') id: string,
+        @Body() body: { message?: string; history?: AssistantTurn[] },
+    ) {
+        const message = body?.message?.trim();
+        if (!message) throw new BadRequestException('message es requerido');
+        return this.menuAssistant.recommend(id, message, Array.isArray(body.history) ? body.history : []);
     }
 
     @Post('submit')

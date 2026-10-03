@@ -3,6 +3,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { MenuCategory } from './entities/menu-category.entity';
 import { Dish } from './entities/dish.entity';
+import { ImportedCategory } from './menu-import.util';
 
 export interface CreateCategoryDto {
     name: string;
@@ -23,6 +24,7 @@ export interface CreateDishDto {
     price?: number;
     description?: string;
     imageUrl?: string;
+    images?: string[];
     videoUrl?: string;
     isVegetarian?: boolean;
     allergens?: string[];
@@ -37,6 +39,7 @@ export interface UpdateDishDto {
     price?: number;
     description?: string;
     imageUrl?: string;
+    images?: string[];
     videoUrl?: string;
     isVegetarian?: boolean;
     allergens?: string[];
@@ -55,6 +58,12 @@ export class MenuService {
         private dishRepo: Repository<Dish>,
     ) {}
 
+    /** images es la fuente de verdad; imageUrl (portada) se deriva para los clientes que aún lo leen. */
+    private coverFields(dto: { imageUrl?: string; images?: string[] }) {
+        const images = dto.images ?? (dto.imageUrl ? [dto.imageUrl] : []);
+        return { images, imageUrl: images[0] ?? null };
+    }
+
     async createCategory(placeId: string, dto: CreateCategoryDto): Promise<MenuCategory> {
         const count = await this.categoryRepo.count({ where: { placeId } });
         const category = this.categoryRepo.create({
@@ -65,6 +74,33 @@ export class MenuService {
             categoryType: dto.categoryType || 'food',
         });
         return this.categoryRepo.save(category);
+    }
+
+    /** Guarda en bloque lo importado (IA/plantilla). Reutiliza categorías existentes con el mismo nombre en vez de duplicarlas. */
+    async importMenu(placeId: string, categories: ImportedCategory[]): Promise<{ categories: number; dishes: number }> {
+        const existing = await this.categoryRepo.find({ where: { placeId } });
+        const byName = new Map(existing.map((c) => [c.name.trim().toLowerCase(), c]));
+        let dishes = 0;
+
+        for (const cat of categories) {
+            const key = cat.name.toLowerCase();
+            const category =
+                byName.get(key) ?? (await this.createCategory(placeId, { name: cat.name, categoryType: cat.categoryType }));
+            byName.set(key, category);
+
+            const start = await this.dishRepo.count({ where: { placeId, categoryId: category.id } });
+            for (const [i, d] of cat.dishes.entries()) {
+                await this.createDish(placeId, {
+                    name: d.name,
+                    description: d.description,
+                    price: d.price ?? undefined,
+                    categoryId: category.id,
+                    displayOrder: start + i,
+                });
+                dishes++;
+            }
+        }
+        return { categories: categories.length, dishes };
     }
 
     async getMenu(placeId: string): Promise<MenuCategory[]> {
@@ -95,7 +131,7 @@ export class MenuService {
             name: dto.name,
             price: dto.price,
             description: dto.description,
-            imageUrl: dto.imageUrl,
+            ...this.coverFields(dto),
             videoUrl: dto.videoUrl,
             isVegetarian: dto.isVegetarian ?? false,
             allergens: dto.allergens,
@@ -115,7 +151,7 @@ export class MenuService {
         if (dto.name !== undefined) dish.name = dto.name;
         if (dto.price !== undefined) dish.price = dto.price;
         if (dto.description !== undefined) dish.description = dto.description;
-        if (dto.imageUrl !== undefined) dish.imageUrl = dto.imageUrl;
+        if (dto.images !== undefined || dto.imageUrl !== undefined) Object.assign(dish, this.coverFields(dto));
         if (dto.videoUrl !== undefined) dish.videoUrl = dto.videoUrl;
         if (dto.isVegetarian !== undefined) dish.isVegetarian = dto.isVegetarian;
         if (dto.allergens !== undefined) dish.allergens = dto.allergens;
