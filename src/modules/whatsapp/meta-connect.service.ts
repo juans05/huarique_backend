@@ -91,6 +91,47 @@ export class MetaConnectService {
         return { metaEnabled };
     }
 
+    /**
+     * Para el superadmin: conecta un número que ya está registrado en la API de WhatsApp de Meta (por ejemplo el
+     * que antes atendía PlazBot). No hay que verificarlo ni migrarlo: se valida el token contra Meta, se suscribe
+     * nuestra app a la cuenta para recibir sus mensajes y se guarda como conexión directa.
+     */
+    async connectExisting(dto: { placeId: string; phoneNumberId: string; wabaId: string; token: string }) {
+        const place = await this.places.findOne({ where: { id: dto.placeId } });
+        if (!place) throw new NotFoundException('Local no encontrado');
+
+        const existing = await this.numbers.findOne({ where: { phoneNumberId: dto.phoneNumberId } });
+        if (existing && existing.placeId !== dto.placeId) {
+            throw new ConflictException('Este número de WhatsApp ya está conectado a otro local.');
+        }
+
+        // Si el token o el ID están mal, Meta responde con error y no se guarda nada.
+        const info = await this.call<{ display_phone_number?: string; verified_name?: string }>('get', `/${dto.phoneNumberId}`, dto.token, undefined, {
+            fields: 'display_phone_number,verified_name',
+        });
+        await this.call('post', `/${dto.wabaId}/subscribed_apps`, dto.token);
+
+        const saved = await this.numbers.save(
+            this.numbers.create({
+                ...(existing ?? {}),
+                placeId: dto.placeId,
+                phoneNumber: (info.display_phone_number || '').replace(/\D/g, ''),
+                phoneNumberId: dto.phoneNumberId,
+                wabaId: dto.wabaId,
+                whatsappApiToken: dto.token,
+                provider: 'meta',
+                isActive: true,
+                verificationStatus: 'VERIFIED',
+            }),
+        );
+
+        // El local queda con el canal de Facebook activado, para que el panel del dueño lo refleje.
+        place.metadata = { ...(place.metadata ?? {}), whatsappMetaEnabled: true };
+        await this.places.save(place);
+
+        return { id: saved.id, phoneNumber: saved.phoneNumber, verifiedName: info.verified_name ?? null };
+    }
+
     async complete(userId: string, dto: CompleteSignupDto) {
         const appId = process.env.META_APP_ID;
         const appSecret = process.env.META_APP_SECRET;

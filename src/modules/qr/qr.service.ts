@@ -81,7 +81,7 @@ export class QrService {
             .addSelect('place.logoUrl', 'currentPlaceLogoUrl')
             .addSelect('place.showLogoOnQr', 'currentPlaceShowLogo')
             .orderBy('qrCode.createdAt', 'DESC')
-            .take(200);
+            .take(500);
 
         if (status) query.andWhere('qrCode.status = :status', { status });
         if (search) query.andWhere('qrCode.code ILIKE :search', { search: `%${search}%` });
