@@ -8,6 +8,7 @@ import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../../common/guards/roles.guard';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { WhatsAppCloudService } from '../messaging/whatsapp-cloud.service';
+import { MetaConnectService } from './meta-connect.service';
 
 // PlazBot no expone un endpoint REST para registrar webhooks (confirmado en
 // docs/plazbot-pendientes.md tras revisar su openapi.json completo — solo existe
@@ -90,8 +91,16 @@ export class WhatsAppNumbersController {
         };
     }
 
+    // Antes cualquier usuario con sesión podía borrar el número de otro local. Ahora solo el dueño del
+    // local, y solo los números conectados con Facebook: los demás los gestiona el administrador.
     @Delete(':numberId')
-    async deleteWhatsAppNumber(@Param('numberId') numberId: string) {
+    async deleteWhatsAppNumber(@CurrentUser() user: any, @Param('numberId') numberId: string) {
+        const number = await this.whatsappNumberRepo.findOne({ where: { id: numberId } });
+        if (!number) throw new NotFoundException('Número no encontrado');
+        await this.assertOwner(number.placeId, user.id);
+        if (number.provider !== 'meta') {
+            throw new ForbiddenException('Este número lo gestiona el administrador de Wuarikes.');
+        }
         await this.whatsappNumberRepo.delete({ id: numberId });
         return { message: 'Número de WhatsApp eliminado' };
     }
@@ -111,6 +120,7 @@ export class AdminWhatsAppNumbersController {
         @InjectRepository(Place)
         private placesRepo: Repository<Place>,
         private cloud: WhatsAppCloudService,
+        private metaConnect: MetaConnectService,
     ) { }
 
     @Post()
@@ -160,6 +170,16 @@ export class AdminWhatsAppNumbersController {
             webhookUrl: getPlazbotWebhookUrl(),
             metaWebhookUrl: getMetaWebhookUrl(),
         };
+    }
+
+    // Conecta directo con Meta un número que ya existe en la API (token de usuario del sistema; no se guarda en el chat ni en logs).
+    @Post('connect-existing')
+    async connectExisting(@Body() body: { placeId?: string; phoneNumberId?: string; wabaId?: string; token?: string }) {
+        const { placeId, phoneNumberId, wabaId, token } = body ?? {};
+        if (!placeId || !phoneNumberId || !wabaId || !token) {
+            throw new BadRequestException('placeId, phoneNumberId, wabaId y token son requeridos');
+        }
+        return this.metaConnect.connectExisting({ placeId, phoneNumberId: phoneNumberId.trim(), wabaId: wabaId.trim(), token: token.trim() });
     }
 
     // Cambia qué proveedor entrega los mensajes de un número: se migra número por número.

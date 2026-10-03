@@ -92,6 +92,27 @@ describe('MetaConnectService', () => {
         await expect(build({ place: { id: 'p1', claimedByUserId: 'otro', metadata: {} } }).svc.setChannel('u1', 'p1', true)).rejects.toThrow(ForbiddenException);
     });
 
+    it('conecta un número existente: valida el token con Meta, suscribe la app y lo guarda como "meta"', async () => {
+        request
+            .mockResolvedValueOnce({ data: { display_phone_number: '+51 947 196 047', verified_name: 'Wuarikes' } }) // info
+            .mockResolvedValueOnce({ data: { success: true } }); // subscribed_apps
+        const { svc, numbers, places } = build({ place: { id: 'p1', claimedByUserId: 'x', metadata: {} } });
+
+        const res = await svc.connectExisting({ placeId: 'p1', phoneNumberId: 'PN1', wabaId: 'WABA1', token: 'TKN' });
+
+        expect(res).toEqual({ id: 'num1', phoneNumber: '51947196047', verifiedName: 'Wuarikes' });
+        expect(request.mock.calls[1][0].url).toContain('/WABA1/subscribed_apps');
+        expect(numbers.save).toHaveBeenCalledWith(expect.objectContaining({ provider: 'meta', whatsappApiToken: 'TKN', isActive: true }));
+        expect(places.save).toHaveBeenCalledWith(expect.objectContaining({ metadata: { whatsappMetaEnabled: true } }));
+    });
+
+    it('con token inválido (Meta falla) no guarda nada', async () => {
+        request.mockRejectedValueOnce({ response: { data: { error: { message: 'Invalid OAuth access token' } } } });
+        const { svc, numbers } = build();
+        await expect(svc.connectExisting({ placeId: 'p1', phoneNumberId: 'PN1', wabaId: 'W', token: 'MALO' })).rejects.toThrow('Invalid OAuth access token');
+        expect(numbers.save).not.toHaveBeenCalled();
+    });
+
     it('sin META_APP_SECRET responde que no está configurado', async () => {
         delete process.env.META_APP_SECRET;
         await expect(build().svc.complete('u1', dto)).rejects.toThrow(ServiceUnavailableException);
