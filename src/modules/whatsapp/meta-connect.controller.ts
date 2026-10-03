@@ -14,6 +14,13 @@ export class MetaConnectController {
         return this.metaConnect.config();
     }
 
+    /** Estado de cada paso del asistente de conexión (qué está listo y qué falta). */
+    @Get('status')
+    getStatus(@CurrentUser() user: any, @Query('placeId') placeId: string) {
+        if (!placeId) throw new BadRequestException('placeId es requerido');
+        return this.metaConnect.getStatus(user.id, placeId);
+    }
+
     /** ¿El local activó la conexión directa con Facebook? */
     @Get('channel')
     getChannel(@CurrentUser() user: any, @Query('placeId') placeId: string) {
