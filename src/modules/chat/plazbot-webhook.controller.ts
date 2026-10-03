@@ -37,7 +37,7 @@ export class PlazBotWebhookController {
       }
 
       const waNumber = await this.whatsappNumberRepo.findOne({
-        where: { phoneNumber: destinationPhone, isActive: true },
+        where: { phoneNumber: destinationPhone, isActive: true, provider: 'plazbot' },
       });
 
       this.logger.log(`[webhook] Búsqueda en DB para "${destinationPhone}": ${waNumber ? `encontrado placeId=${waNumber.placeId}` : 'NO ENCONTRADO'}`);
@@ -80,7 +80,7 @@ export class PlazBotWebhookController {
     }
 
     const waNumber = await this.whatsappNumberRepo.findOne({
-      where: { phoneNumber: destinationPhone, isActive: true },
+      where: { phoneNumber: destinationPhone, isActive: true, provider: 'plazbot' },
     });
 
     if (!waNumber) {

@@ -1,4 +1,4 @@
-import { Controller, Post, Get, Delete, Param, Body, UseGuards, NotFoundException, ForbiddenException } from '@nestjs/common';
+import { Controller, Post, Get, Patch, Delete, Param, Body, UseGuards, NotFoundException, ForbiddenException, BadRequestException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Place } from '../places/entities/place.entity';
@@ -7,10 +7,17 @@ import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../../common/guards/roles.guard';
 import { Roles } from '../../common/decorators/roles.decorator';
+import { WhatsAppCloudService } from '../messaging/whatsapp-cloud.service';
 
 // PlazBot no expone un endpoint REST para registrar webhooks (confirmado en
 // docs/plazbot-pendientes.md tras revisar su openapi.json completo — solo existe
 // como comando CLI). Hay que pegarla a mano en su dashboard/CLI.
+// URL que se pega en el panel de Meta (WhatsApp → Configuración → Webhook) para recibir mensajes directo.
+function getMetaWebhookUrl(): string {
+    const base = process.env.BACKEND_URL || 'https://backendwarike-production.up.railway.app';
+    return `${base}/api/business/webhooks/whatsapp`;
+}
+
 function getPlazbotWebhookUrl(): string {
     const base = process.env.BACKEND_URL || 'https://backendwarike-production.up.railway.app';
     return `${base}/api/webhooks/plazbot`;
@@ -73,6 +80,7 @@ export class WhatsAppNumbersController {
                 id: n.id,
                 phoneNumber: n.phoneNumber,
                 phoneNumberId: n.phoneNumberId,
+                provider: n.provider,
                 isActive: n.isActive,
                 verificationStatus: n.verificationStatus,
                 createdAt: n.createdAt,
@@ -102,6 +110,7 @@ export class AdminWhatsAppNumbersController {
         private whatsappNumberRepo: Repository<WhatsAppNumber>,
         @InjectRepository(Place)
         private placesRepo: Repository<Place>,
+        private cloud: WhatsAppCloudService,
     ) { }
 
     @Post()
@@ -114,6 +123,8 @@ export class AdminWhatsAppNumbersController {
             phoneNumber: normalizePhone(data.phoneNumber),
             phoneNumberId: data.phoneNumberId,
             whatsappApiToken: data.whatsappApiToken,
+            provider: data.provider === 'meta' ? 'meta' : 'plazbot',
+            wabaId: data.wabaId ?? null,
             isActive: true,
             verificationStatus: 'UNVERIFIED',
         });
@@ -140,13 +151,50 @@ export class AdminWhatsAppNumbersController {
                 id: n.id,
                 phoneNumber: n.phoneNumber,
                 phoneNumberId: n.phoneNumberId,
+                provider: n.provider,
                 isActive: n.isActive,
                 verificationStatus: n.verificationStatus,
                 createdAt: n.createdAt,
             })),
             total: numbers.length,
             webhookUrl: getPlazbotWebhookUrl(),
+            metaWebhookUrl: getMetaWebhookUrl(),
         };
+    }
+
+    // Cambia qué proveedor entrega los mensajes de un número: se migra número por número.
+    @Patch(':numberId/provider')
+    async setProvider(@Param('numberId') numberId: string, @Body() body: { provider?: string }) {
+        if (body?.provider !== 'meta' && body?.provider !== 'plazbot') {
+            throw new BadRequestException("provider debe ser 'meta' o 'plazbot'");
+        }
+        const number = await this.whatsappNumberRepo.findOne({ where: { id: numberId } });
+        if (!number) throw new NotFoundException('Número no encontrado');
+        number.provider = body.provider;
+        await this.whatsappNumberRepo.save(number);
+        return { id: number.id, provider: number.provider };
+    }
+
+    // Envía un mensaje de prueba por la API de WhatsApp Cloud: sirve para comprobar la
+    // conexión y para grabar el video que pide Meta en la revisión de la app.
+    @Post('test-message')
+    async sendTestMessage(@Body() body: { to?: string; text?: string; whatsappNumberId?: string }) {
+        const to = normalizePhone(body?.to || '');
+        const text = (body?.text || '').trim();
+        if (!to || !text) throw new BadRequestException('to y text son requeridos');
+
+        let phoneNumberId = process.env.WHATSAPP_PHONE_NUMBER_ID || '';
+        let token: string | null = null;
+        if (body.whatsappNumberId) {
+            const number = await this.whatsappNumberRepo.findOne({ where: { id: body.whatsappNumberId } });
+            if (!number) throw new NotFoundException('Número no encontrado');
+            phoneNumberId = number.phoneNumberId;
+            token = number.whatsappApiToken;
+        }
+        if (!phoneNumberId) throw new BadRequestException('Elige un número o define WHATSAPP_PHONE_NUMBER_ID en el servidor');
+
+        const messageId = await this.cloud.sendText({ phoneNumberId, whatsappApiToken: token }, to, text);
+        return { sent: true, messageId, to };
     }
 
     @Delete(':numberId')

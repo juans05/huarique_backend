@@ -9,7 +9,7 @@ import { SocialComment } from './entities/social-comment.entity';
 import { SocialBotRule } from './entities/social-bot-rule.entity';
 import { Place } from '../places/entities/place.entity';
 import { ZernioService } from './zernio.service';
-import { SocialAiService } from './social-ai.service';
+import { SocialAiService, DmTurn } from './social-ai.service';
 
 // Recibe eventos en tiempo real de Zernio (comment.received, message.received) y,
 // si el bot está activado para esa sede, genera una respuesta con IA y la publica.
@@ -114,6 +114,20 @@ export class ZernioWebhookController {
         this.logger.log(`[zernio-webhook] Respondido comentario ${comment.id} de la cuenta ${account.platformUsername}`);
     }
 
+    /** Últimos mensajes de la conversación (sin el actual) para que el agente tenga contexto. Si falla, responde sin historial. */
+    private async loadDmHistory(conversationId: string, accountId: string, currentMessageId: string): Promise<DmTurn[]> {
+        try {
+            const res = await this.zernio.getConversationMessages(conversationId, accountId, 12);
+            const list: any[] = res?.messages || res?.data || (Array.isArray(res) ? res : []);
+            return list
+                .filter((m) => m?.text && m.id !== currentMessageId)
+                .sort((a, b) => new Date(a.createdAt || 0).getTime() - new Date(b.createdAt || 0).getTime())
+                .map((m) => ({ role: m.direction === 'outgoing' ? ('assistant' as const) : ('user' as const), content: m.text }));
+        } catch {
+            return [];
+        }
+    }
+
     private async handleMessageReceived(payload: any) {
         const message = payload.message;
         const accountId = payload.account?.id || payload.account?.accountId;
@@ -127,7 +141,8 @@ export class ZernioWebhookController {
         const rule = await this.rulesRepo.findOne({ where: { placeId: account.placeId } });
         if (!place || !rule?.dmBotEnabled) return;
 
-        const replyText = await this.socialAi.generateDmReply(rule, place.name, message.text);
+        const history = await this.loadDmHistory(message.conversationId, account.platformUserId, message.id);
+        const replyText = await this.socialAi.generateDmReply(rule, place, message.text, history);
         if (!replyText) return;
 
         await this.zernio.sendMessage(message.conversationId, account.platformUserId, replyText);

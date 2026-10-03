@@ -15,6 +15,7 @@ import {
     Logger,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { Throttle } from '@nestjs/throttler';
 import { MailService } from '../../common/services/mail.service';
 import { ApiTags, ApiBearerAuth, ApiOperation, ApiParam } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
@@ -22,6 +23,8 @@ import { PlacesService } from './places.service';
 import { GoogleMapsService } from './services/google-maps.service';
 import { GoogleBusinessService } from './services/google-business.service';
 import { AiService } from '../ai/ai.service';
+import { MenuImportService } from './menu-import.service';
+import { sanitizeMenu } from './menu-import.util';
 import { MenuService } from './menu.service';
 import { PromotionsService } from './promotions.service';
 import { InjectRepository } from '@nestjs/typeorm';
@@ -49,6 +52,7 @@ export class BusinessPlacesController {
         private readonly googleMapsService: GoogleMapsService,
         private readonly googleBusinessService: GoogleBusinessService,
         private readonly aiService: AiService,
+        private readonly menuImport: MenuImportService,
         private readonly menuService: MenuService,
         private readonly promotionsService: PromotionsService,
         @InjectRepository(Place)
@@ -607,6 +611,28 @@ El prompt debe:
     async deleteCategory(@Param('categoryId') categoryId: string) {
         await this.menuService.deleteCategory(categoryId);
         return { message: 'Categoría eliminada' };
+    }
+
+    // Paso 1 (vista previa): lee la foto/PDF de la carta con IA. No guarda nada.
+    @Post('places/:id/menu/import/ai')
+    @Throttle({ default: { ttl: 60000, limit: 5 } })
+    async parseMenuFile(@CurrentUser() user: any, @Param('id') id: string, @Body() body: { fileUrl?: string }) {
+        const place = await this.placesRepo.findOne({ where: { id } });
+        if (!place) throw new NotFoundException('Local no encontrado');
+        if (place.claimedByUserId !== user.id) throw new ForbiddenException('No tienes permiso para gestionar este local');
+        if (!body?.fileUrl) throw new BadRequestException('fileUrl es requerido');
+        return { categories: await this.menuImport.parseFromFile(body.fileUrl) };
+    }
+
+    // Paso 2: guarda en bloque la carta ya revisada (IA o plantilla).
+    @Post('places/:id/menu/import')
+    async importMenu(@CurrentUser() user: any, @Param('id') id: string, @Body() body: any) {
+        const place = await this.placesRepo.findOne({ where: { id } });
+        if (!place) throw new NotFoundException('Local no encontrado');
+        if (place.claimedByUserId !== user.id) throw new ForbiddenException('No tienes permiso para gestionar este local');
+        const categories = sanitizeMenu(body);
+        if (categories.length === 0) throw new BadRequestException('No hay platos para guardar');
+        return this.menuService.importMenu(id, categories);
     }
 
     @Post('places/:id/menu/items')

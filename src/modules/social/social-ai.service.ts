@@ -1,6 +1,28 @@
 import { Injectable } from '@nestjs/common';
 import { AiService } from '../ai/ai.service';
 import { SocialBotRule } from './entities/social-bot-rule.entity';
+import { ChatProcessorService } from '../chat/chat-processor.service';
+
+export interface DmTurn {
+  role: 'user' | 'assistant';
+  content: string;
+}
+
+/**
+ * Los modelos exigen que el historial empiece con el cliente y alterne roles:
+ * se descartan los mensajes iniciales del local y se fusionan los consecutivos del mismo autor.
+ */
+export function normalizeDmHistory(turns: DmTurn[]): DmTurn[] {
+  const out: DmTurn[] = [];
+  for (const t of turns) {
+    if (!t.content?.trim()) continue;
+    if (out.length === 0 && t.role === 'assistant') continue;
+    const last = out[out.length - 1];
+    if (last && last.role === t.role) last.content += `\n${t.content}`;
+    else out.push({ role: t.role, content: t.content });
+  }
+  return out;
+}
 
 const TONE: Record<string, string> = {
   friendly: 'Tono amigable y cercano: cálido, con emojis con moderación.',
@@ -10,7 +32,10 @@ const TONE: Record<string, string> = {
 
 @Injectable()
 export class SocialAiService {
-  constructor(private aiService: AiService) {}
+  constructor(
+    private aiService: AiService,
+    private chatProcessor: ChatProcessorService,
+  ) {}
 
   async generateCommentReply(rule: SocialBotRule, restaurantName: string, commentText: string): Promise<string | null> {
     const rules: string[] = [];
@@ -33,7 +58,37 @@ Devolvé SOLO el texto de la respuesta, sin comillas ni prefijos.`;
     return reply?.trim() || null;
   }
 
-  async generateDmReply(rule: SocialBotRule, restaurantName: string, messageText: string): Promise<string | null> {
+  /**
+   * Responde un DM con el agente inteligente del restaurante (carta, base de conocimiento y su
+   * configuración de bot), con el historial de la conversación. Si el agente no está disponible
+   * (sin proveedor de IA, caído), cae al respuesta simple de antes para no dejar el DM sin contestar.
+   */
+  async generateDmReply(
+    rule: SocialBotRule,
+    place: { id: string; name: string },
+    messageText: string,
+    history: DmTurn[] = [],
+  ): Promise<string | null> {
+    const channelRules: string[] = [TONE[rule.personality] || TONE.friendly];
+    if (!rule.revealPrices) channelRules.push('No menciones precios exactos — invita a visitar el local o a hablar con el equipo.');
+    if (rule.customInstructions) channelRules.push(rule.customInstructions);
+
+    try {
+      const reply = await this.chatProcessor.processChannelMessage(
+        place.id,
+        'instagram',
+        messageText,
+        normalizeDmHistory(history),
+        { restaurantName: place.name, channelRules },
+      );
+      if (reply?.trim()) return reply.trim();
+    } catch {
+      // cae al respuesta simple de abajo
+    }
+    return this.generateSimpleDmReply(rule, place.name, messageText);
+  }
+
+  private async generateSimpleDmReply(rule: SocialBotRule, restaurantName: string, messageText: string): Promise<string | null> {
     const rules: string[] = [];
     if (!rule.revealPrices) rules.push('No menciones precios exactos — invitalos a visitar el local o hablar con el equipo.');
     if (rule.customInstructions) rules.push(rule.customInstructions);

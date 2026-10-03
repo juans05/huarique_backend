@@ -12,6 +12,7 @@ import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { IsPublic } from '../../common/decorators/is-public.decorator';
 import { WhatsappService } from './whatsapp.service';
 import { PlazBotService } from '../plazbot/plazbot.service';
+import { WhatsAppSenderService } from '../messaging/whatsapp-sender.service';
 import { UploadService } from '../upload/upload.service';
 import { JwtService } from '@nestjs/jwt';
 import { PlaceRoleGuard, ROLE_RANK } from '../../common/guards/place-role.guard';
@@ -34,6 +35,7 @@ export class ConversationsController {
         private whatsappNumberRepo: Repository<WhatsAppNumber>,
         private whatsappService: WhatsappService,
         private plazbotService: PlazBotService,
+        private sender: WhatsAppSenderService,
         private uploadService: UploadService,
         private eventEmitter: EventEmitter2,
         private jwtService: JwtService,
@@ -205,9 +207,7 @@ export class ConversationsController {
         });
         await this.messageRepo.save(message);
 
-        const apiKey = process.env.PLAZBOT_API_KEY || '';
-        const workspaceId = process.env.PLAZBOT_WORKSPACE_ID || '';
-        await this.plazbotService.sendMessage(apiKey, workspaceId, conversation.customerPhone, body.text);
+        await this.sender.sendText(conversation.whatsappNumberId, conversation.customerPhone, body.text);
 
         this.eventEmitter.emit('whatsapp.message.received', {
             placeId: conversation.placeId,
@@ -240,13 +240,8 @@ export class ConversationsController {
     ) {
         const { conversation } = await this.assertConversationAccess(conversationId, user.id);
 
-        const apiKey = process.env.PLAZBOT_API_KEY || '';
-        const workspaceId = process.env.PLAZBOT_WORKSPACE_ID || '';
-
-        const contactId = await this.plazbotService.resolveContactId(apiKey, workspaceId, conversation.customerPhone, conversation.customerName);
-
         const uploaded = await this.uploadService.uploadImage(file, 'wuarike/chat-attachments');
-        await this.plazbotService.sendFile(apiKey, workspaceId, contactId, conversation.customerPhone, file, body.caption);
+        await this.sender.sendOperatorFile(conversation.whatsappNumberId, conversation.customerPhone, conversation.customerName, file, uploaded.secure_url, body.caption);
 
         const message = this.messageRepo.create({
             conversationId: conversation.id,

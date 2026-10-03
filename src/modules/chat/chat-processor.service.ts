@@ -5,7 +5,7 @@ import { Anthropic } from '@anthropic-ai/sdk';
 import OpenAI from 'openai';
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import { EventEmitter2 } from '@nestjs/event-emitter';
-import { PlazBotService } from '../plazbot/plazbot.service';
+import { WhatsAppSenderService } from '../messaging/whatsapp-sender.service';
 import { VectorService } from '../ai/vector.service';
 import { MenuFormatterService } from '../places/menu-formatter.service';
 import { PlaceBotConfigService } from '../plazbot-config/place-bot-config.service';
@@ -21,6 +21,18 @@ const TONE_INSTRUCTIONS: Record<string, string> = {
   friendly: 'Tono amistoso: cálido y cercano, usa emojis con moderación, transmite buena onda sin perder claridad.',
 };
 
+const WHATSAPP_FORMAT = `FORMATO OBLIGATORIO PARA WHATSAPP:
+- NUNCA uses ## ni ### — WhatsApp no los renderiza.
+- NUNCA uses ** para negrita — usa *texto* en su lugar.
+- Para listas usa guiones (–), no asteriscos ni markdown.
+- Prefiere texto corrido y natural sobre listas cuando sea posible.`;
+
+const INSTAGRAM_FORMAT = `FORMATO OBLIGATORIO PARA INSTAGRAM:
+- Texto plano: NUNCA uses markdown (#, **, *, listas con viñetas) — Instagram no lo renderiza.
+- Mensajes breves y directos (máximo ~600 caracteres), como en un chat.
+- Si el cliente quiere reservar o pedir, indícale que escriba por WhatsApp o visite el local si no puedes resolverlo aquí.
+- Si el cliente pide hablar con una persona o tiene una queja, pídele amablemente que deje su consulta y dile que el equipo le responderá por este mismo chat.`;
+
 @Injectable()
 export class ChatProcessorService {
   private readonly logger = new Logger(ChatProcessorService.name);
@@ -35,7 +47,7 @@ export class ChatProcessorService {
     : null;
 
   constructor(
-    private plazbot: PlazBotService,
+    private sender: WhatsAppSenderService,
     private vectorService: VectorService,
     private menuFormatter: MenuFormatterService,
     private botConfigService: PlaceBotConfigService,
@@ -99,10 +111,17 @@ export class ChatProcessorService {
     throw new Error('Ningún proveedor de IA (Claude, Grok, Gemini) pudo responder — revisa las API keys.');
   }
 
-  private buildSystemPrompt(botConfig: PlaceBotConfig | null, ragContext: string): string {
+  private buildSystemPrompt(
+    botConfig: PlaceBotConfig | null,
+    ragContext: string,
+    channel: 'whatsapp' | 'instagram' = 'whatsapp',
+    restaurantNameFallback?: string,
+    channelRules: string[] = [],
+  ): string {
     const botName = botConfig?.botName || 'el asistente virtual';
-    const restaurantName = botConfig?.restaurantName || 'el restaurante';
-    const identity = `Eres ${botName}, el asistente virtual del restaurante ${restaurantName}. Atiendes por WhatsApp en español, como si fueras parte del equipo.`;
+    const restaurantName = botConfig?.restaurantName || restaurantNameFallback || 'el restaurante';
+    const channelLabel = channel === 'instagram' ? 'mensajes directos de Instagram' : 'WhatsApp';
+    const identity = `Eres ${botName}, el asistente virtual del restaurante ${restaurantName}. Atiendes por ${channelLabel} en español, como si fueras parte del equipo.`;
 
     const toneInstruction = TONE_INSTRUCTIONS[botConfig?.tone || 'professional'];
 
@@ -116,11 +135,7 @@ export class ChatProcessorService {
 - Si el cliente quiere hacer un pedido o reserva, indícale cómo proceder de forma sencilla.
 - Respuestas cortas: máximo 3–4 oraciones salvo que el cliente pida detalle.
 
-FORMATO OBLIGATORIO PARA WHATSAPP:
-- NUNCA uses ## ni ### — WhatsApp no los renderiza.
-- NUNCA uses ** para negrita — usa *texto* en su lugar.
-- Para listas usa guiones (–), no asteriscos ni markdown.
-- Prefiere texto corrido y natural sobre listas cuando sea posible.`;
+${channel === 'instagram' ? INSTAGRAM_FORMAT : WHATSAPP_FORMAT}${channelRules.length ? `\n\nREGLAS DE ESTE CANAL:\n${channelRules.map((r) => `- ${r}`).join('\n')}` : ''}`;
 
     const customRules = botConfig?.systemPrompt
       ? `\nINSTRUCCIONES ADICIONALES DEL RESTAURANTE (tienen prioridad sobre las reglas base):\n${botConfig.systemPrompt}`
@@ -136,6 +151,21 @@ FORMATO OBLIGATORIO PARA WHATSAPP:
     message: string,
     history: { role: 'user' | 'assistant'; content: string }[] = [],
   ): Promise<string> {
+    if (!this.anthropic && !this.grok && !this.gemini) return 'No hay proveedor de IA configurado.';
+    return this.processChannelMessage(placeId, 'whatsapp', message, history);
+  }
+
+  /**
+   * Agente del restaurante para cualquier canal de texto: usa su configuración de bot,
+   * la base de conocimiento (RAG) y la carta digital. WhatsApp y Instagram comparten esto.
+   */
+  async processChannelMessage(
+    placeId: string,
+    channel: 'whatsapp' | 'instagram',
+    message: string,
+    history: { role: 'user' | 'assistant'; content: string }[] = [],
+    options: { restaurantName?: string; channelRules?: string[] } = {},
+  ): Promise<string> {
     const botConfig = await this.botConfigService.findByPlaceId(placeId);
 
     let ragContext = '';
@@ -149,9 +179,9 @@ FORMATO OBLIGATORIO PARA WHATSAPP:
       if (menuMarkdown) ragContext = ragContext ? `${ragContext}\n\n${menuMarkdown}` : menuMarkdown;
     } catch { /* sin menú */ }
 
-    const systemPrompt = this.buildSystemPrompt(botConfig, ragContext);
+    const systemPrompt = this.buildSystemPrompt(botConfig, ragContext, channel, options.restaurantName, options.channelRules);
 
-    if (!this.anthropic && !this.grok && !this.gemini) return 'No hay proveedor de IA configurado.';
+    if (!this.anthropic && !this.grok && !this.gemini) throw new Error('No hay proveedor de IA configurado.');
     return this.generateReply(systemPrompt, history, message);
   }
 
@@ -160,12 +190,15 @@ FORMATO OBLIGATORIO PARA WHATSAPP:
     whatsappNumberId: string | null,
     contact: { name: string; phone: string },
     messageBody: string,
+    externalMessageId?: string,
   ) {
     this.logger.log(`[${placeId}] ${contact.name}: "${messageBody}"`);
 
-    // Credenciales globales de PlazBot — son de wuarikes, no del restaurante
-    const apiKey = process.env.PLAZBOT_API_KEY!;
-    const workspaceId = process.env.PLAZBOT_WORKSPACE_ID!;
+    // Meta reintenta el webhook si tarda en responder: el mismo mensaje no se procesa dos veces.
+    if (externalMessageId && (await this.messageRepo.exist({ where: { whatsappMessageId: externalMessageId } }))) {
+      this.logger.log(`Mensaje ${externalMessageId} ya procesado, se ignora`);
+      return { success: true };
+    }
 
     // 1. Buscar la conversación ACTIVA de este cliente (no cerrada) — si la última
     // está cerrada, se crea una nueva: cada caso cerrado queda como historial aparte.
@@ -192,6 +225,7 @@ FORMATO OBLIGATORIO PARA WHATSAPP:
         conversationId: conversation.id,
         messageType: 'INCOMING',
         messageBody,
+        whatsappMessageId: externalMessageId,
       }),
     );
 
@@ -221,7 +255,7 @@ FORMATO OBLIGATORIO PARA WHATSAPP:
     if (botConfig?.responseMode === 'menu') {
       const menuOptions = await this.menuOptionService.findByPlaceId(placeId);
       if (menuOptions.length > 0) {
-        return this.handleMenuFlow(conversation, isNewConversation, messageBody, botConfig, menuOptions, apiKey, workspaceId);
+        return this.handleMenuFlow(conversation, isNewConversation, messageBody, botConfig, menuOptions);
       }
     }
 
@@ -314,8 +348,8 @@ FORMATO OBLIGATORIO PARA WHATSAPP:
       messageType: 'OUTGOING',
     });
 
-    // 10. Enviar respuesta via PlazBot
-    await this.plazbot.sendMessage(apiKey, workspaceId, contact.phone, botResponse);
+    // 10. Enviar la respuesta por el proveedor del número (Meta o PlazBot)
+    await this.sender.sendText(conversation.whatsappNumberId, contact.phone, botResponse);
 
     return { success: true };
   }
@@ -339,7 +373,7 @@ FORMATO OBLIGATORIO PARA WHATSAPP:
     return 'image/jpeg';
   }
 
-  private async sendAndLogText(apiKey: string, workspaceId: string, conversation: Conversation, text: string): Promise<void> {
+  private async sendAndLogText(conversation: Conversation, text: string): Promise<void> {
     await this.messageRepo.save(
       this.messageRepo.create({
         conversationId: conversation.id,
@@ -355,13 +389,12 @@ FORMATO OBLIGATORIO PARA WHATSAPP:
       messageBody: text,
       messageType: 'OUTGOING',
     });
-    await this.plazbot.sendMessage(apiKey, workspaceId, conversation.customerPhone, text);
+    await this.sender.sendText(conversation.whatsappNumberId, conversation.customerPhone, text);
   }
 
-  private async sendAndLogFile(apiKey: string, workspaceId: string, conversation: Conversation, fileUrl: string, caption?: string): Promise<void> {
+  private async sendAndLogFile(conversation: Conversation, fileUrl: string, caption?: string): Promise<void> {
     const mediaType = this.guessMediaType(fileUrl);
-    const contactId = await this.plazbot.resolveContactId(apiKey, workspaceId, conversation.customerPhone, conversation.customerName);
-    await this.plazbot.sendFileByUrl(apiKey, workspaceId, contactId, conversation.customerPhone, fileUrl, caption);
+    await this.sender.sendFileByUrl(conversation.whatsappNumberId, conversation.customerPhone, conversation.customerName, fileUrl, mediaType, caption);
     await this.messageRepo.save(
       this.messageRepo.create({
         conversationId: conversation.id,
@@ -391,11 +424,9 @@ FORMATO OBLIGATORIO PARA WHATSAPP:
     messageBody: string,
     botConfig: PlaceBotConfig,
     options: BotMenuOption[],
-    apiKey: string,
-    workspaceId: string,
   ): Promise<{ success: boolean }> {
     if (isNewConversation) {
-      await this.sendAndLogText(apiKey, workspaceId, conversation, this.buildMenuGreeting(botConfig, options));
+      await this.sendAndLogText(conversation, this.buildMenuGreeting(botConfig, options));
       return { success: true };
     }
 
@@ -403,28 +434,28 @@ FORMATO OBLIGATORIO PARA WHATSAPP:
     const matched = options.find((o, i) => choice === String(i + 1) || choice.includes(o.label.toLowerCase()));
 
     if (!matched) {
-      await this.sendAndLogText(apiKey, workspaceId, conversation, `No entendí, elegí una opción:\n\n${this.buildMenuOptions(options)}`);
+      await this.sendAndLogText(conversation, `No entendí, elegí una opción:\n\n${this.buildMenuOptions(options)}`);
       return { success: true };
     }
 
     switch (matched.actionType) {
       case 'file':
         if (matched.actionValue) {
-          await this.sendAndLogFile(apiKey, workspaceId, conversation, matched.actionValue);
+          await this.sendAndLogFile(conversation, matched.actionValue);
         } else {
-          await this.sendAndLogText(apiKey, workspaceId, conversation, 'Todavía no tenemos ese archivo cargado.');
+          await this.sendAndLogText(conversation, 'Todavía no tenemos ese archivo cargado.');
         }
         break;
 
       case 'human':
         conversation.mode = 'human';
         await this.conversationRepo.save(conversation);
-        await this.sendAndLogText(apiKey, workspaceId, conversation, matched.actionValue || 'Ya te atiende alguien de nuestro equipo. En breve te responden por acá.');
+        await this.sendAndLogText(conversation, matched.actionValue || 'Ya te atiende alguien de nuestro equipo. En breve te responden por acá.');
         break;
 
       case 'text':
       default:
-        await this.sendAndLogText(apiKey, workspaceId, conversation, matched.actionValue || matched.label);
+        await this.sendAndLogText(conversation, matched.actionValue || matched.label);
         break;
     }
 

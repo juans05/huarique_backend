@@ -15,6 +15,7 @@ const mockCategoryRepo = () => ({
 });
 
 const mockDishRepo = () => ({
+    count: jest.fn(),
     create: jest.fn(),
     save: jest.fn(),
     findOne: jest.fn(),
@@ -235,6 +236,31 @@ describe('MenuService', () => {
 
             await expect(service.deleteDish('non-existent'))
                 .rejects.toThrow(NotFoundException);
+        });
+    });
+
+    // ── importMenu ───────────────────────────────────────────────────────────
+
+    describe('importMenu', () => {
+        it('reutiliza la categoría existente (mismo nombre) y continúa el orden de platos', async () => {
+            categoryRepo.find.mockResolvedValue([{ id: 'cat-existente', name: 'Bebidas', placeId: 'p1' }]);
+            categoryRepo.count.mockResolvedValue(1);
+            categoryRepo.create.mockImplementation((v: any) => v);
+            categoryRepo.save.mockImplementation(async (v: any) => ({ id: 'cat-nueva', ...v }));
+            dishRepo.count.mockResolvedValue(3); // la categoría existente ya tiene 3 platos
+            dishRepo.create.mockImplementation((v: any) => v);
+            dishRepo.save.mockImplementation(async (v: any) => v);
+
+            const res = await service.importMenu('p1', [
+                { name: 'bebidas', categoryType: 'drink', dishes: [{ name: 'Chicha', price: 8 }] },
+                { name: 'Postres', categoryType: 'dessert', dishes: [{ name: 'Suspiro', price: null }] },
+            ]);
+
+            expect(res).toEqual({ categories: 2, dishes: 2 });
+            // "bebidas" reutiliza la existente: no se crea otra categoría para ella
+            expect(categoryRepo.save).toHaveBeenCalledTimes(1);
+            expect(dishRepo.create).toHaveBeenNthCalledWith(1, expect.objectContaining({ name: 'Chicha', categoryId: 'cat-existente', displayOrder: 3 }));
+            expect(dishRepo.create).toHaveBeenNthCalledWith(2, expect.objectContaining({ name: 'Suspiro', categoryId: 'cat-nueva', displayOrder: 3 }));
         });
     });
 });
