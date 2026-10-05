@@ -25,6 +25,7 @@ import { GoogleBusinessService } from './services/google-business.service';
 import { AiService } from '../ai/ai.service';
 import { MenuImportService } from './menu-import.service';
 import { sanitizeMenu } from './menu-import.util';
+import { sanitizeMenuTheme } from './menu-theme.util';
 import { MenuService } from './menu.service';
 import { PromotionsService } from './promotions.service';
 import { InjectRepository } from '@nestjs/typeorm';
@@ -611,6 +612,27 @@ El prompt debe:
     async deleteCategory(@Param('categoryId') categoryId: string) {
         await this.menuService.deleteCategory(categoryId);
         return { message: 'Categoría eliminada' };
+    }
+
+    // Diseño de la carta pública: colores del encabezado, cuerpo y pie, y textos adicionales.
+    @Get('places/:id/menu-theme')
+    async getMenuTheme(@CurrentUser() user: any, @Param('id') id: string) {
+        const place = await this.placesRepo.findOne({ where: { id } });
+        if (!place) throw new NotFoundException('Local no encontrado');
+        if (place.claimedByUserId !== user.id) throw new ForbiddenException('No tienes permiso para gestionar este local');
+        return sanitizeMenuTheme(place.metadata?.menuTheme);
+    }
+
+    @Patch('places/:id/menu-theme')
+    async setMenuTheme(@CurrentUser() user: any, @Param('id') id: string, @Body() body: any) {
+        const place = await this.placesRepo.findOne({ where: { id } });
+        if (!place) throw new NotFoundException('Local no encontrado');
+        if (place.claimedByUserId !== user.id) throw new ForbiddenException('No tienes permiso para gestionar este local');
+        // Se reemplaza el diseño completo con lo validado: un campo vacío vuelve al valor por defecto.
+        const menuTheme = sanitizeMenuTheme(body);
+        place.metadata = { ...(place.metadata ?? {}), menuTheme };
+        await this.placesRepo.save(place);
+        return menuTheme;
     }
 
     // Paso 1 (vista previa): lee la foto/PDF de la carta con IA. No guarda nada.

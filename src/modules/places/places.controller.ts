@@ -28,6 +28,7 @@ import { Place } from './entities/place.entity';
 import { PlacesService } from './places.service';
 import { MenuService } from './menu.service';
 import { MenuAssistantService, AssistantTurn } from './menu-assistant.service';
+import { sanitizeMenuTheme } from './menu-theme.util';
 import { Throttle } from '@nestjs/throttler';
 import { PromotionsService } from './promotions.service';
 import { TikTokSearchService } from './tiktok-search.service';
@@ -147,10 +148,11 @@ export class PlacesController {
     @ApiOperation({ summary: 'Get public digital menu (categories and dishes) for a place' })
     @ApiParam({ name: 'id', description: 'Place UUID' })
     async getPublicMenu(@Param('id') id: string) {
-        const place = await this.placesRepo.findOne({ where: { id }, select: ['id', 'name', 'coverImageUrl', 'menuImageUrl', 'menuImageUrls', 'logoUrl'] });
-        if (!place) throw new NotFoundException('Local no encontrado');
+        const found = await this.placesRepo.findOne({ where: { id }, select: ['id', 'name', 'coverImageUrl', 'menuImageUrl', 'menuImageUrls', 'logoUrl', 'metadata'] });
+        if (!found) throw new NotFoundException('Local no encontrado');
+        const { metadata, ...place } = found;
         const categories = await this.menuService.getMenu(id);
-        return { place, categories };
+        return { place: { ...place, theme: sanitizeMenuTheme(metadata?.menuTheme) }, categories };
     }
 
     @Post(':id/menu/recommend')
