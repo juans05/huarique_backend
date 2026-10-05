@@ -130,6 +130,15 @@ export class PlacesController {
         return this.tiktokSearchService.getOrSearch(id);
     }
 
+    // Invitación a dejar el WhatsApp en la pantalla de calificación (la configura el dueño).
+    @Get(':id/scan-promo')
+    async getScanPromo(@Param('id') id: string) {
+        const place = await this.placesRepo.findOne({ where: { id }, select: ['id', 'metadata'] });
+        if (!place) throw new NotFoundException('Local no encontrado');
+        const promo = place.metadata?.scanPromo;
+        return { enabled: promo?.enabled === true, text: typeof promo?.text === 'string' ? promo.text : '' };
+    }
+
     @Get(':id/promotions')
     @ApiOperation({ summary: 'Get active promotions for a place' })
     @ApiParam({ name: 'id', description: 'Place UUID' })
