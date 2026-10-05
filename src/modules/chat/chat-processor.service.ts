@@ -97,7 +97,7 @@ export class ChatProcessorService {
     if (this.gemini) {
       try {
         // systemInstruction va en getGenerativeModel(), no en startChat() — la API lo rechaza ahí.
-        const model = this.gemini.getGenerativeModel({ model: 'gemini-2.5-flash', systemInstruction: systemPrompt });
+        const model = this.gemini.getGenerativeModel({ model: process.env.AI_GEMINI_MODEL || 'gemini-flash-latest', systemInstruction: systemPrompt });
         const chat = model.startChat({
           history: history.map(m => ({ role: m.role === 'assistant' ? 'model' : 'user', parts: [{ text: m.content }] })),
         });
