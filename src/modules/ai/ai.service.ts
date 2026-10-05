@@ -20,13 +20,16 @@ export class AiService {
         });
     }
 
+    // Sin max_tokens OpenRouter reserva el máximo del modelo (~65k) y rechaza con 402 si el saldo no alcanza para esa reserva.
     async chat(
         messages: OpenAI.Chat.ChatCompletionMessageParam[],
         model: string = this.defaultModel,
+        maxTokens = 1024,
     ): Promise<string> {
         const response = await this.client.chat.completions.create({
             model,
             messages,
+            max_tokens: maxTokens,
         });
         return response.choices[0].message.content ?? '';
     }
@@ -34,10 +37,12 @@ export class AiService {
     async chatStream(
         messages: OpenAI.Chat.ChatCompletionMessageParam[],
         model: string = this.defaultModel,
+        maxTokens = 1024,
     ) {
         return this.client.chat.completions.create({
             model,
             messages,
+            max_tokens: maxTokens,
             stream: true,
         });
     }

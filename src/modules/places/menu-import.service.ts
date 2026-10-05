@@ -38,6 +38,7 @@ export class MenuImportService {
             raw = await this.aiService.chat(
                 [{ role: 'user', content: [{ type: 'text', text: PROMPT }, filePart] as any }],
                 this.config.get<string>('MENU_IMPORT_MODEL') || 'google/gemini-2.5-flash',
+                8192,
             );
         } catch {
             throw new ServiceUnavailableException('No se pudo leer la carta con IA. Intenta de nuevo o arma la carta a mano.');
