@@ -614,6 +614,30 @@ El prompt debe:
         return { message: 'Categoría eliminada' };
     }
 
+    // Promoción que se ofrece al cliente en la pantalla de calificación a cambio de su WhatsApp.
+    @Get('places/:id/scan-promo')
+    async getScanPromo(@CurrentUser() user: any, @Param('id') id: string) {
+        const place = await this.placesRepo.findOne({ where: { id } });
+        if (!place) throw new NotFoundException('Local no encontrado');
+        if (place.claimedByUserId !== user.id) throw new ForbiddenException('No tienes permiso para gestionar este local');
+        const promo = place.metadata?.scanPromo;
+        return { enabled: promo?.enabled === true, text: typeof promo?.text === 'string' ? promo.text : '' };
+    }
+
+    @Patch('places/:id/scan-promo')
+    async setScanPromo(@CurrentUser() user: any, @Param('id') id: string, @Body() body: any) {
+        const place = await this.placesRepo.findOne({ where: { id } });
+        if (!place) throw new NotFoundException('Local no encontrado');
+        if (place.claimedByUserId !== user.id) throw new ForbiddenException('No tienes permiso para gestionar este local');
+        const scanPromo = {
+            enabled: body?.enabled === true,
+            text: typeof body?.text === 'string' ? body.text.trim().slice(0, 160) : '',
+        };
+        place.metadata = { ...(place.metadata ?? {}), scanPromo };
+        await this.placesRepo.save(place);
+        return scanPromo;
+    }
+
     // Diseño de la carta pública: colores del encabezado, cuerpo y pie, y textos adicionales.
     @Get('places/:id/menu-theme')
     async getMenuTheme(@CurrentUser() user: any, @Param('id') id: string) {
