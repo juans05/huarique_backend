@@ -5,7 +5,9 @@ import OpenAI from 'openai';
 @Injectable()
 export class AiService {
     private readonly client: OpenAI;
-    private readonly defaultModel = 'google/gemini-flash-1.5';
+    // gemini-flash-1.5 fue retirado de OpenRouter (404 "No endpoints found"): rompía todo lo que usa este servicio.
+    // Se puede cambiar sin tocar código con AI_DEFAULT_MODEL.
+    private readonly defaultModel = process.env.AI_DEFAULT_MODEL || 'google/gemini-2.5-flash';
 
     constructor(private configService: ConfigService) {
         this.client = new OpenAI({
