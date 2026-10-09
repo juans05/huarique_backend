@@ -247,4 +247,6 @@ export class Place {
     totalCheckins?: number;
     uniqueVisitors?: number;
     distance?: number;
+    hasActiveLoyaltyProgram?: boolean;
+    hasActiveBenefit?: boolean;
 }

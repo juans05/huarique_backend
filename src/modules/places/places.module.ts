@@ -32,6 +32,7 @@ import { RarityCalculatorService } from './services/rarity-calculator.service';
 import { GoogleMapsService } from './services/google-maps.service';
 import { GoogleBusinessService } from './services/google-business.service';
 import { WeeklyReportService } from './services/weekly-report.service';
+import { ReviewAutoService } from './services/review-auto.service';
 import { GoogleCallbackController } from './google-callback.controller';
 import { User } from '../users/entities/user.entity';
 import { TeamModule } from '../team/team.module';
@@ -67,7 +68,7 @@ import { UsersModule } from '../users/users.module';
     ],
 
     controllers: [PlacesController, BusinessPlacesController, GoogleCallbackController],
-    providers: [PlacesService, MenuService, MenuAssistantService, MenuImportService, MenuFormatterService, PromotionsService, TikTokSearchService, GeolocationService, RarityCalculatorService, GoogleMapsService, GoogleBusinessService, WeeklyReportService],
+    providers: [PlacesService, MenuService, MenuAssistantService, MenuImportService, MenuFormatterService, PromotionsService, TikTokSearchService, GeolocationService, RarityCalculatorService, GoogleMapsService, GoogleBusinessService, WeeklyReportService, ReviewAutoService],
     exports: [PlacesService, MenuService, MenuFormatterService, GeolocationService, GoogleMapsService],
 })
 export class PlacesModule { }

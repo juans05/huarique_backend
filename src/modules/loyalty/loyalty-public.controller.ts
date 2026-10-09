@@ -26,11 +26,11 @@ export class LoyaltyPublicController {
   @ApiOperation({ summary: 'Customer scans NFC — earn stamp or points (public)' })
   async scan(
     @Param('placeId') placeId: string,
-    @Body() body: { phone: string; name?: string },
+    @Body() body: { phone: string; name?: string; marketingConsent?: boolean },
   ) {
     if (!body.phone) throw new Error('El número de teléfono es requerido');
     const phone = body.phone.replace(/\D/g, '');
-    const result = await this.loyaltyService.scan(placeId, phone, body.name);
+    const result = await this.loyaltyService.scan(placeId, phone, body.name, body.marketingConsent === true);
 
     if (result.stampsEarned > 0 || result.pointsEarned > 0) {
       this.pushWalletUpdate(placeId, result.card, result.program);

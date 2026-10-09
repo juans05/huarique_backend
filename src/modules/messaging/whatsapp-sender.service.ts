@@ -2,6 +2,8 @@ import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { WhatsAppNumber } from '../whatsapp/entities/whatsapp-number.entity';
+import { Place } from '../places/entities/place.entity';
+import { isMetaEnabled } from './meta-flag';
 import { PlazBotService } from '../plazbot/plazbot.service';
 import { WhatsAppCloudService } from './whatsapp-cloud.service';
 
@@ -15,6 +17,8 @@ export class WhatsAppSenderService {
     constructor(
         @InjectRepository(WhatsAppNumber)
         private readonly numbers: Repository<WhatsAppNumber>,
+        @InjectRepository(Place)
+        private readonly places: Repository<Place>,
         private readonly plazbot: PlazBotService,
         private readonly cloud: WhatsAppCloudService,
     ) {}
@@ -22,7 +26,10 @@ export class WhatsAppSenderService {
     private async metaNumber(whatsappNumberId: string | null): Promise<WhatsAppNumber | null> {
         if (!whatsappNumberId) return null;
         const number = await this.numbers.findOne({ where: { id: whatsappNumberId } });
-        return number?.provider === 'meta' && number.isActive ? number : null;
+        if (number?.provider !== 'meta' || !number.isActive) return null;
+        // Sin el flag del local no se usa Meta aunque el número esté marcado: todo sigue por PlazBot.
+        const place = await this.places.findOne({ where: { id: number.placeId } });
+        return isMetaEnabled(place) ? number : null;
     }
 
     private get plazbotAuth() {

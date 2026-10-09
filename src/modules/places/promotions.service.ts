@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException, ForbiddenException } from '@nestjs/common';
+import { Injectable, NotFoundException, ForbiddenException, BadRequestException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Promotion } from './entities/promotion.entity';
@@ -10,6 +10,8 @@ export interface CreatePromotionDto {
     imageUrl?: string;
     startsAt?: Date;
     endsAt?: Date;
+    discountType?: 'percentage' | 'fixed_amount';
+    discountValue?: number;
 }
 
 @Injectable()
@@ -41,12 +43,22 @@ export class PromotionsService {
 
     async create(placeId: string, userId: string, dto: CreatePromotionDto): Promise<Promotion> {
         await this.assertOwner(placeId, userId);
+
+        if (dto.discountType && !['percentage', 'fixed_amount'].includes(dto.discountType)) {
+            throw new BadRequestException('discountType inválido');
+        }
+        if (dto.discountType === 'percentage' && dto.discountValue != null && (dto.discountValue <= 0 || dto.discountValue > 100)) {
+            throw new BadRequestException('El porcentaje de descuento debe estar entre 1 y 100');
+        }
+
         const promotion = this.promotionsRepo.create({
             title: dto.title,
             description: dto.description,
             imageUrl: dto.imageUrl,
             startsAt: dto.startsAt,
             endsAt: dto.endsAt,
+            discountType: dto.discountType ?? null,
+            discountValue: dto.discountValue ?? null,
             placeId,
         });
         return this.promotionsRepo.save(promotion);

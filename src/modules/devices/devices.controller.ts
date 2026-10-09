@@ -6,6 +6,7 @@ import {
   Delete,
   Param,
   Body,
+  Query,
   UseGuards,
   ForbiddenException,
   NotFoundException,
@@ -73,6 +74,33 @@ export class DevicesController {
   ): Promise<Device[]> {
     await this.assertOwner(placeId, user.id);
     return this.devicesService.findAll(placeId);
+  }
+
+  // Ranking por dispositivo: cada mesero/zona con su propio dispositivo permite ver quién consigue más opiniones.
+  @Get('ranking')
+  @ApiOperation({ summary: 'Escaneos y opiniones por dispositivo en los últimos días' })
+  async ranking(
+    @Param('placeId') placeId: string,
+    @Query('days') days: string,
+    @CurrentUser() user: any,
+  ) {
+    await this.assertOwner(placeId, user.id);
+    const since = new Date(Date.now() - Math.min(Math.max(parseInt(days, 10) || 30, 1), 365) * 86_400_000);
+    const rows = await this.placesRepository.query(
+      `SELECT d.id, d.name, d.device_type AS "deviceType",
+              COALESCE(s.scans, 0)::int AS scans,
+              COALESCE(f.opinions, 0)::int AS opinions,
+              COALESCE(f.positive, 0)::int AS positive
+         FROM wuarike_db.devices d
+         LEFT JOIN (SELECT device_id, COUNT(*) AS scans FROM wuarike_db.place_scans
+                     WHERE place_id = $1 AND created_at >= $2 GROUP BY device_id) s ON s.device_id = d.id::text
+         LEFT JOIN (SELECT device_id, COUNT(*) AS opinions, COUNT(*) FILTER (WHERE rating >= 4) AS positive
+                      FROM wuarike_db.public_feedback WHERE place_id = $1 AND created_at >= $2 GROUP BY device_id) f ON f.device_id = d.id::text
+        WHERE d.place_id = $1
+        ORDER BY opinions DESC, scans DESC, d.name ASC`,
+      [placeId, since],
+    );
+    return rows;
   }
 
   @Post()

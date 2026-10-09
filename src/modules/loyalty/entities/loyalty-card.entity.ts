@@ -46,6 +46,14 @@ export class LoyaltyCard {
   @Column({ name: 'google_wallet_deleted_at', type: 'timestamp', nullable: true })
   googleWalletDeletedAt: Date | null;
 
+  // Consentimiento para recibir promociones por WhatsApp. Se marca al unirse a la fidelización;
+  // sin él, las campañas por segmento de fidelización NO le escriben.
+  @Column({ name: 'marketing_consent', default: false })
+  marketingConsent: boolean;
+
+  @Column({ name: 'marketing_consent_at', type: 'timestamp', nullable: true })
+  marketingConsentAt: Date | null;
+
   @Column({ name: 'last_winback_sent_at', type: 'timestamp', nullable: true })
   lastWinbackSentAt: Date | null;
 

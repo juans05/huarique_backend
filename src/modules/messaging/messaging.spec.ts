@@ -28,11 +28,12 @@ describe('payloads de la API de WhatsApp Cloud', () => {
 });
 
 describe('WhatsAppSenderService: proveedor por número', () => {
-    const build = (number: any) => {
+    const build = (number: any, flag = true) => {
         const numbers = { findOne: jest.fn().mockResolvedValue(number) };
+        const places = { findOne: jest.fn().mockResolvedValue({ id: 'p1', metadata: flag ? { whatsappMetaEnabled: true } : {} }) };
         const plazbot = { sendMessage: jest.fn().mockResolvedValue(undefined) };
         const cloud = { sendText: jest.fn().mockResolvedValue('wamid.1') };
-        return { svc: new WhatsAppSenderService(numbers as any, plazbot as any, cloud as any), plazbot, cloud, numbers };
+        return { svc: new WhatsAppSenderService(numbers as any, places as any, plazbot as any, cloud as any), plazbot, cloud, numbers };
     };
 
     it('número "meta" → API de WhatsApp Cloud, sin tocar PlazBot', async () => {
@@ -40,6 +41,13 @@ describe('WhatsAppSenderService: proveedor por número', () => {
         await svc.sendText('n1', '51987', 'Hola');
         expect(cloud.sendText).toHaveBeenCalledWith(expect.objectContaining({ id: 'n1' }), '51987', 'Hola');
         expect(plazbot.sendMessage).not.toHaveBeenCalled();
+    });
+
+    it('número marcado "meta" pero SIN el flag del local → PlazBot (el flag manda)', async () => {
+        const { svc, plazbot, cloud } = build({ id: 'n4', provider: 'meta', isActive: true, placeId: 'p1', phoneNumberId: 'PN4' }, false);
+        await svc.sendText('n4', '51987', 'Hola');
+        expect(cloud.sendText).not.toHaveBeenCalled();
+        expect(plazbot.sendMessage).toHaveBeenCalledTimes(1);
     });
 
     it('número de Facebook desactivado (checkbox apagado) → vuelve a PlazBot, no envía por Meta', async () => {

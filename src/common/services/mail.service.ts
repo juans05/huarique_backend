@@ -135,6 +135,74 @@ export class MailService {
         }
     }
 
+    /** Cuenta creada por un admin desde el panel: el usuario la activa con este link (vence en 48 h). */
+    async sendAccountActivation(email: string, fullName: string, role: string, code: string) {
+        const esc = (s: string) => s.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]!));
+        const activationUrl = `${this.frontendUrl}/activar?email=${encodeURIComponent(email)}&code=${code}`;
+        const roleLabel = role === 'admin' ? 'administrador' : 'negocio';
+        try {
+            const { data, error } = await this.resend.emails.send({
+                from: 'Wuarike <auth@wuarikes.com>',
+                to: [email],
+                subject: 'Activa tu cuenta de Wuarike',
+                html: `
+                    <div style="font-family: 'Inter', sans-serif; max-width: 600px; margin: 0 auto; background-color: #ffffff; padding: 40px; border-radius: 20px; border: 1px solid #eee;">
+                        <h1 style="color: #111827; font-size: 22px; font-weight: 900; margin-bottom: 10px;">¡Hola ${esc(fullName)}!</h1>
+                        <p style="color: #4b5563; font-size: 15px; margin-bottom: 20px;">
+                            Te crearon una cuenta de <strong>${roleLabel}</strong> en el panel de Wuarike.
+                            Actívala para poder ingresar con tu correo y la contraseña que te compartieron:
+                        </p>
+                        <div style="text-align: center; margin-bottom: 20px;">
+                            <a href="${activationUrl}" style="display: inline-block; background: #F26122; color: #ffffff; text-decoration: none; padding: 14px 28px; border-radius: 12px; font-weight: 700; font-size: 15px;">
+                                Activar mi cuenta
+                            </a>
+                        </div>
+                        <p style="color: #9ca3af; font-size: 12px;">El link vence en 48 horas. Si el botón no funciona, copia y pega este link en tu navegador: ${activationUrl}</p>
+                    </div>
+                `,
+            });
+
+            if (error) throw error;
+            return data;
+        } catch (error) {
+            console.error('Error sending account activation:', error);
+            throw new InternalServerErrorException('No se pudo enviar el correo de activación');
+        }
+    }
+
+    /** Enviado por un admin desde Gestionar usuarios: link para elegir contraseña nueva (vence en 48 h). */
+    async sendAccessLink(email: string, fullName: string, code: string) {
+        const esc = (s: string) => s.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]!));
+        const resetUrl = `${this.frontendUrl}/forgot-password?email=${encodeURIComponent(email)}&code=${code}`;
+        try {
+            const { data, error } = await this.resend.emails.send({
+                from: 'Wuarike <auth@wuarikes.com>',
+                to: [email],
+                subject: 'Crea tu contraseña para ingresar a Wuarike',
+                html: `
+                    <div style="font-family: 'Inter', sans-serif; max-width: 600px; margin: 0 auto; background-color: #ffffff; padding: 40px; border-radius: 20px; border: 1px solid #eee;">
+                        <h1 style="color: #111827; font-size: 22px; font-weight: 900; margin-bottom: 10px;">¡Hola ${esc(fullName)}!</h1>
+                        <p style="color: #4b5563; font-size: 15px; margin-bottom: 20px;">
+                            Para ingresar al panel de Wuarike, elige una contraseña nueva desde este botón:
+                        </p>
+                        <div style="text-align: center; margin-bottom: 20px;">
+                            <a href="${resetUrl}" style="display: inline-block; background: #F26122; color: #ffffff; text-decoration: none; padding: 14px 28px; border-radius: 12px; font-weight: 700; font-size: 15px;">
+                                Crear mi contraseña
+                            </a>
+                        </div>
+                        <p style="color: #9ca3af; font-size: 12px;">El link vence en 48 horas. Si el botón no funciona, copia y pega este link en tu navegador: ${resetUrl}</p>
+                    </div>
+                `,
+            });
+
+            if (error) throw error;
+            return data;
+        } catch (error) {
+            console.error('Error sending access link:', error);
+            throw new InternalServerErrorException('No se pudo enviar el correo');
+        }
+    }
+
     async sendComplaintReceipt(email: string, fullName: string, folio: string, type: 'reclamo' | 'queja') {
         try {
             const label = type === 'reclamo' ? 'Reclamo' : 'Queja';
@@ -216,6 +284,32 @@ export class MailService {
         } catch (error) {
             console.error('Error sending feedback reply:', error);
             throw new InternalServerErrorException('No se pudo enviar el correo al cliente');
+        }
+    }
+
+    /** Aviso al dueño: llegó una opinión o reseña de 3 estrellas o menos. */
+    async sendLowRatingAlert(to: string, placeName: string, alert: { source: 'google' | 'qr'; stars: number; author?: string | null; comment?: string | null; contact?: string | null }) {
+        const esc = (s: string) => s.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]!));
+        const where = alert.source === 'google' ? 'en Google' : 'por tu QR/NFC';
+        try {
+            const { error } = await this.resend.emails.send({
+                from: 'Wuarike <alertas@wuarikes.com>',
+                to: [to],
+                subject: `${'★'.repeat(alert.stars)}${'☆'.repeat(5 - alert.stars)} Nueva opinión de ${alert.stars} ${alert.stars === 1 ? 'estrella' : 'estrellas'} ${where}`,
+                html: `
+                    <div style="font-family: 'Inter', sans-serif; max-width: 600px; margin: 0 auto; background-color: #ffffff; padding: 32px; border-radius: 20px; border: 1px solid #eee;">
+                        <h1 style="color: #111827; font-size: 20px; margin: 0 0 8px;">Una opinión que conviene atender hoy</h1>
+                        <p style="color: #4b5563; font-size: 15px;"><b>${esc(alert.author || 'Un cliente')}</b> dejó ${alert.stars} ${alert.stars === 1 ? 'estrella' : 'estrellas'} a <b>${esc(placeName)}</b> ${where}.</p>
+                        ${alert.comment ? `<div style="background: #f3f4f6; padding: 16px; border-radius: 12px; color: #111827; font-size: 15px; line-height: 1.6;">${esc(alert.comment).replace(/\n/g, '<br>')}</div>` : ''}
+                        ${alert.contact ? `<p style="color: #4b5563; font-size: 14px;">Contacto que dejó: <b>${esc(alert.contact)}</b></p>` : ''}
+                        <p style="margin-top: 20px;"><a href="${this.frontendUrl}/${alert.source === 'google' ? 'reputacion' : 'feedback'}" style="background: #F26122; color: #fff; padding: 12px 20px; border-radius: 12px; text-decoration: none; font-weight: 700;">Ver y responder</a></p>
+                        <p style="color: #9ca3af; font-size: 12px;">Responder rápido y con calma suele convertir una crítica en un cliente que vuelve. Puedes apagar estas alertas en Reputación.</p>
+                    </div>
+                `,
+            });
+            if (error) throw error;
+        } catch (error) {
+            console.error('Error sending low rating alert:', error);
         }
     }
 

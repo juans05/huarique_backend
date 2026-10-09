@@ -65,4 +65,16 @@ export class GetPlacesDto extends PaginationDto {
     @Transform(({ value }) => value === 'true' || value === true)
     @IsBoolean()
     openNow?: boolean;
+
+    @ApiPropertyOptional({ description: 'Only places with an active loyalty program' })
+    @IsOptional()
+    @Transform(({ value }) => value === 'true' || value === true)
+    @IsBoolean()
+    hasLoyalty?: boolean;
+
+    @ApiPropertyOptional({ description: 'Only places with an active loyalty program or an active promotion' })
+    @IsOptional()
+    @Transform(({ value }) => value === 'true' || value === true)
+    @IsBoolean()
+    hasBenefit?: boolean;
 }

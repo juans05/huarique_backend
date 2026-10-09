@@ -247,6 +247,16 @@ export class AdminController {
         return this.adminService.activateUser(id);
     }
 
+    @Post('users/:id/send-access-email')
+    @HttpCode(200)
+    @ApiOperation({ summary: 'Email the user a link to set a new password (also activates the account)' })
+    @ApiParam({ name: 'id', description: 'User UUID' })
+    @ApiResponse({ status: 200, description: 'Email sent.' })
+    @ApiResponse({ status: 404, description: 'User not found.' })
+    async sendAccessEmail(@Param('id') id: string) {
+        return this.adminService.sendAccessEmail(id);
+    }
+
     // --- Places ---
 
     @Get('places')
@@ -270,8 +280,8 @@ export class AdminController {
     @Post('places/import')
     @ApiOperation({ summary: 'Bulk create restaurants from the Google Maps scraper CSV' })
     @ApiResponse({ status: 201, description: 'Returns { imported, skipped, failed, errors }.' })
-    async importScrapedPlaces(@Body() dto: ImportScrapedPlacesDto) {
-        return this.adminService.importScrapedPlaces(dto.places);
+    async importScrapedPlaces(@Body() dto: ImportScrapedPlacesDto, @CurrentUser() admin: any) {
+        return this.adminService.importScrapedPlaces(dto.places, admin.id);
     }
 
     @Post('reviews/import')

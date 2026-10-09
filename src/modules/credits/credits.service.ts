@@ -59,6 +59,30 @@ export class CreditsService {
         });
     }
 
+    /** Como deduct(), pero solo si alcanza el saldo: nunca lo deja en negativo. Devuelve false si no alcanzó. */
+    async deductIfEnough(placeId: string, amount: number, referenceType: string, referenceId: string, description?: string): Promise<boolean> {
+        return this.dataSource.transaction(async (manager) => {
+            // Bloquea la fila para que dos mensajes simultáneos no gasten el mismo saldo.
+            const balance = await manager.findOne(CreditBalance, { where: { placeId }, lock: { mode: 'pessimistic_write' } });
+            if (!balance || balance.balance < amount) return false;
+            balance.balance -= amount;
+            balance.totalUsed += amount;
+            await manager.save(balance);
+            await manager.save(
+                manager.create(CreditTransaction, {
+                    placeId,
+                    type: 'usage',
+                    amount: -amount,
+                    balanceAfter: balance.balance,
+                    referenceType,
+                    referenceId,
+                    description: description || `Uso de ${amount} crédito(s)`,
+                }),
+            );
+            return true;
+        });
+    }
+
     async add(placeId: string, amount: number, type: 'purchase' | 'bonus' | 'refund', description?: string): Promise<CreditTransaction> {
         return this.dataSource.transaction(async (manager) => {
             let balance = await manager.findOne(CreditBalance, { where: { placeId } });
