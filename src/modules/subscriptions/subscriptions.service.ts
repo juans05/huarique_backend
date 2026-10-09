@@ -31,7 +31,7 @@ const TIER_DEFINITIONS: TierDefinition[] = [
         name: 'Wuarike Reputación',
         envPlanIdKey: 'CULQI_PLAN_ID_REPUTACION',
         envAmountKey: 'CULQI_PLAN_AMOUNT_REPUTACION',
-        defaultAmount: 7900, // S/.79
+        defaultAmount: 7999, // S/.79.99
         features: [
             'Filtro de reputación Google activado',
             'Instagram IA ilimitado',
@@ -44,7 +44,7 @@ const TIER_DEFINITIONS: TierDefinition[] = [
         name: 'Wuarike Fidelización+',
         envPlanIdKey: 'CULQI_PLAN_ID_FIDELIZACION',
         envAmountKey: 'CULQI_PLAN_AMOUNT_FIDELIZACION',
-        defaultAmount: 14900, // S/.149
+        defaultAmount: 19900, // S/.199
         features: [
             'Todo lo de Wuarike Reputación',
             'Programa de fidelización con sellos o puntos',
@@ -57,7 +57,7 @@ const TIER_DEFINITIONS: TierDefinition[] = [
         name: 'Wuarike IA Total',
         envPlanIdKey: 'CULQI_PLAN_ID_IA',
         envAmountKey: 'CULQI_PLAN_AMOUNT_IA',
-        defaultAmount: 24900, // S/.249
+        defaultAmount: 49900, // S/.499
         features: [
             'Todo lo de Wuarike Fidelización+',
             'PlazBot: bot de WhatsApp con IA',
@@ -302,7 +302,7 @@ export class SubscriptionsService {
         return TIER_DEFINITIONS.map((def) => ({
             tier: def.tier,
             name: def.name,
-            price: Math.round(this.planAmountFor(def.tier) / 100),
+            price: this.planAmountFor(def.tier) / 100,
             currency: 'PEN',
             interval: 'monthly',
             features: def.features,
