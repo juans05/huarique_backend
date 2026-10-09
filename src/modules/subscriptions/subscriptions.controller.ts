@@ -1,6 +1,9 @@
 import {
     Controller,
     Get,
+    Post,
+    HttpCode,
+    HttpStatus,
     UseGuards,
     Query,
 } from '@nestjs/common';
@@ -19,6 +22,15 @@ export class SubscriptionsController {
     @Get('plans')
     getPlans() {
         return this.service.getPlans();
+    }
+
+    // Webhook de Culqi (CulqiPanel → Eventos → Webhook). Público a propósito: no se confía en el
+    // contenido, solo dispara una consulta a Culqi. Responde 200 al toque para que Culqi no reintente.
+    @Post('webhook')
+    @HttpCode(HttpStatus.OK)
+    culqiWebhook() {
+        this.service.handleCulqiWebhook();
+        return { received: true };
     }
 
     @UseGuards(JwtAuthGuard, RolesGuard)
