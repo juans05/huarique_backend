@@ -10,7 +10,7 @@ import { Repository, In } from 'typeorm';
 import { ConfigService } from '@nestjs/config';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { Subscription } from './entities/subscription.entity';
-import { decideSync, splitFullName } from './culqi-sync.util';
+import { CULQI_STATUS, decideSync, splitFullName } from './culqi-sync.util';
 import { User } from '../users/entities/user.entity';
 import { Payment } from './entities/payment.entity';
 import { Place } from '../places/entities/place.entity';
@@ -144,16 +144,8 @@ export class SubscriptionsService {
         // Si quedó una con pago pendiente, se cancela en Culqi antes de crear la nueva: si no,
         // Culqi seguiría reintentando el cobro viejo y el local pagaría dos veces.
         const pastDue = await this.subscriptionsRepo.find({ where: { placeId, status: 'past_due' } });
-        for (const old of pastDue) {
-            if (old.culqiSubscriptionId) {
-                await this.culqiRequest('DELETE', `/recurrent/subscriptions/${old.culqiSubscriptionId}`).catch((err) =>
-                    this.logger.warn(`Could not cancel past_due ${old.id} in Culqi: ${err.message}`),
-                );
-            }
-            old.status = 'canceled';
-            old.canceledAt = new Date();
-            await this.subscriptionsRepo.save(old);
-        }
+        // Si no se puede cancelar la vieja en Culqi, no se crea la nueva (lanza error).
+        for (const old of pastDue) await this.cancelInCulqiThenLocally(old);
 
         const def = this.tierDefinition(tier);
         const planId = this.planIdFor(tier);
@@ -292,17 +284,28 @@ export class SubscriptionsService {
     }
 
     async cancelSubscription(placeId: string) {
+        // pending y past_due también se cobran en Culqi: el dueño tiene que poder cancelarlas.
         const sub = await this.subscriptionsRepo.findOne({
-            where: { placeId, status: 'active' },
+            where: { placeId, status: In(['active', 'pending', 'past_due']) },
         });
         if (!sub) throw new NotFoundException('Esta sede no tiene una suscripción activa');
+        return this.cancelInCulqiThenLocally(sub);
+    }
 
+    /** Cancela primero en Culqi; si Culqi no confirma, no se marca cancelada (si no, seguiría cobrando). */
+    private async cancelInCulqiThenLocally(sub: Subscription) {
         if (sub.culqiSubscriptionId) {
-            await this.culqiRequest('DELETE', `/recurrent/subscriptions/${sub.culqiSubscriptionId}`).catch((err) =>
-                this.logger.warn(`Could not cancel in Culqi: ${err.message}`),
-            );
+            try {
+                await this.culqiRequest('DELETE', `/recurrent/subscriptions/${sub.culqiSubscriptionId}`);
+            } catch (err) {
+                // Ya cancelada en Culqi: está bien marcarla. Cualquier otro error: no se toca y se avisa.
+                const remote = await this.culqiRequest('GET', `/recurrent/subscriptions/${sub.culqiSubscriptionId}`).catch(() => null);
+                if (remote?.status !== CULQI_STATUS.CANCELED) {
+                    this.logger.error(`Could not cancel ${sub.id} in Culqi: ${err.message}`);
+                    throw new BadRequestException('No pudimos cancelar el cobro en Culqi. Intenta de nuevo en unos minutos.');
+                }
+            }
         }
-
         sub.status = 'canceled';
         sub.canceledAt = new Date();
         return this.subscriptionsRepo.save(sub);
