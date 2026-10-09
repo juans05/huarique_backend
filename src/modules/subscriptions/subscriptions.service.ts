@@ -135,7 +135,7 @@ export class SubscriptionsService {
 
     async createSubscription(placeId: string, userId: string, token: string, userEmail: string, tier: SubscriptionTier) {
         const existing = await this.subscriptionsRepo.findOne({
-            where: { placeId, status: 'active' },
+            where: { placeId, status: In(['active', 'pending']) },
         });
         if (existing) {
             throw new ConflictException('Esta sede ya tiene una suscripción activa');
@@ -181,10 +181,12 @@ export class SubscriptionsService {
         const firstChargeId: string | undefined = culqiSub.periods?.charges?.charge_id;
         const nextBilling = culqiSub.next_billing_date ? new Date(culqiSub.next_billing_date * 1000) : null;
 
+        // El acceso solo se da con el primer cargo confirmado en Culqi (exitoso y por el monto del plan).
+        // Si todavía no sale, queda "pending" hasta hoy y la sincronización lo activa cuando Culqi cobre
+        // (o lo pasa a pago pendiente si no cobra en el plazo).
+        const firstPaid = !!firstChargeId && (await this.isChargePaid(firstChargeId, planAmount));
         const periodStart = new Date();
-        // Si el primer cobro ya salió, el periodo llega hasta la próxima fecha de cobro. Si no, queda
-        // "hasta hoy" y la sincronización registra el pago cuando Culqi lo cobre (o pasa a pendiente si no).
-        const periodEnd = firstChargeId && nextBilling ? nextBilling : periodStart;
+        const periodEnd = firstPaid && nextBilling ? nextBilling : periodStart;
 
         let sub: Subscription;
         try {
@@ -195,7 +197,7 @@ export class SubscriptionsService {
                     culqiSubscriptionId: created.id,
                     culqiCustomerId: customerId,
                     culqiPlanId: planId,
-                    status: 'active',
+                    status: firstPaid ? 'active' : 'pending',
                     tier,
                     amount: planAmount,
                     currency: 'PEN',
@@ -214,7 +216,7 @@ export class SubscriptionsService {
             throw new ConflictException('Esta sede ya tiene una suscripción activa');
         }
 
-        if (firstChargeId) {
+        if (firstPaid) {
             await this.paymentsRepo.save(
                 this.paymentsRepo.create({
                     subscriptionId: sub.id,
@@ -373,7 +375,7 @@ export class SubscriptionsService {
         if (this.syncing || !this.secretKey) return;
         this.syncing = true;
         try {
-            const subs = await this.subscriptionsRepo.find({ where: { status: In(['active', 'past_due']) } });
+            const subs = await this.subscriptionsRepo.find({ where: { status: In(['active', 'pending', 'past_due']) } });
             for (const sub of subs) {
                 if (!sub.culqiSubscriptionId) continue;
                 try {
@@ -387,17 +389,29 @@ export class SubscriptionsService {
         }
     }
 
+    /** True solo si Culqi confirma que el cargo se cobró por el monto esperado (en céntimos, PEN). */
+    private async isChargePaid(chargeId: string, expectedAmount: number): Promise<boolean> {
+        const charge = await this.culqiRequest('GET', `/charges/${chargeId}`).catch(() => null);
+        return charge?.outcome?.type === 'venta_exitosa' && Number(charge.amount) === expectedAmount && (charge.currency_code || 'PEN') === 'PEN';
+    }
+
     private async syncOneWithCulqi(sub: Subscription) {
         const remote = await this.culqiRequest('GET', `/recurrent/subscriptions/${sub.culqiSubscriptionId}`);
         const action = decideSync(sub, remote);
         if (action.kind === 'none') return;
 
         if (action.kind === 'renewed') {
+            // Se confirma el cargo en Culqi: exitoso y por el monto del plan. Si no, no se da acceso.
+            if (!(await this.isChargePaid(action.chargeId, sub.amount))) {
+                this.logger.warn(`Culqi: cargo ${action.chargeId} de ${sub.id} no confirmado como pagado`);
+                return;
+            }
+            const alreadyRecorded = await this.paymentsRepo.exists({ where: { culqiChargeId: action.chargeId } });
             sub.status = 'active';
             sub.currentPeriodStart = action.periodStart;
             sub.currentPeriodEnd = action.periodEnd;
             await this.subscriptionsRepo.save(sub);
-            await this.paymentsRepo.save(
+            if (!alreadyRecorded) await this.paymentsRepo.save(
                 this.paymentsRepo.create({
                     subscriptionId: sub.id,
                     userId: sub.userId,

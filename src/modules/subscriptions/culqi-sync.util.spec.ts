@@ -28,8 +28,16 @@ describe('decideSync (formato /v2/recurrent/subscriptions)', () => {
     });
 
     it('pago pendiente que luego cobra → vuelve a activo', () => {
-        const r = decideSync({ status: 'past_due', currentPeriodEnd: new Date('2026-11-10T00:00:00Z') }, { status: 3, next_billing_date: secs('2026-12-10T00:00:00Z') }, now);
+        const r = decideSync({ status: 'past_due', currentPeriodEnd: new Date('2026-11-10T00:00:00Z') }, { status: 3, next_billing_date: secs('2026-12-10T00:00:00Z'), periods: { charges: { charge_id: 'chr_live_2' } } }, now);
         expect(r.kind).toBe('renewed');
+    });
+
+    it('la fecha avanzó pero no hay cargo → no se marca como pagada', () => {
+        expect(decideSync(active('2026-11-19T00:00:00Z'), { status: 3, next_billing_date: secs('2026-12-19T00:00:00Z') }, now)).toEqual({ kind: 'none' });
+    });
+
+    it('primer cobro que nunca llega (pending) → pago pendiente tras el plazo', () => {
+        expect(decideSync({ status: 'pending', currentPeriodEnd: new Date('2026-11-10T00:00:00Z') }, { status: 1, next_billing_date: secs('2026-11-10T00:00:00Z') }, now)).toEqual({ kind: 'past_due' });
     });
 
     it('cancelada en Culqi (4) → cancelada', () => {
