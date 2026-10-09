@@ -8,7 +8,10 @@ import {
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, In } from 'typeorm';
 import { ConfigService } from '@nestjs/config';
+import { Cron, CronExpression } from '@nestjs/schedule';
 import { Subscription } from './entities/subscription.entity';
+import { decideSync, splitFullName } from './culqi-sync.util';
+import { User } from '../users/entities/user.entity';
 import { Payment } from './entities/payment.entity';
 import { Place } from '../places/entities/place.entity';
 
@@ -81,6 +84,8 @@ export class SubscriptionsService {
         private paymentsRepo: Repository<Payment>,
         @InjectRepository(Place)
         private placesRepo: Repository<Place>,
+        @InjectRepository(User)
+        private usersRepo: Repository<User>,
         private configService: ConfigService,
     ) { }
 
@@ -136,6 +141,20 @@ export class SubscriptionsService {
             throw new ConflictException('Esta sede ya tiene una suscripción activa');
         }
 
+        // Si quedó una con pago pendiente, se cancela en Culqi antes de crear la nueva: si no,
+        // Culqi seguiría reintentando el cobro viejo y el local pagaría dos veces.
+        const pastDue = await this.subscriptionsRepo.find({ where: { placeId, status: 'past_due' } });
+        for (const old of pastDue) {
+            if (old.culqiSubscriptionId) {
+                await this.culqiRequest('DELETE', `/recurrent/subscriptions/${old.culqiSubscriptionId}`).catch((err) =>
+                    this.logger.warn(`Could not cancel past_due ${old.id} in Culqi: ${err.message}`),
+                );
+            }
+            old.status = 'canceled';
+            old.canceledAt = new Date();
+            await this.subscriptionsRepo.save(old);
+        }
+
         const def = this.tierDefinition(tier);
         const planId = this.planIdFor(tier);
         const planAmount = this.planAmountFor(tier);
@@ -144,19 +163,28 @@ export class SubscriptionsService {
             throw new BadRequestException(`El plan "${def.name}" no está configurado. Contacta al administrador.`);
         }
 
-        const culqiSub = await this.culqiRequest('POST', '/subscriptions', {
+        // Flujo actual de Culqi (apidocs.culqi.com): cliente → tarjeta (con el token) → suscripción (con la tarjeta).
+        const customerId = await this.findOrCreateCulqiCustomer(placeId, userId, userEmail);
+        const card = await this.culqiRequest('POST', '/cards', { customer_id: customerId, token_id: token });
+        if (card.action_code === 'REVIEW' || !card.id) {
+            // ponytail: sin flujo 3DS en el checkout; si el banco lo exige, se pide otra tarjeta.
+            throw new BadRequestException(card.user_message || 'Tu banco pidió una verificación adicional. Prueba con otra tarjeta.');
+        }
+        const created = await this.culqiRequest('POST', '/recurrent/subscriptions/create', {
+            card_id: card.id,
             plan_id: planId,
-            token_id: token,
             tyc: true,
-            metadata: { userId, userEmail, tier },
+            metadata: { userId, placeId, tier },
         });
+        // La respuesta de crear no trae fechas ni cargos: se consulta la suscripción.
+        const culqiSub = await this.culqiRequest('GET', `/recurrent/subscriptions/${created.id}`).catch(() => ({}) as any);
+        const firstChargeId: string | undefined = culqiSub.periods?.charges?.charge_id;
+        const nextBilling = culqiSub.next_billing_date ? new Date(culqiSub.next_billing_date * 1000) : null;
 
-        const periodStart = culqiSub.current_period?.period_start
-            ? new Date(culqiSub.current_period.period_start * 1000)
-            : new Date();
-        const periodEnd = culqiSub.current_period?.period_end
-            ? new Date(culqiSub.current_period.period_end * 1000)
-            : new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
+        const periodStart = new Date();
+        // Si el primer cobro ya salió, el periodo llega hasta la próxima fecha de cobro. Si no, queda
+        // "hasta hoy" y la sincronización registra el pago cuando Culqi lo cobre (o pasa a pendiente si no).
+        const periodEnd = firstChargeId && nextBilling ? nextBilling : periodStart;
 
         let sub: Subscription;
         try {
@@ -164,15 +192,15 @@ export class SubscriptionsService {
                 this.subscriptionsRepo.create({
                     placeId,
                     userId,
-                    culqiSubscriptionId: culqiSub.id,
-                    culqiCustomerId: culqiSub.customer?.id,
+                    culqiSubscriptionId: created.id,
+                    culqiCustomerId: customerId,
                     culqiPlanId: planId,
-                    status: culqiSub.status || 'active',
+                    status: 'active',
                     tier,
                     amount: planAmount,
                     currency: 'PEN',
-                    cardLast4: culqiSub.card?.last_four,
-                    cardBrand: culqiSub.card?.brand,
+                    cardLast4: card.source?.last_four,
+                    cardBrand: card.source?.iin?.card_brand,
                     currentPeriodStart: periodStart,
                     currentPeriodEnd: periodEnd,
                 }),
@@ -186,19 +214,48 @@ export class SubscriptionsService {
             throw new ConflictException('Esta sede ya tiene una suscripción activa');
         }
 
-        await this.paymentsRepo.save(
-            this.paymentsRepo.create({
-                subscriptionId: sub.id,
-                userId,
-                culqiChargeId: culqiSub.charges?.data?.[0]?.id,
-                amount: planAmount,
-                currency: 'PEN',
-                status: 'paid',
-                paidAt: new Date(),
-            }),
-        );
+        if (firstChargeId) {
+            await this.paymentsRepo.save(
+                this.paymentsRepo.create({
+                    subscriptionId: sub.id,
+                    userId,
+                    culqiChargeId: firstChargeId,
+                    amount: planAmount,
+                    currency: 'PEN',
+                    status: 'paid',
+                    paidAt: new Date(),
+                }),
+            );
+        }
 
         return sub;
+    }
+
+    /** Culqi exige nombre, dirección y teléfono del cliente; se reusa si ya existe con ese correo. */
+    private async findOrCreateCulqiCustomer(placeId: string, userId: string, email: string): Promise<string> {
+        const found = await this.culqiRequest('GET', `/customers?email=${encodeURIComponent(email)}`).catch(() => null);
+        const existingId = found?.data?.[0]?.id;
+        if (existingId) return existingId;
+
+        const [user, place] = await Promise.all([
+            this.usersRepo.findOne({ where: { id: userId } }),
+            this.placesRepo.findOne({ where: { id: placeId } }),
+        ]);
+        const phone = (user?.phone || place?.phone || '').replace(/\D/g, '').slice(-9);
+        if (phone.length < 9) {
+            throw new BadRequestException('Para suscribirte necesitamos un teléfono de 9 dígitos: agrégalo en Mi cuenta o en los datos del local.');
+        }
+        const { firstName, lastName } = splitFullName(user?.fullName, place?.name || 'Cliente');
+        const customer = await this.culqiRequest('POST', '/customers', {
+            first_name: firstName,
+            last_name: lastName,
+            email,
+            address: place?.address || 'Lima',
+            address_city: 'Lima',
+            country_code: 'PE',
+            phone_number: phone,
+        });
+        return customer.id;
     }
 
     /** El plan de una SEDE — todo el equipo de esa sede lo hereda por igual. */
@@ -239,7 +296,7 @@ export class SubscriptionsService {
         if (!sub) throw new NotFoundException('Esta sede no tiene una suscripción activa');
 
         if (sub.culqiSubscriptionId) {
-            await this.culqiRequest('DELETE', `/subscriptions/${sub.culqiSubscriptionId}`).catch((err) =>
+            await this.culqiRequest('DELETE', `/recurrent/subscriptions/${sub.culqiSubscriptionId}`).catch((err) =>
                 this.logger.warn(`Could not cancel in Culqi: ${err.message}`),
             );
         }
@@ -296,6 +353,72 @@ export class SubscriptionsService {
             totalRevenue: Math.round((Number(totalRevRaw?.total) || 0) / 100),
             monthlyRevenue: Math.round((Number(monthRevRaw?.total) || 0) / 100),
         };
+    }
+
+    // --- Sincronización con Culqi (webhook + revisión diaria) ---
+    // El aviso de Culqi no se usa como dato: solo dispara una consulta a Culqi con la llave secreta.
+    // Así un aviso falso no puede activar ni extender ningún plan; a lo más adelanta una revisión.
+    private lastWebhookSyncAt = 0;
+    private syncing = false;
+
+    handleCulqiWebhook() {
+        // ponytail: una revisión por minuto como máximo; si llegan muchos avisos, la diaria cubre lo que falte.
+        if (Date.now() - this.lastWebhookSyncAt < 60_000) return;
+        this.lastWebhookSyncAt = Date.now();
+        this.syncAllWithCulqi().catch((err) => this.logger.error(`Culqi sync failed: ${err.message}`));
+    }
+
+    @Cron(CronExpression.EVERY_DAY_AT_6AM)
+    async syncAllWithCulqi() {
+        if (this.syncing || !this.secretKey) return;
+        this.syncing = true;
+        try {
+            const subs = await this.subscriptionsRepo.find({ where: { status: In(['active', 'past_due']) } });
+            for (const sub of subs) {
+                if (!sub.culqiSubscriptionId) continue;
+                try {
+                    await this.syncOneWithCulqi(sub);
+                } catch (err) {
+                    this.logger.warn(`Culqi sync ${sub.id}: ${err.message}`);
+                }
+            }
+        } finally {
+            this.syncing = false;
+        }
+    }
+
+    private async syncOneWithCulqi(sub: Subscription) {
+        const remote = await this.culqiRequest('GET', `/recurrent/subscriptions/${sub.culqiSubscriptionId}`);
+        const action = decideSync(sub, remote);
+        if (action.kind === 'none') return;
+
+        if (action.kind === 'renewed') {
+            sub.status = 'active';
+            sub.currentPeriodStart = action.periodStart;
+            sub.currentPeriodEnd = action.periodEnd;
+            await this.subscriptionsRepo.save(sub);
+            await this.paymentsRepo.save(
+                this.paymentsRepo.create({
+                    subscriptionId: sub.id,
+                    userId: sub.userId,
+                    culqiChargeId: action.chargeId,
+                    amount: sub.amount,
+                    currency: sub.currency || 'PEN',
+                    status: 'paid',
+                    paidAt: action.periodStart,
+                }),
+            );
+            this.logger.log(`Culqi: suscripción ${sub.id} renovada hasta ${action.periodEnd.toISOString()}`);
+        } else if (action.kind === 'canceled') {
+            sub.status = 'canceled';
+            sub.canceledAt = new Date();
+            await this.subscriptionsRepo.save(sub);
+            this.logger.log(`Culqi: suscripción ${sub.id} cancelada en Culqi`);
+        } else {
+            sub.status = 'past_due';
+            await this.subscriptionsRepo.save(sub);
+            this.logger.warn(`Culqi: suscripción ${sub.id} sin renovar, pasa a pago pendiente`);
+        }
     }
 
     getPlans() {
