@@ -77,7 +77,7 @@ export class LoyaltyService {
 
   // ── ESCANEO — acumular sello/puntos ─────────────────────────────────────
 
-  async scan(placeId: string, customerPhone: string, customerName?: string): Promise<{
+  async scan(placeId: string, customerPhone: string, customerName?: string, marketingConsent?: boolean): Promise<{
     card: LoyaltyCard;
     program: LoyaltyProgram;
     stampsEarned: number;
@@ -113,6 +113,12 @@ export class LoyaltyService {
 
     if (customerName && !card.customerName) {
       card.customerName = customerName;
+    }
+
+    // El cliente acepta recibir promociones al unirse. Solo se enciende; omitirlo en una visita no lo revoca.
+    if (marketingConsent === true && !card.marketingConsent) {
+      card.marketingConsent = true;
+      card.marketingConsentAt = new Date();
     }
 
     const stampsEarned = program.type === 'stamps' ? 1 : 0;

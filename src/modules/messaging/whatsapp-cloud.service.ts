@@ -33,6 +33,11 @@ export function buildMediaPayload(to: string, url: string, mime: string, caption
     return { to: toCloudPhone(to), type: kind, [kind]: media };
 }
 
+/** Parámetros del cuerpo de una plantilla: un texto por cada {{n}}. */
+export function buildBodyComponents(values: string[]) {
+    return values.length ? [{ type: 'body', parameters: values.map((text) => ({ type: 'text', text })) }] : [];
+}
+
 export function buildTemplatePayload(to: string, name: string, language: string, components: unknown[] = []) {
     return { to: toCloudPhone(to), type: 'template', template: { name, language: { code: language }, components } };
 }

@@ -32,6 +32,12 @@ export class Promotion {
     @Column({ name: 'is_active', default: true })
     isActive: boolean;
 
+    @Column({ name: 'discount_type', type: 'varchar', length: 20, nullable: true })
+    discountType: 'percentage' | 'fixed_amount' | null;
+
+    @Column({ name: 'discount_value', type: 'decimal', precision: 10, scale: 2, nullable: true })
+    discountValue: number | null;
+
     @Column({ name: 'place_id' })
     @Index()
     placeId: string;

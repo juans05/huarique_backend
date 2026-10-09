@@ -40,6 +40,24 @@ export class Broadcast {
     @Column({ name: 'messages_sent', default: 0 })
     messagesSent: number;
 
+    @Column({ name: 'messages_failed', default: 0 })
+    messagesFailed: number;
+
+    /** Cuántos mensajes se encolaron: sirve para saber cuándo terminó la campaña. */
+    @Column({ name: 'total_recipients', default: 0 })
+    totalRecipients: number;
+
+    /** Plantilla aprobada de WhatsApp (obligatoria para escribir fuera de las 24 h). */
+    @Column({ name: 'template_name', type: 'varchar', nullable: true })
+    templateName: string | null;
+
+    @Column({ name: 'template_language', default: 'es' })
+    templateLanguage: string;
+
+    /** Valores de {{1}}, {{2}}…; admite {nombre}. */
+    @Column({ name: 'body_variables', type: 'jsonb', nullable: true })
+    bodyVariables: string[] | null;
+
     @Column({ name: 'csv_import_id', nullable: true })
     csvImportId: string;
 

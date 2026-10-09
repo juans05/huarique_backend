@@ -11,10 +11,13 @@ import { PlaceVideo } from '../places/entities/place-video.entity';
 import { PlaceSubmission } from '../places/entities/place-submission.entity';
 import { PlaceClaim } from '../places/entities/place-claim.entity';
 import { Category } from '../places/entities/category.entity';
+import { Amenity } from '../places/entities/amenity.entity';
 import { Ubigeo } from '../ubigeo/entities/ubigeo.entity';
 import { Checkin } from '../checkins/entities/checkin.entity';
 import { User } from '../users/entities/user.entity';
 import { UsersService } from '../users/users.service';
+import { MailService } from '../../common/services/mail.service';
+import { randomBytes } from 'crypto';
 import { GamificationService } from '../gamification/gamification.service';
 import { AdminUpdatePlaceDto } from './dto/update-place.dto';
 import { ImportScrapedPlaceDto } from './dto/import-scraped-place.dto';
@@ -61,6 +64,12 @@ function extractGooglePlaceId(mapsUrl: string | undefined): string | null {
     return m ? m[1] : null;
 }
 
+// "url1, url2\nurl3" -> ['url1', 'url2', 'url3']
+function splitList(raw: string | undefined): string[] {
+    if (!raw) return [];
+    return raw.split(/[,\n]/).map((s) => s.trim()).filter(Boolean);
+}
+
 @Injectable()
 export class AdminService {
     constructor(
@@ -76,6 +85,8 @@ export class AdminService {
         private claimsRepository: Repository<PlaceClaim>,
         @InjectRepository(Category)
         private categoryRepository: Repository<Category>,
+        @InjectRepository(Amenity)
+        private amenityRepository: Repository<Amenity>,
         @InjectRepository(Ubigeo)
         private ubigeoRepository: Repository<Ubigeo>,
         @InjectRepository(Checkin)
@@ -92,6 +103,7 @@ export class AdminService {
         private wuarikesHereRepository: Repository<WuarikesHereRequest>,
         private usersService: UsersService,
         private gamificationService: GamificationService,
+        private mailService: MailService,
     ) { }
 
     async getDashboardStats() {
@@ -362,6 +374,17 @@ export class AdminService {
         return this.usersRepository.update(userId, { isBanned: false });
     }
 
+    /** Link para que el usuario elija una contraseña nueva; al guardarla también queda activada la cuenta. */
+    async sendAccessEmail(userId: string) {
+        const user = await this.usersRepository.findOne({ where: { id: userId } });
+        if (!user) throw new NotFoundException('Usuario no encontrado');
+
+        const resetCode = randomBytes(24).toString('hex');
+        await this.usersService.setVerificationCode(user.id, resetCode, 48 * 60 * 60 * 1000);
+        await this.mailService.sendAccessLink(user.email, user.fullName, resetCode);
+        return { message: `Correo enviado a ${user.email}` };
+    }
+
     async createUser(createUserDto: any) {
         const { email, password, fullName, role } = createUserDto;
 
@@ -371,10 +394,22 @@ export class AdminService {
             throw new BadRequestException('El usuario ya existe');
         }
 
-        const user = await this.usersService.create(email, password, fullName, true); // verified=true
+        // Queda sin verificar hasta que el usuario abra el link de activación (login lo bloquea mientras tanto).
+        const user = await this.usersService.create(email, password, fullName, false);
         if (role && role !== 'user') {
             await this.usersService.updateRole(user.id, role);
         }
+
+        const activationCode = randomBytes(24).toString('hex');
+        await this.usersService.setVerificationCode(user.id, activationCode, 48 * 60 * 60 * 1000);
+        try {
+            await this.mailService.sendAccountActivation(email, fullName, role, activationCode);
+        } catch (error) {
+            // Sin correo no hay forma de activarla: borrarla para que el admin pueda reintentar con el mismo email.
+            await this.usersRepository.delete(user.id);
+            throw error;
+        }
+
         const { passwordHash, ...safeUser } = user;
         return safeUser;
     }
@@ -418,12 +453,14 @@ export class AdminService {
     }
 
     /**
-     * Crea restaurantes en la BD a partir del CSV del scraper de Google Maps.
+     * Crea restaurantes en la BD a partir del CSV del scraper de Google Maps o de la
+     * plantilla Excel de carga manual (docs/plantilla-restaurantes.xlsx).
      * Idempotente: si un googlePlaceId ya existe, se salta. Devuelve el detalle
      * de importados/saltados/fallidos para que un script pueda repetir el lote.
      */
-    async importScrapedPlaces(rows: ImportScrapedPlaceDto[]) {
+    async importScrapedPlaces(rows: ImportScrapedPlaceDto[], adminUserId: string) {
         const categories = await this.categoryRepository.find();
+        const amenities = await this.amenityRepository.find();
         const existingSlugs = await this.placesRepository.find({ select: ['slug'] });
         const usedSlugs = new Set(existingSlugs.map((p) => p.slug).filter((s): s is string => !!s));
         const districtIdCache = new Map<string, string | null>();
@@ -442,11 +479,16 @@ export class AdminService {
                 }
 
                 const districtName = DISTRICT_ALIASES[row.district || ''] || row.district || '';
-                if (!districtIdCache.has(districtName)) {
-                    const ubigeo = districtName
-                        ? await this.ubigeoRepository.findOne({ where: { district: districtName } })
+                const districtCacheKey = [row.department, row.province, districtName].filter(Boolean).join('|');
+                if (!districtIdCache.has(districtCacheKey)) {
+                    const where: Record<string, string> = {};
+                    if (districtName) where.district = districtName;
+                    if (row.department) where.department = row.department.trim();
+                    if (row.province) where.province = row.province.trim();
+                    const ubigeo = Object.keys(where).length
+                        ? await this.ubigeoRepository.findOne({ where })
                         : null;
-                    districtIdCache.set(districtName, ubigeo?.id ?? null);
+                    districtIdCache.set(districtCacheKey, ubigeo?.id ?? null);
                 }
 
                 let slug = slugify(`${row.name}-${districtName}`) || `restaurante-${Date.now()}`;
@@ -464,6 +506,7 @@ export class AdminService {
                 const googleRating = row.rating != null && row.rating !== ''
                     ? parseFloat(String(row.rating))
                     : null;
+                const menuImageUrls = splitList(row.menuPhotos);
 
                 const place = this.placesRepository.create({
                     name: row.name.trim(),
@@ -474,9 +517,15 @@ export class AdminService {
                     location: lat != null && lng != null && Number.isFinite(lat) && Number.isFinite(lng)
                         ? { type: 'Point', coordinates: [lng, lat] }
                         : null,
-                    districtId: districtIdCache.get(districtName) ?? null,
+                    districtId: districtIdCache.get(districtCacheKey) ?? null,
                     categoryId: this.pickCategoryId(row.category, categories),
+                    amenities: this.pickAmenities(row.amenities, amenities),
                     coverImageUrl: row.imageUrl || null,
+                    menuImageUrls: menuImageUrls.length ? menuImageUrls : null,
+                    phone: row.phone?.trim() || null,
+                    website: row.website?.trim() || null,
+                    description: row.description?.trim() || null,
+                    openHoursText: row.schedule?.trim() || null,
                     googlePlaceId,
                     googleRating: Number.isFinite(googleRating) ? googleRating : null,
                     googleTotalReviews: Number.isFinite(reviewCount) ? reviewCount : 0,
@@ -492,7 +541,22 @@ export class AdminService {
                     },
                 });
 
-                await this.placesRepository.save(place);
+                const saved = await this.placesRepository.save(place);
+
+                const photoUrls = splitList(row.photos);
+                if (photoUrls.length) {
+                    await this.placePhotosRepository.save(
+                        photoUrls.map((url) => this.placePhotosRepository.create({ url, placeId: saved.id, userId: adminUserId })),
+                    );
+                }
+
+                const videoUrls = splitList(row.videos);
+                if (videoUrls.length) {
+                    await this.placeVideosRepository.save(
+                        videoUrls.map((url) => this.placeVideosRepository.create({ url, placeId: saved.id, userId: adminUserId })),
+                    );
+                }
+
                 imported++;
             } catch (err) {
                 failed++;
@@ -624,6 +688,13 @@ export class AdminService {
 
     private pickCategoryId(rawCategory: string | undefined, categories: Category[]): string | null {
         const norm = normalize(rawCategory || '');
+        if (!norm) return null;
+
+        // Match exacto contra el nombre real de la categoria (lo que ofrece el dropdown del Excel)
+        const exact = categories.find((c) => normalize(c.name) === norm);
+        if (exact) return exact.id;
+
+        // Fallback best-effort para texto libre (ej. categoria cruda del scraper de Google)
         for (const [re, name] of CATEGORY_KEYWORDS) {
             if (re.test(norm)) {
                 const cat = categories.find((c) => c.name === name);
@@ -631,5 +702,20 @@ export class AdminService {
             }
         }
         return null;
+    }
+
+    // "WiFi, Estacionam., Yape/Plin" -> ids de Amenity que matcheen por nombre (match exacto o parcial)
+    private pickAmenities(raw: string | undefined, amenities: Amenity[]): Amenity[] {
+        const names = splitList(raw).map(normalize);
+        if (!names.length) return [];
+        const matched: Amenity[] = [];
+        for (const wanted of names) {
+            const amenity = amenities.find((a) => {
+                const n = normalize(a.name);
+                return n === wanted || n.includes(wanted) || wanted.includes(n);
+            });
+            if (amenity && !matched.some((m) => m.id === amenity.id)) matched.push(amenity);
+        }
+        return matched;
     }
 }

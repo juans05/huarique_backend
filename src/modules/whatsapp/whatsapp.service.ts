@@ -5,6 +5,7 @@ import { WhatsAppNumber } from './entities/whatsapp-number.entity';
 import { ChatProcessorService } from '../chat/chat-processor.service';
 import { WhatsAppCloudService } from '../messaging/whatsapp-cloud.service';
 import { parseMetaWebhook } from './meta-webhook.util';
+import { isMetaEnabled } from '../messaging/meta-flag';
 
 @Injectable()
 export class WhatsappService {
@@ -25,6 +26,7 @@ export class WhatsappService {
         for (const msg of parseMetaWebhook(payload)) {
             const number = await this.whatsappNumberRepo.findOne({
                 where: { phoneNumberId: msg.phoneNumberId, isActive: true },
+                relations: ['place'],
             });
             if (!number) {
                 this.logger.warn(`Número desconocido (phone_number_id=${msg.phoneNumberId})`);
@@ -33,6 +35,10 @@ export class WhatsappService {
             // Un número que todavía entrega PlazBot no debe responderse también por acá (doble respuesta).
             if (number.provider !== 'meta') {
                 this.logger.warn(`Número ${number.phoneNumber} llegó por Meta pero su proveedor es "${number.provider}", se ignora`);
+                continue;
+            }
+            if (!isMetaEnabled(number.place)) {
+                this.logger.warn(`Número ${number.phoneNumber}: el local no activó el canal de Facebook, se ignora`);
                 continue;
             }
             if (msg.body == null) {

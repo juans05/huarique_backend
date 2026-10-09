@@ -218,10 +218,10 @@ export class UsersService {
         });
     }
 
-    async setVerificationCode(userId: string, code: string): Promise<void> {
+    async setVerificationCode(userId: string, code: string, ttlMs = 10 * 60 * 1000): Promise<void> {
         await this.usersRepository.update(userId, {
             verificationCode: code,
-            verificationCodeExpiresAt: new Date(Date.now() + 10 * 60 * 1000), // 10 mins
+            verificationCodeExpiresAt: new Date(Date.now() + ttlMs),
         });
     }
 

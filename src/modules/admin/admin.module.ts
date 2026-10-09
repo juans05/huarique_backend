@@ -9,6 +9,7 @@ import { PlaceSubmission } from '../places/entities/place-submission.entity';
 import { PlaceClaim } from '../places/entities/place-claim.entity';
 import { ComplaintBookEntry } from '../complaint-book/entities/complaint-book-entry.entity';
 import { Category } from '../places/entities/category.entity';
+import { Amenity } from '../places/entities/amenity.entity';
 import { Ubigeo } from '../ubigeo/entities/ubigeo.entity';
 import { UsersModule } from '../users/users.module';
 import { GamificationModule } from '../gamification/gamification.module';
@@ -28,6 +29,7 @@ import { WuarikesHereRequest } from '../places/entities/wuarikes-here-request.en
             PlaceSubmission,
             PlaceClaim,
             Category,
+            Amenity,
             Ubigeo,
             Checkin,
             User,

@@ -57,4 +57,35 @@ describe('LoyaltyService.getMyCards', () => {
     expect(result[0].latitude).toBe(-12.046);
     expect(result[0].longitude).toBe(-77.042);
   });
+
+  describe('scan: consentimiento de promociones', () => {
+    const program = { placeId: 'p1', type: 'stamps', stampsToReward: 10, minHoursBetweenVisits: 0, pointsPerVisit: 0, isActive: true };
+    const prep = () => {
+      programRepo.findOne.mockResolvedValue(program);
+      cardRepo.create.mockImplementation((v: any) => ({ marketingConsent: false, marketingConsentAt: null, ...v }));
+      cardRepo.save.mockImplementation(async (v: any) => v);
+      // el resto de repos (transacciones, wallet) se simulan solos con mockRepo
+    };
+
+    it('al unirse con el check marcado guarda el consentimiento y su fecha', async () => {
+      prep();
+      cardRepo.findOne.mockResolvedValue(null);
+      const res: any = await service.scan('p1', '51999999999', 'Ana', true).catch(() => null);
+      const saved = cardRepo.save.mock.calls[0]?.[0];
+      expect(saved?.marketingConsent ?? res?.card?.marketingConsent).toBe(true);
+      expect((saved ?? res?.card).marketingConsentAt).toBeInstanceOf(Date);
+    });
+
+    it('sin marcar, no acepta; y una visita posterior sin el check NO revoca lo aceptado', async () => {
+      prep();
+      cardRepo.findOne.mockResolvedValue(null);
+      await service.scan('p1', '51999999999', 'Ana').catch(() => null);
+      expect(cardRepo.save.mock.calls[0][0].marketingConsent).toBe(false);
+
+      cardRepo.save.mockClear();
+      cardRepo.findOne.mockResolvedValue({ placeId: 'p1', customerPhone: '51999999999', stamps: 1, points: 0, totalVisits: 1, marketingConsent: true, marketingConsentAt: new Date('2026-01-01'), lastVisitAt: null });
+      await service.scan('p1', '51999999999', 'Ana', false).catch(() => null);
+      expect(cardRepo.save.mock.calls[0][0].marketingConsent).toBe(true);
+    });
+  });
 });

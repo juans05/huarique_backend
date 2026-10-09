@@ -1,4 +1,4 @@
-import { Processor, WorkerHost } from '@nestjs/bullmq';
+import { OnWorkerEvent, Processor, WorkerHost } from '@nestjs/bullmq';
 import { Job } from 'bullmq';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
@@ -6,6 +6,10 @@ import { Broadcast } from './entities/broadcast.entity';
 import { Contact } from '../contacts/entities/contact.entity';
 import { WhatsappService } from '../whatsapp/whatsapp.service';
 import { CreditsService } from '../credits/credits.service';
+import { BroadcastService } from './broadcast.service';
+import { WhatsAppCloudService, buildBodyComponents } from '../messaging/whatsapp-cloud.service';
+import { renderVariables } from '../messaging/whatsapp-templates.util';
+import { isMetaEnabled } from '../messaging/meta-flag';
 
 @Processor('whatsapp-broadcast')
 export class BroadcastProcessor extends WorkerHost {
@@ -16,6 +20,8 @@ export class BroadcastProcessor extends WorkerHost {
         private contactRepo: Repository<Contact>,
         private whatsappService: WhatsappService,
         private creditsService: CreditsService,
+        private broadcastService: BroadcastService,
+        private cloud: WhatsAppCloudService,
     ) {
         super();
     }
@@ -26,35 +32,51 @@ export class BroadcastProcessor extends WorkerHost {
         try {
             const broadcast = await this.broadcastRepo.findOne({
                 where: { id: broadcastId },
-                relations: ['whatsappNumber']
+                relations: ['whatsappNumber', 'place']
             });
 
             if (!broadcast || broadcast.status !== 'SENDING') {
                 throw new Error(`Broadcast ${broadcastId} not found or not in SENDING state`);
             }
 
-            let personalizedText = broadcast.templateBody;
-
-            if (broadcast.useCsvMerge && contactId) {
-                const contact = await this.contactRepo.findOne({ where: { id: contactId } });
-                if (contact) {
-                    personalizedText = this.applyMergeMapping(personalizedText, broadcast.mergeMapping, contact);
-                } else {
-                    personalizedText = personalizedText.replace(/\{(\w+)\}/g, customerName || 'Amigo');
+            // FLUJO META (con el flag del local): plantilla aprobada por la API de WhatsApp Cloud.
+            if (isMetaEnabled(broadcast.place) && broadcast.whatsappNumber.provider === 'meta' && broadcast.templateName) {
+                let contactName = customerName as string | undefined;
+                if (broadcast.useCsvMerge && contactId) {
+                    contactName = (await this.contactRepo.findOne({ where: { id: contactId } }))?.name ?? contactName;
                 }
+                const values = renderVariables(broadcast.bodyVariables, { name: contactName });
+                await this.cloud.sendTemplate(broadcast.whatsappNumber, customerPhone, broadcast.templateName, broadcast.templateLanguage, buildBodyComponents(values));
+                await this.broadcastService.recordResult(broadcastId, true);
+                // Flujo Meta: el saldo nunca baja de cero. Si justo se agotó, el mensaje ya salió y no se cobra de más.
+                const charged = await this.creditsService.deductIfEnough(broadcast.placeId, 1, 'broadcast', broadcastId, `Mensaje enviado a ${customerPhone}`);
+                if (!charged) console.warn(`[Broadcast] ${broadcastId}: sin saldo para cobrar el mensaje a ${customerPhone}`);
+                return { success: true, customerPhone };
             } else {
-                personalizedText = personalizedText.replace('{nombre}', customerName || 'Amigo');
+                // FLUJO ANTERIOR (PlazBot / sin flag): igual que antes.
+                let personalizedText = broadcast.templateBody;
+
+                if (broadcast.useCsvMerge && contactId) {
+                    const contact = await this.contactRepo.findOne({ where: { id: contactId } });
+                    if (contact) {
+                        personalizedText = this.applyMergeMapping(personalizedText, broadcast.mergeMapping, contact);
+                    } else {
+                        personalizedText = personalizedText.replace(/\{(\w+)\}/g, customerName || 'Amigo');
+                    }
+                } else {
+                    personalizedText = personalizedText.replace('{nombre}', customerName || 'Amigo');
+                }
+
+                await this.whatsappService.sendWhatsAppMessage(
+                    broadcast.whatsappNumber.phoneNumberId,
+                    broadcast.whatsappNumber.whatsappApiToken,
+                    customerPhone,
+                    personalizedText
+                );
+
+                broadcast.messagesSent += 1;
+                await this.broadcastRepo.save(broadcast);
             }
-
-            await this.whatsappService.sendWhatsAppMessage(
-                broadcast.whatsappNumber.phoneNumberId,
-                broadcast.whatsappNumber.whatsappApiToken,
-                customerPhone,
-                personalizedText
-            );
-
-            broadcast.messagesSent += 1;
-            await this.broadcastRepo.save(broadcast);
 
             await this.creditsService.deduct(
                 broadcast.placeId,
@@ -69,6 +91,17 @@ export class BroadcastProcessor extends WorkerHost {
         } catch (error) {
             console.error(`[Broadcast Job FAILED] ${broadcastId} for ${customerPhone}:`, error);
             throw error;
+        }
+    }
+
+    // Solo el flujo Meta cuenta los fallos (las campañas anteriores no llevan total ni cierre automático).
+    @OnWorkerEvent('failed')
+    async onFailed(job: Job | undefined) {
+        if (!job?.data?.broadcastId) return;
+        if (job.attemptsMade < (job.opts?.attempts ?? 1)) return;
+        const b = await this.broadcastRepo.findOne({ where: { id: job.data.broadcastId }, relations: ['place', 'whatsappNumber'] });
+        if (b && b.totalRecipients > 0 && isMetaEnabled(b.place) && b.whatsappNumber?.provider === 'meta') {
+            await this.broadcastService.recordResult(b.id, false);
         }
     }
 

@@ -192,6 +192,13 @@ export class AdminWhatsAppNumbersController {
         if (!number) throw new NotFoundException('Número no encontrado');
         number.provider = body.provider;
         await this.whatsappNumberRepo.save(number);
+        if (body.provider === 'meta') {
+            const place = await this.placesRepo.findOne({ where: { id: number.placeId } });
+            if (place) {
+                place.metadata = { ...(place.metadata ?? {}), whatsappMetaEnabled: true };
+                await this.placesRepo.save(place);
+            }
+        }
         return { id: number.id, provider: number.provider };
     }
 

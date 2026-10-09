@@ -124,6 +124,28 @@ export class PlacesService {
             }
         }
 
+        const loyaltyExists = `EXISTS (
+            SELECT 1 FROM wuarike_db.loyalty_programs lp
+            WHERE lp.place_id = place.id AND lp.is_active = true
+        )`;
+        const promotionExists = `EXISTS (
+            SELECT 1 FROM wuarike_db.promotions p
+            WHERE p.place_id = place.id AND p.is_active = true
+            AND (p.starts_at IS NULL OR p.starts_at <= now())
+            AND (p.ends_at IS NULL OR p.ends_at >= now())
+        )`;
+
+        queryBuilder.addSelect(loyaltyExists, 'has_loyalty');
+        queryBuilder.addSelect(promotionExists, 'has_promotion');
+
+        if (query.hasLoyalty) {
+            queryBuilder.andWhere(loyaltyExists);
+        }
+
+        if (query.hasBenefit) {
+            queryBuilder.andWhere(`(${loyaltyExists} OR ${promotionExists})`);
+        }
+
         if (openNow) {
             const now = `(now() AT TIME ZONE 'America/Lima')::time`;
             const today = `lower(to_char(now() AT TIME ZONE 'America/Lima', 'Dy'))`;
@@ -182,13 +204,13 @@ export class PlacesService {
         // (it only hydrates entity columns), so use getRawAndEntities() and
         // reattach distance onto each entity by position.
         const { entities, raw } = await queryBuilder.getRawAndEntities();
-        if (hasOrigin) {
-            entities.forEach((entity, i) => {
-                if (raw[i]?.distance !== undefined) {
-                    entity.distance = parseFloat(raw[i].distance);
-                }
-            });
-        }
+        entities.forEach((entity, i) => {
+            entity.hasActiveLoyaltyProgram = !!raw[i]?.has_loyalty;
+            entity.hasActiveBenefit = !!raw[i]?.has_loyalty || !!raw[i]?.has_promotion;
+            if (hasOrigin && raw[i]?.distance !== undefined) {
+                entity.distance = parseFloat(raw[i].distance);
+            }
+        });
 
         // Transform entities to DTOs
         const transformedData = plainToInstance(PlaceResponseDto, entities, {
@@ -527,7 +549,7 @@ export class PlacesService {
             `SELECT DISTINCT u.id, u.full_name, u.avatar_url
        FROM checkins c
        JOIN users u ON u.id = c.user_id
-       WHERE c.place_id = $1 AND c.user_id = ANY($2::uuid[])`,
+       WHERE c.place_id = $1 AND c.user_id = ANY($2::uuid[]) AND c.is_suspicious = false`,
             [placeId, followingIds],
         );
 
@@ -555,7 +577,7 @@ export class PlacesService {
         }
 
         const checkinsCount = await this.placesRepository.manager.query(
-            `SELECT COUNT(*) as total FROM checkins WHERE place_id = $1`,
+            `SELECT COUNT(*) as total FROM checkins WHERE place_id = $1 AND is_suspicious = false`,
             [placeId],
         );
         const COMMUNITY_VERIFIED_THRESHOLD = 10;

@@ -255,6 +255,14 @@ export class PlaceResponseDto {
     @Expose()
     distance?: number;
 
+    @ApiPropertyOptional({ description: 'Whether this place has an active loyalty program' })
+    @Expose()
+    hasActiveLoyaltyProgram?: boolean;
+
+    @ApiPropertyOptional({ description: 'Whether this place has an active loyalty program or an active promotion' })
+    @Expose()
+    hasActiveBenefit?: boolean;
+
     @ApiPropertyOptional({ type: [String] })
     @Expose()
     @Transform(({ obj }) => obj.tags?.map((tag: any) => tag.name) || [])

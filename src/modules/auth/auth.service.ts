@@ -242,6 +242,8 @@ export class AuthService {
 
         const passwordHash = await bcrypt.hash(dto.password, 10);
         await this.usersService.updatePassword(user.id, passwordHash);
+        // El código llegó a su correo, así que también prueba que el email es suyo.
+        if (!user.isVerified) await this.usersService.markVerified(user.id);
 
         return { message: 'Contraseña actualizada exitosamente' };
     }
