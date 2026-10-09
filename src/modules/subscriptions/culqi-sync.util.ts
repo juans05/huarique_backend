@@ -22,7 +22,7 @@ export interface CulqiSubLike {
 
 export type SyncAction =
     | { kind: 'none' }
-    | { kind: 'renewed'; periodStart: Date; periodEnd: Date; chargeId?: string }
+    | { kind: 'renewed'; periodStart: Date; periodEnd: Date; chargeId: string }
     | { kind: 'canceled' }
     | { kind: 'past_due' };
 
@@ -36,12 +36,14 @@ export function decideSync(local: LocalSubState, remote: CulqiSubLike, now = new
     const remoteEnd = new Date(next * 1000);
     const localEnd = local.currentPeriodEnd ? new Date(local.currentPeriodEnd) : null;
 
-    // Cobró: la próxima fecha de cobro de Culqi avanzó (1 día de margen por redondeos del alta).
-    if (!localEnd || remoteEnd.getTime() > localEnd.getTime() + DAY_MS) {
-        return { kind: 'renewed', periodStart: localEnd ?? now, periodEnd: remoteEnd, chargeId: remote.periods?.charges?.charge_id };
+    // Posible cobro: la próxima fecha de Culqi avanzó (1 día de margen por redondeos del alta) Y hay un cargo.
+    // Es solo un candidato: el servicio lo confirma consultando el cargo en Culqi antes de dar acceso.
+    const chargeId = remote.periods?.charges?.charge_id;
+    if (chargeId && (!localEnd || remoteEnd.getTime() > localEnd.getTime() + DAY_MS)) {
+        return { kind: 'renewed', periodStart: localEnd ?? now, periodEnd: remoteEnd, chargeId };
     }
 
-    if (local.status === 'active' && localEnd && now.getTime() > localEnd.getTime() + GRACE_DAYS * DAY_MS) {
+    if ((local.status === 'active' || local.status === 'pending') && localEnd && now.getTime() > localEnd.getTime() + GRACE_DAYS * DAY_MS) {
         return { kind: 'past_due' };
     }
     return { kind: 'none' };
