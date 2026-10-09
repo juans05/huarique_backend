@@ -85,7 +85,8 @@ export class CreditsService {
 
     async add(placeId: string, amount: number, type: 'purchase' | 'bonus' | 'refund', description?: string): Promise<CreditTransaction> {
         return this.dataSource.transaction(async (manager) => {
-            let balance = await manager.findOne(CreditBalance, { where: { placeId } });
+            // Bloquea la fila igual que deductIfEnough: una devolución simultánea a un cobro no debe pisarlo.
+            let balance = await manager.findOne(CreditBalance, { where: { placeId }, lock: { mode: 'pessimistic_write' } });
             if (!balance) {
                 balance = manager.create(CreditBalance, { placeId });
             }

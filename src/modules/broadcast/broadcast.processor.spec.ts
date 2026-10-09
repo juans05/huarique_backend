@@ -5,7 +5,7 @@ const build = (broadcast: any) => {
     const broadcastRepo = { findOne: jest.fn().mockResolvedValue(broadcast), save: jest.fn(async (b: any) => b) };
     const contactRepo = { findOne: jest.fn().mockResolvedValue(null) };
     const whatsapp = { sendWhatsAppMessage: jest.fn().mockResolvedValue(undefined) };
-    const credits = { deduct: jest.fn().mockResolvedValue(undefined), deductIfEnough: jest.fn().mockResolvedValue(true) };
+    const credits = { deduct: jest.fn().mockResolvedValue(undefined), deductIfEnough: jest.fn().mockResolvedValue(true), add: jest.fn().mockResolvedValue(undefined) };
     const service = { recordResult: jest.fn().mockResolvedValue(undefined) };
     const cloud = { sendTemplate: jest.fn().mockResolvedValue('wamid.1') };
     const p = new BroadcastProcessor(broadcastRepo as any, contactRepo as any, whatsapp as any, credits as any, service as any, cloud as any);
@@ -45,13 +45,22 @@ describe('BroadcastProcessor', () => {
         expect(service.recordResult).not.toHaveBeenCalled();
     });
 
-    it('si Meta falla no cuenta como enviado ni cobra crédito', async () => {
+    it('si Meta falla no cuenta como enviado y devuelve el crédito cobrado', async () => {
         const { p, cloud, service, credits } = build({ ...base, whatsappNumber: { provider: 'meta', phoneNumberId: 'PN1' } });
         cloud.sendTemplate.mockRejectedValue(new Error('Template not approved'));
         await expect(p.process(job)).rejects.toThrow('Template not approved');
         expect(service.recordResult).not.toHaveBeenCalled();
-        expect(credits.deductIfEnough).not.toHaveBeenCalled();
+        expect(credits.deductIfEnough).toHaveBeenCalledTimes(1);
+        expect(credits.add).toHaveBeenCalledWith('p1', 1, 'refund', expect.any(String));
         expect(credits.deduct).not.toHaveBeenCalled();
+    });
+
+    it('sin saldo no envía nada y cuenta el mensaje como fallido', async () => {
+        const { p, cloud, service, credits } = build({ ...base, whatsappNumber: { provider: 'meta', phoneNumberId: 'PN1' } });
+        credits.deductIfEnough.mockResolvedValue(false);
+        await p.process(job);
+        expect(cloud.sendTemplate).not.toHaveBeenCalled();
+        expect(service.recordResult).toHaveBeenCalledWith('b1', false);
     });
 
     it('flujo anterior: sigue cobrando con deduct, como antes', async () => {
