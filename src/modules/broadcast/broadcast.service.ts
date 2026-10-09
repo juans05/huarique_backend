@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, LessThanOrEqual } from 'typeorm';
 import { Queue } from 'bullmq';
@@ -36,6 +36,12 @@ export class BroadcastService {
     async createBroadcast(data: any) {
         const scheduledAt = data.scheduledAt ? new Date(data.scheduledAt) : null;
         const isFuture = scheduledAt && scheduledAt > new Date();
+
+        // El controlador valida el acceso a placeId, no al número: sin esto se podría enviar desde el número de otro local.
+        const number = await this.whatsappNumberRepo.findOne({ where: { id: data.whatsappNumberId } });
+        if (!number || number.placeId !== data.placeId) {
+            throw new BadRequestException('El número de WhatsApp no pertenece a este local.');
+        }
 
         const broadcast = this.broadcastRepo.create({
             placeId: data.placeId,

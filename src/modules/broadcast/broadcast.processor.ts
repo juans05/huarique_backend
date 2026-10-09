@@ -46,11 +46,22 @@ export class BroadcastProcessor extends WorkerHost {
                     contactName = (await this.contactRepo.findOne({ where: { id: contactId } }))?.name ?? contactName;
                 }
                 const values = renderVariables(broadcast.bodyVariables, { name: contactName });
-                await this.cloud.sendTemplate(broadcast.whatsappNumber, customerPhone, broadcast.templateName, broadcast.templateLanguage, buildBodyComponents(values));
-                await this.broadcastService.recordResult(broadcastId, true);
-                // Flujo Meta: el saldo nunca baja de cero. Si justo se agotó, el mensaje ya salió y no se cobra de más.
+                // Se cobra ANTES de enviar: el chequeo de saldo al lanzar no reserva nada, así que dos campañas
+                // simultáneas pasarían ambas. Sin saldo, el mensaje no sale.
                 const charged = await this.creditsService.deductIfEnough(broadcast.placeId, 1, 'broadcast', broadcastId, `Mensaje enviado a ${customerPhone}`);
-                if (!charged) console.warn(`[Broadcast] ${broadcastId}: sin saldo para cobrar el mensaje a ${customerPhone}`);
+                if (!charged) {
+                    console.warn(`[Broadcast] ${broadcastId}: sin saldo, no se envía a ${customerPhone}`);
+                    await this.broadcastService.recordResult(broadcastId, false);
+                    return { success: false, customerPhone };
+                }
+                try {
+                    await this.cloud.sendTemplate(broadcast.whatsappNumber, customerPhone, broadcast.templateName, broadcast.templateLanguage, buildBodyComponents(values));
+                } catch (err) {
+                    // El envío falló: se devuelve el crédito (el reintento de BullMQ vuelve a cobrar).
+                    await this.creditsService.add(broadcast.placeId, 1, 'refund', `Devolución: falló el envío a ${customerPhone}`);
+                    throw err;
+                }
+                await this.broadcastService.recordResult(broadcastId, true);
                 return { success: true, customerPhone };
             } else {
                 // FLUJO ANTERIOR (PlazBot / sin flag): igual que antes.
