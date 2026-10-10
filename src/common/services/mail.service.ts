@@ -139,7 +139,7 @@ export class MailService {
     async sendAccountActivation(email: string, fullName: string, role: string, code: string) {
         const esc = (s: string) => s.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]!));
         const activationUrl = `${this.frontendUrl}/activar?email=${encodeURIComponent(email)}&code=${code}`;
-        const roleLabel = role === 'admin' ? 'administrador' : 'negocio';
+        const roleLabel = role === 'admin' ? 'administrador' : role === 'sales' ? 'comercial' : 'negocio';
         try {
             const { data, error } = await this.resend.emails.send({
                 from: 'Wuarike <auth@wuarikes.com>',

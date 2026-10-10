@@ -27,6 +27,10 @@ export class Subscription {
     @JoinColumn({ name: 'place_id' })
     place: Place;
 
+    // Comercial congelado al crear la suscripción: cobra sus comisiones aunque el local se reasigne después.
+    @Column({ name: 'sales_user_id', type: 'uuid', nullable: true })
+    salesUserId: string | null;
+
     // Quién lo pagó (tarjeta en Culqi a su nombre) — solo para trazabilidad/soporte,
     // ya no se usa para resolver acceso.
     @Column({ name: 'user_id' })
