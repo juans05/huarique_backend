@@ -198,7 +198,7 @@ export class UsersService {
         await this.usersRepository.increment({ id: userId }, 'totalPoints', points);
     }
 
-    async updateRole(userId: string, role: 'user' | 'admin' | 'business'): Promise<void> {
+    async updateRole(userId: string, role: 'user' | 'admin' | 'business' | 'sales'): Promise<void> {
         await this.usersRepository.update(userId, { role });
     }
 

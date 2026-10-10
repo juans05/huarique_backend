@@ -195,6 +195,13 @@ export class Place {
     })
     commercialStatus: 'nuevo' | 'contactado' | 'reunion' | 'negociacion' | 'afiliado' | 'no_interesado' | null;
 
+    // Comercial asignado (spec comisiones). null = local libre.
+    @Column({ name: 'assigned_sales_user_id', type: 'uuid', nullable: true })
+    assignedSalesUserId: string | null;
+
+    @Column({ name: 'sales_assigned_at', type: 'timestamptz', nullable: true })
+    salesAssignedAt: Date | null;
+
     @ManyToOne(() => User, { nullable: true })
     @JoinColumn({ name: 'claimed_by_user_id' })
     claimedBy: User;
