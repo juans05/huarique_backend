@@ -126,7 +126,7 @@ export class PlacesService {
 
         const loyaltyExists = `EXISTS (
             SELECT 1 FROM wuarike_db.loyalty_programs lp
-            WHERE lp.place_id = place.id AND lp.is_active = true
+            WHERE lp.place_id = place.id::text AND lp.is_active = true
         )`;
         const promotionExists = `EXISTS (
             SELECT 1 FROM wuarike_db.promotions p
