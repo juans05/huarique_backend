@@ -55,7 +55,7 @@ export class User {
     phone: string; // Usado para vincular la tarjeta de fidelización por restaurante
 
     @Column({ default: 'user' })
-    role: 'user' | 'admin' | 'business';
+    role: 'user' | 'admin' | 'business' | 'sales';
 
     @Column({ name: 'total_points', default: 0 })
     totalPoints: number;
