@@ -641,6 +641,8 @@ export class AdminService {
             .leftJoinAndSelect('place.district', 'district')
             .leftJoin(Checkin, 'checkin', 'checkin.placeId = place.id')
             .leftJoin(FavoritePlace, 'favorite', 'favorite.placeId = place.id')
+            .leftJoin(User, 'salesUser', 'salesUser.id = place.assignedSalesUserId')
+            .addSelect('salesUser.fullName', 'assignedSalesUserName')
             .addSelect('COUNT(DISTINCT checkin.id)', 'checkinsCount')
             .addSelect('COUNT(DISTINCT favorite.id)', 'favoritesCount')
             .where('place.claimedByUserId IS NULL')
@@ -650,7 +652,7 @@ export class AdminService {
             query.andWhere('place.commercialStatus = :commercialStatus', { commercialStatus: status });
         }
 
-        query.groupBy('place.id').addGroupBy('district.id');
+        query.groupBy('place.id').addGroupBy('district.id').addGroupBy('salesUser.id');
 
         const raw = await query.getRawAndEntities();
         return raw.entities
@@ -659,7 +661,7 @@ export class AdminService {
                 const checkinsCount = parseInt(row.checkinsCount || 0, 10);
                 const favoritesCount = parseInt(row.favoritesCount || 0, 10);
                 const score = checkinsCount * 3 + favoritesCount * 2 + (place.totalReviews || 0);
-                return { ...place, checkinsCount, favoritesCount, score };
+                return { ...place, checkinsCount, favoritesCount, score, assignedSalesUserName: row.assignedSalesUserName ?? null };
             })
             .sort((a, b) => b.score - a.score);
     }
@@ -669,6 +671,26 @@ export class AdminService {
         if (!place) throw new NotFoundException('Local no encontrado');
         place.commercialStatus = status as any;
         await this.placesRepository.save(place);
+    }
+
+    async listSalesUsers() {
+        const users = await this.usersRepository.find({ where: { role: 'sales' }, order: { fullName: 'ASC' } });
+        return users.map((u) => ({ id: u.id, fullName: u.fullName, email: u.email }));
+    }
+
+    // Solo el admin reasigna; las suscripciones ya creadas conservan su comercial (congelado en subscriptions.sales_user_id).
+    async assignSalesUser(placeId: string, salesUserId: string | null) {
+        const place = await this.placesRepository.findOne({ where: { id: placeId } });
+        if (!place) throw new NotFoundException('Local no encontrado');
+        if (salesUserId) {
+            const user = await this.usersRepository.findOne({ where: { id: salesUserId } });
+            if (user?.role !== 'sales') throw new BadRequestException('El usuario elegido no es comercial');
+        }
+        await this.placesRepository.update(placeId, {
+            assignedSalesUserId: salesUserId,
+            salesAssignedAt: salesUserId ? new Date() : null,
+        });
+        return { message: salesUserId ? 'Comercial asignado' : 'Local liberado' };
     }
 
     async getWuarikesHereRequests(status?: string): Promise<WuarikesHereRequest[]> {
