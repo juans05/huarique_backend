@@ -43,6 +43,19 @@ export class AdminController {
         return { message: 'Estado actualizado' };
     }
 
+    @Get('sales-users')
+    @ApiOperation({ summary: 'Usuarios con rol comercial (para asignar locales)' })
+    async listSalesUsers() {
+        return this.adminService.listSalesUsers();
+    }
+
+    @Patch('places/:placeId/sales-user')
+    @ApiOperation({ summary: 'Asignar, reasignar o liberar el comercial de un local' })
+    @ApiParam({ name: 'placeId', description: 'Place UUID' })
+    async assignSalesUser(@Param('placeId') placeId: string, @Body('salesUserId') salesUserId: string | null) {
+        return this.adminService.assignSalesUser(placeId, salesUserId || null);
+    }
+
     @Get('wuarikes-here-requests')
     @ApiOperation({ summary: 'Solicitudes de "Quiero Wuarikes aquí"' })
     @ApiQuery({ name: 'status', required: false, type: String })
