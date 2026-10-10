@@ -17,7 +17,7 @@ const build = (o: { sub?: any; seller?: any; payments?: any[]; settings?: any; f
     const usersRepo = { findOne: jest.fn().mockResolvedValue(o.seller ?? null) };
     const audit = { log: jest.fn().mockResolvedValue(undefined) };
     const svc = new CommissionsService(settingsRepo as any, entriesRepo as any, {} as any, subscriptionsRepo as any, paymentsRepo as any, usersRepo as any, audit as any, {} as any);
-    return { svc, entriesRepo, settingsRepo, audit };
+    return { svc, entriesRepo, settingsRepo, audit, paymentsRepo };
 };
 
 const sub = { id: 's1', placeId: 'p1', salesUserId: 'u1' };
@@ -59,6 +59,12 @@ describe('CommissionsService.recordForPayment', () => {
         await expect(svc.recordForPayment('s1', 'pay1')).rejects.toThrow('db down');
     });
 
+    it('ordena pagos con el mismo paidAt por createdAt e id (desempate estable)', async () => {
+        const { svc, paymentsRepo } = build({ sub, seller, payments: pays(1) });
+        await svc.recordForPayment('s1', 'pay1');
+        expect(paymentsRepo.find).toHaveBeenCalledWith(expect.objectContaining({ order: { paidAt: 'ASC', createdAt: 'ASC', id: 'ASC' } }));
+    });
+
     it('usa la configuración vigente: con 50 % el primer mes da 9950', async () => {
         const { svc, entriesRepo } = build({ sub, seller, payments: pays(1), settings: { ...settingsRow, firstMonthRate: 0.5 } });
         await svc.recordForPayment('s1', 'pay1');
@@ -98,6 +104,18 @@ describe('CommissionsService.updateSettings', () => {
     it('rechaza valores fuera de rango', async () => {
         const { svc, settingsRepo } = build({});
         await expect(svc.updateSettings({ firstMonthRate: 1.5 }, 'admin1')).rejects.toThrow(/porcentaje/i);
+        expect(settingsRepo.save).not.toHaveBeenCalled();
+    });
+
+    it('ignora valores null/undefined/vacíos en vez de convertirlos en 0', async () => {
+        const { svc, settingsRepo } = build({});
+        await svc.updateSettings({ firstMonthRate: null as any, recurringRate: 0.2 }, 'admin1');
+        expect(settingsRepo.save).toHaveBeenCalledWith(expect.objectContaining({ firstMonthRate: 0.7, recurringRate: 0.2 }));
+    });
+
+    it('rechaza valores no numéricos', async () => {
+        const { svc, settingsRepo } = build({});
+        await expect(svc.updateSettings({ firstMonthRate: 'abc' as any }, 'admin1')).rejects.toThrow();
         expect(settingsRepo.save).not.toHaveBeenCalled();
     });
 

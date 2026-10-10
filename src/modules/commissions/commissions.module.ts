@@ -8,12 +8,14 @@ import { Subscription } from '../subscriptions/entities/subscription.entity';
 import { Payment } from '../subscriptions/entities/payment.entity';
 import { User } from '../users/entities/user.entity';
 import { AuditLogModule } from '../audit-log/audit-log.module';
+import { AdminCommissionsController } from './admin-commissions.controller';
 
 @Module({
     imports: [
         TypeOrmModule.forFeature([CommissionSettings, CommissionEntry, CommissionPayout, Subscription, Payment, User]),
         AuditLogModule,
     ],
+    controllers: [AdminCommissionsController],
     providers: [CommissionsService],
     exports: [CommissionsService],
 })

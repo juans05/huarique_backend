@@ -1,7 +1,7 @@
-import { BadRequestException, Injectable, Logger } from '@nestjs/common';
+import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { OnEvent } from '@nestjs/event-emitter';
-import { DataSource, Repository } from 'typeorm';
+import { DataSource, IsNull, LessThan, Repository } from 'typeorm';
 import { CommissionSettings } from './entities/commission-settings.entity';
 import { CommissionEntry } from './entities/commission-entry.entity';
 import { CommissionPayout } from './entities/commission-payout.entity';
@@ -15,6 +15,7 @@ import {
     DEFAULT_COMMISSION_SETTINGS,
     clawbackFor,
     commissionForPayment,
+    periodEnd,
     validateSettings,
 } from './commission-rules.util';
 
@@ -53,7 +54,11 @@ export class CommissionsService {
     async updateSettings(patch: Partial<CommissionSettingsValues>, adminId: string) {
         const clean: Partial<CommissionSettingsValues> = {};
         for (const k of ['firstMonthRate', 'recurringRate', 'recurringMonths', 'clawbackDays'] as const) {
-            if (patch[k] !== undefined) clean[k] = Number(patch[k]);
+            const v: unknown = typeof patch[k] === 'string' ? (patch[k] as string).trim() : patch[k];
+            if (v === undefined || v === null || v === '') continue; // Number(null) === 0 bajaría la tasa a 0 sin avisar
+            const n = typeof v === 'number' || typeof v === 'string' ? Number(v) : NaN;
+            if (!Number.isFinite(n)) throw new BadRequestException(`Valor inválido para ${k}`);
+            clean[k] = n;
         }
         const error = validateSettings(clean);
         if (error) throw new BadRequestException(error);
@@ -105,7 +110,7 @@ export class CommissionsService {
 
         const payments = await this.paymentsRepo.find({
             where: { subscriptionId, status: 'paid' },
-            order: { paidAt: 'ASC', createdAt: 'ASC' },
+            order: { paidAt: 'ASC', createdAt: 'ASC', id: 'ASC' },
         });
         const index = payments.findIndex((p) => p.id === paymentId);
         if (index === -1) return null;
@@ -133,5 +138,80 @@ export class CommissionsService {
             if (isUniqueViolation(err)) return null; // ya registrada (webhook + revisión diaria a la vez)
             throw err;
         }
+    }
+
+    // --- Liquidaciones ---
+
+    async generatePayouts(period: string): Promise<CommissionPayout[]> {
+        let end: Date;
+        try {
+            end = periodEnd(period);
+        } catch (err) {
+            throw new BadRequestException(err.message);
+        }
+        const sellers: { salesUserId: string }[] = await this.entriesRepo
+            .createQueryBuilder('e')
+            .select('DISTINCT e.sales_user_id', 'salesUserId')
+            .where('e.payout_id IS NULL')
+            .andWhere('e.created_at < :end', { end })
+            .getRawMany();
+
+        const created: CommissionPayout[] = [];
+        for (const { salesUserId } of sellers) {
+            const payout = await this.dataSource.transaction(async (manager) => {
+                // Bloquea las líneas para que otra generación simultánea no las tome también.
+                const lines = await manager.find(CommissionEntry, {
+                    where: { salesUserId, payoutId: IsNull(), createdAt: LessThan(end) },
+                    lock: { mode: 'pessimistic_write' },
+                });
+                const total = lines.reduce((s, l) => s + l.amount, 0);
+                if (total <= 0) return null; // se acumulan para el siguiente cierre
+                const saved = await manager.save(
+                    CommissionPayout,
+                    manager.create(CommissionPayout, { salesUserId, period, totalAmount: total, status: 'pending' }),
+                );
+                await manager.update(CommissionEntry, lines.map((l) => l.id), { payoutId: saved.id });
+                return saved;
+            });
+            if (payout) created.push(payout);
+        }
+        return created;
+    }
+
+    async listPayouts(filter: { period?: string; salesUserId?: string }) {
+        const where: any = {};
+        if (filter.period) where.period = filter.period;
+        if (filter.salesUserId) where.salesUserId = filter.salesUserId;
+        const rows = await this.payoutsRepo.find({ where, relations: ['salesUser'], order: { createdAt: 'DESC' } });
+        return rows.map(({ salesUser, ...p }) => ({ ...p, salesUserName: salesUser?.fullName ?? '' }));
+    }
+
+    async getPayout(id: string, salesUserId?: string) {
+        const row = await this.payoutsRepo.findOne({ where: { id }, relations: ['salesUser'] });
+        if (!row || (salesUserId && row.salesUserId !== salesUserId)) throw new NotFoundException('Liquidación no encontrada');
+        const { salesUser, ...rest } = row;
+        const payout = { ...rest, salesUserName: salesUser?.fullName ?? '' };
+        const entries = await this.entriesRepo.find({ where: { payoutId: id }, relations: ['place'], order: { createdAt: 'ASC' } });
+        return { payout, entries: entries.map(({ place, ...e }) => ({ ...e, placeName: place?.name ?? '' })) };
+    }
+
+    async markPaid(id: string, adminId: string, note?: string) {
+        const payout = await this.payoutsRepo.findOne({ where: { id } });
+        if (!payout) throw new NotFoundException('Liquidación no encontrada');
+        if (payout.status === 'paid') throw new BadRequestException('Esta liquidación ya está pagada.');
+        return this.payoutsRepo.save({ ...payout, status: 'paid', paidAt: new Date(), paidByUserId: adminId, note: note?.trim() || null });
+    }
+
+    async cancelPayout(id: string) {
+        const payout = await this.payoutsRepo.findOne({ where: { id } });
+        if (!payout) throw new NotFoundException('Liquidación no encontrada');
+        if (payout.status === 'paid') throw new BadRequestException('Esta liquidación ya está pagada: no se puede anular.');
+        await this.payoutsRepo.delete(id); // ON DELETE SET NULL libera sus líneas
+    }
+
+    async listEntries(salesUserId: string) {
+        const entries = await this.entriesRepo.find({ where: { salesUserId }, relations: ['place'], order: { createdAt: 'DESC' } });
+        const pendingTotal = entries.filter((e) => e.payoutId === null).reduce((s, e) => s + e.amount, 0);
+        return { pendingTotal, entries: entries.map(({ place, ...e }) => ({ ...e, placeName: place?.name ?? '' })) };
     }
 }
