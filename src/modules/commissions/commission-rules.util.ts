@@ -24,13 +24,16 @@ export interface CommissionLine {
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
+// Rate en puntos básicos antes de multiplicar: evita errores de float (45 × 0.7 = 31.4999… → debe ser 32).
+const pct = (base: number, rate: number) => Math.round((base * Math.round(rate * 10000)) / 10000);
+
 export function commissionForPayment(paymentNumber: number, baseAmount: number, s: CommissionSettingsValues): CommissionLine | null {
     if (paymentNumber < 1 || baseAmount <= 0) return null;
     let line: CommissionLine | null = null;
     if (paymentNumber === 1) {
-        line = { type: 'first_month', monthNumber: 1, rate: s.firstMonthRate, amount: Math.round(baseAmount * s.firstMonthRate) };
+        line = { type: 'first_month', monthNumber: 1, rate: s.firstMonthRate, amount: pct(baseAmount, s.firstMonthRate) };
     } else if (paymentNumber <= 1 + s.recurringMonths) {
-        line = { type: 'recurring', monthNumber: paymentNumber, rate: s.recurringRate, amount: Math.round(baseAmount * s.recurringRate) };
+        line = { type: 'recurring', monthNumber: paymentNumber, rate: s.recurringRate, amount: pct(baseAmount, s.recurringRate) };
     }
     return line && line.amount > 0 ? line : null;
 }
