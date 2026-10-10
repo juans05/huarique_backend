@@ -9,6 +9,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, In } from 'typeorm';
 import { ConfigService } from '@nestjs/config';
 import { Cron, CronExpression } from '@nestjs/schedule';
+import { EventEmitter2 } from '@nestjs/event-emitter';
 import { Subscription } from './entities/subscription.entity';
 import { CULQI_STATUS, decideSync, splitFullName } from './culqi-sync.util';
 import { User } from '../users/entities/user.entity';
@@ -87,6 +88,7 @@ export class SubscriptionsService {
         @InjectRepository(User)
         private usersRepo: Repository<User>,
         private configService: ConfigService,
+        private eventEmitter: EventEmitter2,
     ) { }
 
     private get secretKey() {
@@ -180,6 +182,8 @@ export class SubscriptionsService {
         const periodStart = new Date();
         const periodEnd = firstPaid && nextBilling ? nextBilling : periodStart;
 
+        const place = await this.placesRepo.findOne({ where: { id: placeId } });
+
         let sub: Subscription;
         try {
             sub = await this.subscriptionsRepo.save(
@@ -197,6 +201,7 @@ export class SubscriptionsService {
                     cardBrand: card.source?.iin?.card_brand,
                     currentPeriodStart: periodStart,
                     currentPeriodEnd: periodEnd,
+                    salesUserId: place?.assignedSalesUserId ?? null,
                 }),
             );
         } catch (error) {
@@ -209,7 +214,7 @@ export class SubscriptionsService {
         }
 
         if (firstPaid) {
-            await this.paymentsRepo.save(
+            const payment = await this.paymentsRepo.save(
                 this.paymentsRepo.create({
                     subscriptionId: sub.id,
                     userId,
@@ -220,6 +225,7 @@ export class SubscriptionsService {
                     paidAt: new Date(),
                 }),
             );
+            this.eventEmitter.emit('subscription.payment.recorded', { subscriptionId: sub.id, paymentId: payment.id });
         }
 
         return sub;
@@ -308,7 +314,9 @@ export class SubscriptionsService {
         }
         sub.status = 'canceled';
         sub.canceledAt = new Date();
-        return this.subscriptionsRepo.save(sub);
+        const saved = await this.subscriptionsRepo.save(sub);
+        this.eventEmitter.emit('subscription.canceled', { subscriptionId: sub.id, canceledAt: sub.canceledAt });
+        return saved;
     }
 
     async getAllSubscriptions(page = 1, limit = 20) {
@@ -414,22 +422,26 @@ export class SubscriptionsService {
             sub.currentPeriodStart = action.periodStart;
             sub.currentPeriodEnd = action.periodEnd;
             await this.subscriptionsRepo.save(sub);
-            if (!alreadyRecorded) await this.paymentsRepo.save(
-                this.paymentsRepo.create({
-                    subscriptionId: sub.id,
-                    userId: sub.userId,
-                    culqiChargeId: action.chargeId,
-                    amount: sub.amount,
-                    currency: sub.currency || 'PEN',
-                    status: 'paid',
-                    paidAt: action.periodStart,
-                }),
-            );
+            if (!alreadyRecorded) {
+                const payment = await this.paymentsRepo.save(
+                    this.paymentsRepo.create({
+                        subscriptionId: sub.id,
+                        userId: sub.userId,
+                        culqiChargeId: action.chargeId,
+                        amount: sub.amount,
+                        currency: sub.currency || 'PEN',
+                        status: 'paid',
+                        paidAt: action.periodStart,
+                    }),
+                );
+                this.eventEmitter.emit('subscription.payment.recorded', { subscriptionId: sub.id, paymentId: payment.id });
+            }
             this.logger.log(`Culqi: suscripción ${sub.id} renovada hasta ${action.periodEnd.toISOString()}`);
         } else if (action.kind === 'canceled') {
             sub.status = 'canceled';
             sub.canceledAt = new Date();
             await this.subscriptionsRepo.save(sub);
+            this.eventEmitter.emit('subscription.canceled', { subscriptionId: sub.id, canceledAt: sub.canceledAt });
             this.logger.log(`Culqi: suscripción ${sub.id} cancelada en Culqi`);
         } else {
             sub.status = 'past_due';
