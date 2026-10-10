@@ -14,6 +14,12 @@ describe('commissionForPayment', () => {
     it('redondea al céntimo', () => {
         expect(commissionForPayment(1, 7999, S)!.amount).toBe(5599); // 5599.3
     });
+    it('medio céntimo exacto no se pierde por float (45 × 0.7 = 31.5 → 32)', () => {
+        expect(commissionForPayment(1, 45, S)!.amount).toBe(32);
+    });
+    it('medio céntimo exacto en recurrente (85 × 0.1 = 8.5 → 9)', () => {
+        expect(commissionForPayment(2, 85, { ...S, recurringRate: 0.1 })!.amount).toBe(9);
+    });
     it('otra configuración mueve los límites', () => {
         const c = { firstMonthRate: 0.5, recurringRate: 0.05, recurringMonths: 3, clawbackDays: 15 };
         expect(commissionForPayment(1, 10000, c)!.amount).toBe(5000);
@@ -41,6 +47,15 @@ describe('clawbackFor', () => {
     });
     it('sin comisión de primer mes → nada', () => {
         expect(clawbackFor(null, paid, new Date('2026-11-02T00:00:00Z'), S)).toBeNull();
+    });
+    it('cancela exactamente a los 30 días → línea negativa', () => {
+        expect(clawbackFor(first, paid, new Date(paid.getTime() + 30 * 24 * 60 * 60 * 1000), S)).toEqual({ type: 'clawback', monthNumber: 1, rate: -0.7, amount: -13930 });
+    });
+    it('cancela a los 30 días + 1 ms → nada', () => {
+        expect(clawbackFor(first, paid, new Date(paid.getTime() + 30 * 24 * 60 * 60 * 1000 + 1), S)).toBeNull();
+    });
+    it('sin fecha de primer pago → nada', () => {
+        expect(clawbackFor(first, null, new Date('2026-11-02T00:00:00Z'), S)).toBeNull();
     });
 });
 
