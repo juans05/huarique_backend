@@ -1,5 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import axios from 'axios';
+import { plazbotWebhookUrl } from './plazbot-webhook.util';
 
 @Injectable()
 export class PlazBotService {
@@ -255,8 +256,8 @@ export class PlazBotService {
   }
 
   async registerWebhook(apiKey: string, workspaceId: string, phoneNumber: string): Promise<void> {
-    const webhookUrl = `${process.env.BACKEND_URL || 'https://backendwarike-production.up.railway.app'}/api/webhooks/plazbot`;
-    this.logger.log(`[registerWebhook] Registrando webhook phone=${phoneNumber} workspace=${workspaceId} url=${webhookUrl}`);
+    const webhookUrl = plazbotWebhookUrl();
+    this.logger.log(`[registerWebhook] Registrando webhook phone=${phoneNumber} workspace=${workspaceId}`);
     try {
       const response = await axios.post(
         `${this.baseUrl}/api/workspace/${workspaceId}/whatsapp/numbers/${phoneNumber}/webhook`,

@@ -9,6 +9,7 @@ import { RolesGuard } from '../../common/guards/roles.guard';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { WhatsAppCloudService } from '../messaging/whatsapp-cloud.service';
 import { MetaConnectService } from './meta-connect.service';
+import { plazbotWebhookUrl } from '../plazbot/plazbot-webhook.util';
 
 // PlazBot no expone un endpoint REST para registrar webhooks (confirmado en
 // docs/plazbot-pendientes.md tras revisar su openapi.json completo — solo existe
@@ -17,11 +18,6 @@ import { MetaConnectService } from './meta-connect.service';
 function getMetaWebhookUrl(): string {
     const base = process.env.BACKEND_URL || 'https://backendwarike-production.up.railway.app';
     return `${base}/api/business/webhooks/whatsapp`;
-}
-
-function getPlazbotWebhookUrl(): string {
-    const base = process.env.BACKEND_URL || 'https://backendwarike-production.up.railway.app';
-    return `${base}/api/webhooks/plazbot`;
 }
 
 // Meta/PlazBot mandan el número del webhook entrante solo con dígitos (sin "+" ni espacios) —
@@ -63,7 +59,6 @@ export class WhatsAppNumbersController {
         return {
             id: saved.id,
             phoneNumber: saved.phoneNumber,
-            webhookUrl: getPlazbotWebhookUrl(),
             status: 'Número registrado. Configura el webhook manualmente en el dashboard de PlazBot.',
         };
     }
@@ -87,7 +82,6 @@ export class WhatsAppNumbersController {
                 createdAt: n.createdAt,
             })),
             total: numbers.length,
-            webhookUrl: getPlazbotWebhookUrl(),
         };
     }
 
@@ -144,7 +138,7 @@ export class AdminWhatsAppNumbersController {
         return {
             id: saved.id,
             phoneNumber: saved.phoneNumber,
-            webhookUrl: getPlazbotWebhookUrl(),
+            webhookUrl: plazbotWebhookUrl(),
             status: 'Número registrado. Configura el webhook manualmente en el dashboard de PlazBot.',
         };
     }
@@ -167,7 +161,7 @@ export class AdminWhatsAppNumbersController {
                 createdAt: n.createdAt,
             })),
             total: numbers.length,
-            webhookUrl: getPlazbotWebhookUrl(),
+            webhookUrl: plazbotWebhookUrl(),
             metaWebhookUrl: getMetaWebhookUrl(),
         };
     }

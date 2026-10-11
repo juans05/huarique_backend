@@ -8,6 +8,8 @@ import { BotMenuOptionService } from './bot-menu-option.service';
 import { SubscriptionTierGuard } from '../../common/guards/subscription-tier.guard';
 import { RequiresTier } from '../../common/decorators/requires-tier.decorator';
 import { PlaceTeamService } from '../team/place-team.service';
+import { RolesGuard } from '../../common/guards/roles.guard';
+import { Roles } from '../../common/decorators/roles.decorator';
 
 // `config`/`configure` son por sede — el plan se resuelve vía la sede (dueño o
 // equipo), no vía el guard genérico. El resto de las rutas de este controller
@@ -37,7 +39,6 @@ export class PlazbotConfigController {
       tone: config?.tone || 'professional',
       isActive: config?.isActive ?? true,
       responseMode: config?.responseMode || 'ai',
-      webhookUrl: this.getWebhookUrl(),
     };
   }
 
@@ -61,7 +62,7 @@ export class PlazbotConfigController {
       tone: dto.tone,
       responseMode: dto.responseMode,
     });
-    return { ...saved, webhookUrl: this.getWebhookUrl() };
+    return saved;
   }
 
   // ── Opciones del menú de botones (modo "menu") ──
@@ -95,7 +96,6 @@ export class PlazbotConfigController {
     return {
       connected: !!(apiKey && workspaceId),
       workspaceId: workspaceId || null,
-      webhookUrl: this.getWebhookUrl(),
     };
   }
 
@@ -116,8 +116,8 @@ export class PlazbotConfigController {
     return this.templateService.findAll();
   }
 
-  @UseGuards(SubscriptionTierGuard)
-  @RequiresTier('ia_total')
+  @UseGuards(RolesGuard)
+  @Roles('admin')
   @Post('template')
   async createTemplate(
     @Body() dto: {
@@ -135,37 +135,37 @@ export class PlazbotConfigController {
     return this.templateService.createAndSubmit(dto);
   }
 
-  @UseGuards(SubscriptionTierGuard)
-  @RequiresTier('ia_total')
+  @UseGuards(RolesGuard)
+  @Roles('admin')
   @Post('templates/:id/resend')
   async resendTemplate(@Param('id') id: string) {
     return this.templateService.resend(id);
   }
 
-  @UseGuards(SubscriptionTierGuard)
-  @RequiresTier('ia_total')
+  @UseGuards(RolesGuard)
+  @Roles('admin')
   @Post('templates/sync')
   async syncTemplates() {
     return this.templateService.syncStatuses();
   }
 
-  @UseGuards(SubscriptionTierGuard)
-  @RequiresTier('ia_total')
+  @UseGuards(RolesGuard)
+  @Roles('admin')
   @Delete('templates/:id')
   @HttpCode(204)
   async deleteTemplate(@Param('id') id: string) {
     await this.templateService.delete(id);
   }
 
-  @UseGuards(SubscriptionTierGuard)
-  @RequiresTier('ia_total')
+  @UseGuards(RolesGuard)
+  @Roles('admin')
   @Post('templates/:id/toggle')
   async toggleTemplate(@Param('id') id: string) {
     return this.templateService.toggle(id);
   }
 
-  @UseGuards(SubscriptionTierGuard)
-  @RequiresTier('ia_total')
+  @UseGuards(RolesGuard)
+  @Roles('admin')
   @Put('templates/:id')
   async updateTemplate(
     @Param('id') id: string,
@@ -185,10 +185,10 @@ export class PlazbotConfigController {
     return this.plazBotAdvanced.updateTemplate(apiKey, workspaceId, id, dto);
   }
 
-  // ── Envío de mensajes ──
+  // ── Envío de mensajes ── (solo admin: usan la cuenta global de PlazBot de Wuarikes)
 
-  @UseGuards(SubscriptionTierGuard)
-  @RequiresTier('ia_total')
+  @UseGuards(RolesGuard)
+  @Roles('admin')
   @Post('send-template')
   async sendTemplate(
     @Body() dto: { template: string; destination: string; variablesBody?: { variable: string; value: string }[] },
@@ -197,8 +197,8 @@ export class PlazbotConfigController {
     return this.plazBotAdvanced.sendTemplateMessage(apiKey, workspaceId, dto);
   }
 
-  @UseGuards(SubscriptionTierGuard)
-  @RequiresTier('ia_total')
+  @UseGuards(RolesGuard)
+  @Roles('admin')
   @Post('campaign')
   async createCampaign(
     @Body() dto: { name: string; templateId: string; contacts: string[] },
@@ -214,9 +214,4 @@ export class PlazbotConfigController {
     };
   }
 
-  private getWebhookUrl(): string {
-    const base = process.env.BACKEND_URL || '';
-    if (!base) return '';
-    return `${base}/webhooks/plazbot`;
-  }
 }
