@@ -1,9 +1,10 @@
-import { Controller, Post, Body, Logger } from '@nestjs/common';
+import { Controller, Post, Body, Logger, Query, UnauthorizedException } from '@nestjs/common';
 import * as Sentry from '@sentry/nestjs';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { ChatProcessorService } from './chat-processor.service';
 import { WhatsAppNumber } from '../whatsapp/entities/whatsapp-number.entity';
+import { isValidPlazbotSecret } from '../plazbot/plazbot-webhook.util';
 
 @Controller('webhooks/plazbot')
 export class PlazBotWebhookController {
@@ -16,7 +17,12 @@ export class PlazBotWebhookController {
   ) {}
 
   @Post()
-  async handleWebhook(@Body() payload: any) {
+  async handleWebhook(@Body() payload: any, @Query('secret') secret?: string) {
+    if (!isValidPlazbotSecret(secret)) {
+      this.logger.warn('[webhook] Secreto inválido o ausente: llamada rechazada');
+      throw new UnauthorizedException();
+    }
+    if (!process.env.PLAZBOT_WEBHOOK_SECRET) this.logger.warn('[webhook] PLAZBOT_WEBHOOK_SECRET no configurado: el webhook acepta cualquier llamada');
     this.logger.log(`[webhook] Payload recibido: ${JSON.stringify(payload)}`);
 
     // Formato WhatsApp Business API (enviado por PlazBot)

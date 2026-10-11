@@ -1,5 +1,6 @@
 import { Entity, PrimaryGeneratedColumn, Column, ManyToOne, CreateDateColumn, UpdateDateColumn } from 'typeorm';
 import { User } from '../../users/entities/user.entity';
+import { encryptTransformer } from '../../../common/utils/encryption-transformer';
 
 @Entity('tenant_plazbot_configs')
 export class TenantPlazbotConfig {
@@ -12,7 +13,7 @@ export class TenantPlazbotConfig {
   @Column()
   userId: string;
 
-  @Column()
+  @Column({ transformer: encryptTransformer })
   plazBotApiKey: string;
 
   @Column()

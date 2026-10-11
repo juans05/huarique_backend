@@ -62,6 +62,7 @@ describe('MenuService', () => {
                 description: dto.description,
                 placeId,
                 displayOrder: 0,
+                categoryType: 'food',
             });
             expect(categoryRepo.save).toHaveBeenCalledWith(built);
             expect(result).toEqual(saved);
@@ -120,7 +121,7 @@ describe('MenuService', () => {
             categoryRepo.findOne.mockResolvedValue(existing);
             categoryRepo.save.mockResolvedValue(updated);
 
-            const result = await service.updateCategory('cat-1', dto);
+            const result = await service.updateCategory('p1', 'cat-1', dto);
 
             expect(categoryRepo.save).toHaveBeenCalledWith({ ...existing, ...dto });
             expect(result.name).toBe('Entradas Frías');
@@ -129,8 +130,19 @@ describe('MenuService', () => {
         it('throws NotFoundException when category does not exist', async () => {
             categoryRepo.findOne.mockResolvedValue(null);
 
-            await expect(service.updateCategory('non-existent', { name: 'X' }))
+            await expect(service.updateCategory('p1', 'non-existent', { name: 'X' }))
                 .rejects.toThrow(NotFoundException);
+        });
+
+        it('busca por id y placeId, e ignora id/placeId que vengan en el body', async () => {
+            const existing = { id: 'cat-1', name: 'Entradas', placeId: 'p1' };
+            categoryRepo.findOne.mockResolvedValue(existing);
+            categoryRepo.save.mockImplementation(async (c) => c);
+
+            await service.updateCategory('p1', 'cat-1', { name: 'Fondos', id: 'cat-otro', placeId: 'p2' } as any);
+
+            expect(categoryRepo.findOne).toHaveBeenCalledWith({ where: { id: 'cat-1', placeId: 'p1' } });
+            expect(categoryRepo.save).toHaveBeenCalledWith({ id: 'cat-1', name: 'Fondos', placeId: 'p1' });
         });
     });
 
@@ -141,7 +153,7 @@ describe('MenuService', () => {
             const category = { id: 'cat-1', name: 'Entradas', dishes: [] };
             categoryRepo.findOne.mockResolvedValue(category);
 
-            await service.deleteCategory('cat-1');
+            await service.deleteCategory('p1', 'cat-1');
 
             expect(categoryRepo.remove).toHaveBeenCalledWith(category);
         });
@@ -149,7 +161,7 @@ describe('MenuService', () => {
         it('throws NotFoundException when category does not exist', async () => {
             categoryRepo.findOne.mockResolvedValue(null);
 
-            await expect(service.deleteCategory('non-existent'))
+            await expect(service.deleteCategory('p1', 'non-existent'))
                 .rejects.toThrow(NotFoundException);
         });
     });
@@ -163,20 +175,19 @@ describe('MenuService', () => {
             const built = { ...dto, placeId, displayOrder: 0 };
             const saved = { id: 'dish-1', ...built };
 
+            categoryRepo.count.mockResolvedValue(1);
             dishRepo.create.mockReturnValue(built);
             dishRepo.save.mockResolvedValue(saved);
 
             const result = await service.createDish(placeId, dto);
 
-            expect(dishRepo.create).toHaveBeenCalledWith({
+            expect(dishRepo.create).toHaveBeenCalledWith(expect.objectContaining({
                 name: dto.name,
                 price: dto.price,
                 categoryId: dto.categoryId,
                 placeId,
-                description: undefined,
-                imageUrl: undefined,
                 displayOrder: 0,
-            });
+            }));
             expect(dishRepo.save).toHaveBeenCalledWith(built);
             expect(result).toEqual(saved);
         });
@@ -205,7 +216,7 @@ describe('MenuService', () => {
             dishRepo.findOne.mockResolvedValue(existing);
             dishRepo.save.mockResolvedValue(updated);
 
-            const result = await service.updateDish('dish-1', dto);
+            const result = await service.updateDish('p1', 'dish-1', dto);
 
             expect(dishRepo.save).toHaveBeenCalledWith({ ...existing, ...dto });
             expect(result.price).toBe(35);
@@ -214,8 +225,17 @@ describe('MenuService', () => {
         it('throws NotFoundException when dish does not exist', async () => {
             dishRepo.findOne.mockResolvedValue(null);
 
-            await expect(service.updateDish('non-existent', { name: 'X' }))
+            await expect(service.updateDish('p1', 'non-existent', { name: 'X' }))
                 .rejects.toThrow(NotFoundException);
+        });
+
+        it('rechaza mover el plato a una categoría de otro local', async () => {
+            dishRepo.findOne.mockResolvedValue({ id: 'dish-1', placeId: 'p1' });
+            categoryRepo.count.mockResolvedValue(0);
+
+            await expect(service.updateDish('p1', 'dish-1', { categoryId: 'cat-de-otro' }))
+                .rejects.toThrow(NotFoundException);
+            expect(dishRepo.save).not.toHaveBeenCalled();
         });
     });
 
@@ -226,7 +246,7 @@ describe('MenuService', () => {
             const dish = { id: 'dish-1', name: 'Ceviche' };
             dishRepo.findOne.mockResolvedValue(dish);
 
-            await service.deleteDish('dish-1');
+            await service.deleteDish('p1', 'dish-1');
 
             expect(dishRepo.remove).toHaveBeenCalledWith(dish);
         });
@@ -234,7 +254,7 @@ describe('MenuService', () => {
         it('throws NotFoundException when dish does not exist', async () => {
             dishRepo.findOne.mockResolvedValue(null);
 
-            await expect(service.deleteDish('non-existent'))
+            await expect(service.deleteDish('p1', 'non-existent'))
                 .rejects.toThrow(NotFoundException);
         });
     });

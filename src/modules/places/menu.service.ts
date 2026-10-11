@@ -111,15 +111,21 @@ export class MenuService {
         });
     }
 
-    async updateCategory(categoryId: string, dto: UpdateCategoryDto): Promise<MenuCategory> {
-        const category = await this.categoryRepo.findOne({ where: { id: categoryId } });
+    // Siempre se busca por id Y placeId: así nadie toca la carta de otro local cambiando el id en la URL.
+    async updateCategory(placeId: string, categoryId: string, dto: UpdateCategoryDto): Promise<MenuCategory> {
+        const category = await this.categoryRepo.findOne({ where: { id: categoryId, placeId } });
         if (!category) throw new NotFoundException(`Categoría ${categoryId} no encontrada`);
-        return this.categoryRepo.save({ ...category, ...dto });
+        // Campos uno por uno: un `id` o `placeId` en el body no debe llegar a la base.
+        if (dto.name !== undefined) category.name = dto.name;
+        if (dto.description !== undefined) category.description = dto.description;
+        if (dto.displayOrder !== undefined) category.displayOrder = dto.displayOrder;
+        if (dto.categoryType !== undefined) category.categoryType = dto.categoryType;
+        return this.categoryRepo.save(category);
     }
 
-    async deleteCategory(categoryId: string): Promise<void> {
+    async deleteCategory(placeId: string, categoryId: string): Promise<void> {
         const category = await this.categoryRepo.findOne({
-            where: { id: categoryId },
+            where: { id: categoryId, placeId },
             relations: ['dishes'],
         });
         if (!category) throw new NotFoundException(`Categoría ${categoryId} no encontrada`);
@@ -127,6 +133,7 @@ export class MenuService {
     }
 
     async createDish(placeId: string, dto: CreateDishDto): Promise<Dish> {
+        await this.assertCategoryOfPlace(placeId, dto.categoryId);
         const dish = this.dishRepo.create({
             name: dto.name,
             price: dto.price,
@@ -144,9 +151,10 @@ export class MenuService {
         return this.dishRepo.save(dish);
     }
 
-    async updateDish(dishId: string, dto: UpdateDishDto): Promise<Dish> {
-        const dish = await this.dishRepo.findOne({ where: { id: dishId } });
+    async updateDish(placeId: string, dishId: string, dto: UpdateDishDto): Promise<Dish> {
+        const dish = await this.dishRepo.findOne({ where: { id: dishId, placeId } });
         if (!dish) throw new NotFoundException(`Plato ${dishId} no encontrado`);
+        await this.assertCategoryOfPlace(placeId, dto.categoryId);
 
         if (dto.name !== undefined) dish.name = dto.name;
         if (dto.price !== undefined) dish.price = dto.price;
@@ -163,9 +171,16 @@ export class MenuService {
         return this.dishRepo.save(dish);
     }
 
-    async deleteDish(dishId: string): Promise<void> {
-        const dish = await this.dishRepo.findOne({ where: { id: dishId } });
+    async deleteDish(placeId: string, dishId: string): Promise<void> {
+        const dish = await this.dishRepo.findOne({ where: { id: dishId, placeId } });
         if (!dish) throw new NotFoundException(`Plato ${dishId} no encontrado`);
         await this.dishRepo.remove(dish);
+    }
+
+    // Un plato no puede colgar de la categoría de otro local.
+    private async assertCategoryOfPlace(placeId: string, categoryId: string | undefined): Promise<void> {
+        if (!categoryId) return;
+        const exists = await this.categoryRepo.count({ where: { id: categoryId, placeId } });
+        if (!exists) throw new NotFoundException(`Categoría ${categoryId} no encontrada`);
     }
 }

@@ -1,5 +1,6 @@
 import { Entity, PrimaryGeneratedColumn, Column, ManyToOne, JoinColumn, CreateDateColumn, UpdateDateColumn } from 'typeorm';
 import { Place } from '../../places/entities/place.entity';
+import { encryptTransformer } from '../../../common/utils/encryption-transformer';
 
 @Entity('whatsapp_numbers')
 export class WhatsAppNumber {
@@ -19,7 +20,7 @@ export class WhatsAppNumber {
     @Column({ name: 'phone_number_id' })
     phoneNumberId: string;
 
-    @Column({ name: 'whatsapp_api_token', type: 'text', nullable: true })
+    @Column({ name: 'whatsapp_api_token', type: 'text', nullable: true, transformer: encryptTransformer })
     whatsappApiToken: string | null;
 
     /** Quién entrega los mensajes de este número: la API de WhatsApp Cloud (Meta) o PlazBot (legado). */

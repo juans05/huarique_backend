@@ -12,6 +12,11 @@ import { WalletCampaign } from './entities/wallet-campaign.entity';
 import { WhatsAppNumber } from '../whatsapp/entities/whatsapp-number.entity';
 import { WhatsappService } from '../whatsapp/whatsapp.service';
 import { Place } from '../places/entities/place.entity';
+import { pick } from '../../common/utils/pick';
+
+// Campos que el dueño puede escribir; id, placeId y fechas los pone el servidor.
+const PROGRAM_FIELDS = ['type', 'stampsToReward', 'pointsPerVisit', 'minHoursBetweenVisits', 'rewardTitle', 'rewardDescription', 'welcomeMessage', 'isActive', 'winbackEnabled', 'winbackMessage'] as const;
+const REWARD_FIELDS = ['title', 'description', 'stampsCost', 'pointsCost', 'isActive'] as const;
 
 const MAX_WALLET_CAMPAIGNS_PER_DAY = 3;
 const WINBACK_INACTIVITY_DAYS = 30;
@@ -38,7 +43,8 @@ export class LoyaltyService {
     return this.programRepo.findOne({ where: { placeId } });
   }
 
-  async upsertProgram(placeId: string, data: Partial<LoyaltyProgram>): Promise<LoyaltyProgram> {
+  async upsertProgram(placeId: string, body: unknown): Promise<LoyaltyProgram> {
+    const data = pick<LoyaltyProgram, keyof LoyaltyProgram>(body, PROGRAM_FIELDS);
     let program = await this.programRepo.findOne({ where: { placeId } });
     if (!program) {
       program = this.programRepo.create({ placeId, ...data });
@@ -318,16 +324,20 @@ export class LoyaltyService {
     return this.rewardRepo.find({ where: { placeId, isActive: true } });
   }
 
-  async upsertReward(placeId: string, rewardId: string | null, data: Partial<Reward>) {
+  async upsertReward(placeId: string, rewardId: string | null, body: unknown) {
+    const data = pick<Reward, keyof Reward>(body, REWARD_FIELDS);
     if (rewardId) {
-      await this.rewardRepo.update(rewardId, data);
-      return this.rewardRepo.findOne({ where: { id: rewardId } });
+      // id + placeId: un dueño no puede editar premios de otro local.
+      const result = await this.rewardRepo.update({ id: rewardId, placeId }, data);
+      if (!result.affected) throw new NotFoundException('Premio no encontrado');
+      return this.rewardRepo.findOne({ where: { id: rewardId, placeId } });
     }
-    return this.rewardRepo.save(this.rewardRepo.create({ placeId, ...data }));
+    return this.rewardRepo.save(this.rewardRepo.create({ ...data, placeId }));
   }
 
-  async deleteReward(rewardId: string) {
-    await this.rewardRepo.update(rewardId, { isActive: false });
+  async deleteReward(placeId: string, rewardId: string) {
+    const result = await this.rewardRepo.update({ id: rewardId, placeId }, { isActive: false });
+    if (!result.affected) throw new NotFoundException('Premio no encontrado');
   }
 
   // ── MIS TARJETAS — agregado del cliente en todos los restaurantes ───────

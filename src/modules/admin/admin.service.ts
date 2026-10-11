@@ -386,7 +386,9 @@ export class AdminService {
     }
 
     async createUser(createUserDto: any) {
-        const { email, password, fullName, role } = createUserDto;
+        const { email, password, fullName, role } = createUserDto ?? {};
+        if (!email || !password || !fullName) throw new BadRequestException('Nombre, correo y contraseña son obligatorios');
+        if (role && !['user', 'business', 'admin', 'sales'].includes(role)) throw new BadRequestException('Rol no válido');
 
         // Check if exists
         const exists = await this.usersRepository.findOne({ where: { email } });
