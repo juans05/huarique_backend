@@ -630,13 +630,15 @@ El prompt debe:
     }
 
     @Patch('places/:id/menu/categories/:categoryId')
-    async updateCategory(@Param('categoryId') categoryId: string, @Body() body: any) {
-        return this.menuService.updateCategory(categoryId, body);
+    async updateCategory(@CurrentUser() user: any, @Param('id') id: string, @Param('categoryId') categoryId: string, @Body() body: any) {
+        await this.assertOwnsPlace(id, user.id);
+        return this.menuService.updateCategory(id, categoryId, body);
     }
 
     @Delete('places/:id/menu/categories/:categoryId')
-    async deleteCategory(@Param('categoryId') categoryId: string) {
-        await this.menuService.deleteCategory(categoryId);
+    async deleteCategory(@CurrentUser() user: any, @Param('id') id: string, @Param('categoryId') categoryId: string) {
+        await this.assertOwnsPlace(id, user.id);
+        await this.menuService.deleteCategory(id, categoryId);
         return { message: 'Categoría eliminada' };
     }
 
@@ -716,14 +718,22 @@ El prompt debe:
     }
 
     @Patch('places/:id/menu/items/:dishId')
-    async updateDish(@Param('dishId') dishId: string, @Body() body: any) {
-        return this.menuService.updateDish(dishId, body);
+    async updateDish(@CurrentUser() user: any, @Param('id') id: string, @Param('dishId') dishId: string, @Body() body: any) {
+        await this.assertOwnsPlace(id, user.id);
+        return this.menuService.updateDish(id, dishId, body);
     }
 
     @Delete('places/:id/menu/items/:dishId')
-    async deleteDish(@Param('dishId') dishId: string) {
-        await this.menuService.deleteDish(dishId);
+    async deleteDish(@CurrentUser() user: any, @Param('id') id: string, @Param('dishId') dishId: string) {
+        await this.assertOwnsPlace(id, user.id);
+        await this.menuService.deleteDish(id, dishId);
         return { message: 'Plato eliminado' };
+    }
+
+    private async assertOwnsPlace(placeId: string, userId: string): Promise<void> {
+        const place = await this.placesRepo.findOne({ where: { id: placeId } });
+        if (!place) throw new NotFoundException('Local no encontrado');
+        if (place.claimedByUserId !== userId) throw new ForbiddenException('No tienes permiso para gestionar este local');
     }
 
     @Post('places/:id/promotions')

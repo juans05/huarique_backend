@@ -82,7 +82,7 @@ export class LoyaltyController {
   @ApiOperation({ summary: 'Deactivate a reward' })
   async deleteReward(@Param('placeId') placeId: string, @Param('rewardId') rewardId: string, @CurrentUser() user: any) {
     await this.assertOwner(placeId, user.id);
-    await this.loyaltyService.deleteReward(rewardId);
+    await this.loyaltyService.deleteReward(placeId, rewardId);
     return { message: 'Premio eliminado' };
   }
 

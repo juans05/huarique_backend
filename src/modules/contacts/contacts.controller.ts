@@ -61,14 +61,16 @@ export class ContactsController {
 
     @Patch(':id')
     @ApiOperation({ summary: 'Update a contact' })
-    async update(@Param('id') id: string, @Body() dto: UpdateContactDto) {
+    async update(@Param('id') id: string, @Body() dto: UpdateContactDto, @CurrentUser() user: any) {
+        await this.assertOwner((await this.contactsService.findById(id)).placeId, user.id);
         return this.contactsService.update(id, dto);
     }
 
     @Delete(':id')
     @ApiOperation({ summary: 'Delete a contact' })
     @HttpCode(HttpStatus.NO_CONTENT)
-    async delete(@Param('id') id: string) {
+    async delete(@Param('id') id: string, @CurrentUser() user: any) {
+        await this.assertOwner((await this.contactsService.findById(id)).placeId, user.id);
         await this.contactsService.delete(id);
     }
 
