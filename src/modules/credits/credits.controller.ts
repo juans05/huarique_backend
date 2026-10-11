@@ -4,6 +4,8 @@ import { CreditsService } from './credits.service';
 import { QueryTransactionDto } from './dto/query-transaction.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
+import { RolesGuard } from '../../common/guards/roles.guard';
+import { Roles } from '../../common/decorators/roles.decorator';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Place } from '../places/entities/place.entity';
@@ -62,14 +64,16 @@ export class CreditsController {
         return { placeId, year: y, month: m, totalMessages: total };
     }
 
+    // Solo admin: un dueño podía regalarse créditos (y mensajes de WhatsApp pagados por Wuarikes).
     @Post('add')
-    @ApiOperation({ summary: 'Add credits (purchase/bonus/refund)' })
+    @UseGuards(RolesGuard)
+    @Roles('admin')
+    @ApiOperation({ summary: 'Add credits (purchase/bonus/refund) — admin only' })
     @HttpCode(200)
     async addCredits(
         @Body() data: { placeId: string; amount: number; type: 'purchase' | 'bonus' | 'refund'; description?: string },
         @CurrentUser() user: any,
     ) {
-        await this.assertOwner(data.placeId, user.id);
         return this.creditsService.add(data.placeId, data.amount, data.type, data.description);
     }
 }
