@@ -15,6 +15,7 @@ import { CULQI_STATUS, decideSync, splitFullName } from './culqi-sync.util';
 import { User } from '../users/entities/user.entity';
 import { Payment } from './entities/payment.entity';
 import { Place } from '../places/entities/place.entity';
+import { MailService } from '../../common/services/mail.service';
 
 export type SubscriptionTier = 'reputacion' | 'fidelizacion' | 'ia_total';
 
@@ -73,6 +74,22 @@ const TIER_DEFINITIONS: TierDefinition[] = [
     },
 ];
 
+// Hardware NFC de la landing: cobro único con Culqi. El precio se toma de aquí, nunca del cliente.
+export const HARDWARE_PRODUCTS = [
+    { id: 'expositor-nfc', name: 'Expositor Reseñas Google NFC', amount: 12900 },
+    { id: 'stand-madera', name: 'Stand Premium de Madera', amount: 16900 },
+    { id: 'placa-google', name: 'Placa Reseñas de Google', amount: 9900 },
+] as const;
+
+export type HardwareProductId = (typeof HARDWARE_PRODUCTS)[number]['id'];
+
+export interface HardwareShipping {
+    fullName: string;
+    phone: string;
+    address: string;
+    district: string;
+}
+
 @Injectable()
 export class SubscriptionsService {
     private readonly logger = new Logger(SubscriptionsService.name);
@@ -89,6 +106,7 @@ export class SubscriptionsService {
         private usersRepo: Repository<User>,
         private configService: ConfigService,
         private eventEmitter: EventEmitter2,
+        private mailService: MailService,
     ) { }
 
     private get secretKey() {
@@ -460,5 +478,37 @@ export class SubscriptionsService {
             features: def.features,
             configured: !!this.planIdFor(def.tier),
         }));
+    }
+
+    getHardwareProducts() {
+        return HARDWARE_PRODUCTS.map((p) => ({ id: p.id, name: p.name, price: p.amount / 100, currency: 'PEN' }));
+    }
+
+    async buyHardware(userId: string, userEmail: string, token: string, productId: HardwareProductId, quantity: number, shipping: HardwareShipping) {
+        const product = HARDWARE_PRODUCTS.find((p) => p.id === productId);
+        if (!product) throw new BadRequestException('Producto no disponible');
+        const amount = product.amount * quantity;
+
+        const charge = await this.culqiRequest('POST', '/charges', {
+            amount,
+            currency_code: 'PEN',
+            email: userEmail,
+            source_id: token,
+            description: `${quantity} x ${product.name}`.slice(0, 80),
+            // ponytail: el pedido vive en Culqi (metadata) + correo al equipo, sin tabla propia; crear una si hay que gestionar envíos en el panel.
+            metadata: { userId, productId, quantity: String(quantity), ...shipping },
+        });
+        if (charge.action_code === 'REVIEW' || charge.outcome?.type !== 'venta_exitosa') {
+            // ponytail: sin flujo 3DS en el checkout; si el banco lo exige, se pide otra tarjeta.
+            throw new BadRequestException(charge.user_message || charge.outcome?.user_message || 'Tu banco pidió una verificación adicional. Prueba con otra tarjeta.');
+        }
+
+        // El cobro ya se hizo: si el correo falla no se revierte, queda en el log y en el panel de Culqi.
+        const to = this.configService.get<string>('ADMIN_NOTIFY_EMAIL') || 'contacto@wuarikes.com';
+        this.mailService
+            .sendHardwareOrderNotice(to, { chargeId: charge.id, product: product.name, quantity, amount, buyerEmail: userEmail, shipping })
+            .catch((err) => this.logger.error(`Pedido de hardware ${charge.id} cobrado pero sin aviso por correo`, err));
+
+        return { chargeId: charge.id, product: product.name, quantity, amount: amount / 100, currency: 'PEN' };
     }
 }

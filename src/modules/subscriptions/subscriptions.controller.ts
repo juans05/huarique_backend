@@ -6,7 +6,10 @@ import {
     HttpStatus,
     UseGuards,
     Query,
+    Body,
 } from '@nestjs/common';
+import { CurrentUser } from '../../common/decorators/current-user.decorator';
+import { BuyHardwareDto } from './dto/buy-hardware.dto';
 import { SubscriptionsService } from './subscriptions.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../../common/guards/roles.guard';
@@ -22,6 +25,19 @@ export class SubscriptionsController {
     @Get('plans')
     getPlans() {
         return this.service.getPlans();
+    }
+
+    @Get('hardware')
+    getHardwareProducts() {
+        return this.service.getHardwareProducts();
+    }
+
+    @UseGuards(JwtAuthGuard, RolesGuard)
+    @Roles('business', 'admin')
+    @Post('hardware/checkout')
+    buyHardware(@CurrentUser() user: any, @Body() dto: BuyHardwareDto) {
+        const { token, productId, quantity, ...shipping } = dto;
+        return this.service.buyHardware(user.id, user.email, token, productId, quantity, shipping);
     }
 
     // Webhook de Culqi (CulqiPanel → Eventos → Webhook). Público a propósito: no se confía en el

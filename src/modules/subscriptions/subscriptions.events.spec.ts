@@ -12,12 +12,13 @@ const build = (sub: any, culqiResponses: Record<string, any>) => {
     const paymentsRepo = { exists: jest.fn().mockResolvedValue(false), create: jest.fn((x) => x), save: jest.fn(async (x) => ({ id: 'pay-new', ...x })) };
     const config = { get: jest.fn((k: string) => (k === 'CULQI_SECRET_KEY' ? 'sk_test_x' : undefined)) };
     const events = { emit: jest.fn() };
+    const mail = { sendHardwareOrderNotice: jest.fn().mockResolvedValue(undefined) };
     global.fetch = jest.fn(async (url: string) => {
         const key = Object.keys(culqiResponses).find((k) => url.includes(k));
         return { ok: true, json: async () => culqiResponses[key!] } as any;
     }) as any;
-    const svc = new SubscriptionsService(subscriptionsRepo as any, paymentsRepo as any, {} as any, {} as any, config as any, events as any);
-    return { svc, events, paymentsRepo };
+    const svc = new SubscriptionsService(subscriptionsRepo as any, paymentsRepo as any, {} as any, {} as any, config as any, events as any, mail as any);
+    return { svc, events, paymentsRepo, mail };
 };
 
 describe('SubscriptionsService: eventos para comisiones', () => {
@@ -37,5 +38,24 @@ describe('SubscriptionsService: eventos para comisiones', () => {
         const { svc, events } = build(sub, { '/recurrent/subscriptions/sxn_1': { status: 4 } });
         await svc.syncAllWithCulqi();
         expect(events.emit).toHaveBeenCalledWith('subscription.canceled', expect.objectContaining({ subscriptionId: 's1', canceledAt: expect.any(Date) }));
+    });
+});
+
+describe('SubscriptionsService: compra de hardware', () => {
+    const shipping = { fullName: 'Ana', phone: '999', address: 'Av. 1', district: 'Lima' };
+
+    it('cobra el precio del servidor × cantidad y avisa al equipo', async () => {
+        const { svc, mail } = build({}, { '/charges': { id: 'chr_hw', outcome: { type: 'venta_exitosa' } } });
+        const result = await svc.buyHardware('u1', 'a@b.com', 'tkn_1', 'placa-google', 2, shipping);
+        const [, init] = (global.fetch as jest.Mock).mock.calls[0];
+        expect(JSON.parse(init.body)).toMatchObject({ amount: 19800, currency_code: 'PEN', source_id: 'tkn_1' });
+        expect(result).toMatchObject({ chargeId: 'chr_hw', amount: 198 });
+        expect(mail.sendHardwareOrderNotice).toHaveBeenCalled();
+    });
+
+    it('si el banco pide 3DS (REVIEW) no confirma la compra', async () => {
+        const { svc, mail } = build({}, { '/charges': { action_code: 'REVIEW' } });
+        await expect(svc.buyHardware('u1', 'a@b.com', 'tkn_1', 'placa-google', 1, shipping)).rejects.toThrow();
+        expect(mail.sendHardwareOrderNotice).not.toHaveBeenCalled();
     });
 });
