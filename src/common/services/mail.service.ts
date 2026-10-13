@@ -255,6 +255,29 @@ export class MailService {
         if (error) throw error;
     }
 
+    /** Aviso interno: se cobró un pedido de hardware NFC y hay que despacharlo. */
+    async sendHardwareOrderNotice(
+        to: string,
+        order: { chargeId: string; product: string; quantity: number; amount: number; buyerEmail: string; shipping: { fullName: string; phone: string; address: string; district: string } },
+    ) {
+        const esc = (s: string) => s.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]!));
+        const { shipping } = order;
+        const { error } = await this.resend.emails.send({
+            from: 'Wuarikes <hola@wuarikes.com>',
+            to: [to],
+            subject: `Nuevo pedido de hardware: ${order.quantity} x ${order.product}`,
+            html: `
+                <div style="font-family: 'Inter', sans-serif; max-width: 600px; margin: 0 auto; padding: 32px; border: 1px solid #eee; border-radius: 16px;">
+                    <h1 style="font-size: 20px; font-weight: 900; color: #111827;">Pedido pagado con Culqi</h1>
+                    <p style="color: #4b5563; font-size: 15px;"><b>${order.quantity} x ${esc(order.product)}</b> — S/. ${(order.amount / 100).toFixed(2)}</p>
+                    <p style="color: #4b5563; font-size: 14px;">Cargo Culqi: ${esc(order.chargeId)}<br>Comprador: ${esc(order.buyerEmail)}</p>
+                    <p style="color: #4b5563; font-size: 14px;"><b>Envío</b><br>${esc(shipping.fullName)} · ${esc(shipping.phone)}<br>${esc(shipping.address)}, ${esc(shipping.district)}</p>
+                </div>
+            `,
+        });
+        if (error) throw error;
+    }
+
     /** Respuesta del restaurante a la opinión privada que el cliente dejó al escanear el QR/NFC. */
     async sendFeedbackReply(email: string, customerName: string | null, placeName: string, reply: string, originalComment: string | null) {
         // Texto escrito por el dueño y por el cliente: escapar antes de meterlo en HTML.
