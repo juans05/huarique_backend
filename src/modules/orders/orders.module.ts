@@ -13,6 +13,7 @@ import { Place } from '../places/entities/place.entity';
 import { TeamModule } from '../team/team.module';
 import { OrdersService } from './orders.service';
 import { OrderSettingsService } from './order-settings.service';
+import { PaymentsService } from './payments.service';
 import { OrderEventsService } from './order-events.service';
 
 export const ORDER_ENTITIES = [PlaceOrderSettings, PlaceTable, Tab, Order, OrderItem, OrderPayment, PlacePayout, WhatsappOrderDraft, Dish, Place];
@@ -20,7 +21,7 @@ export const ORDER_ENTITIES = [PlaceOrderSettings, PlaceTable, Tab, Order, Order
 @Module({
     imports: [TypeOrmModule.forFeature(ORDER_ENTITIES), TeamModule],
     controllers: [],
-    providers: [OrderEventsService, OrdersService, OrderSettingsService],
-    exports: [OrderEventsService, OrdersService, OrderSettingsService],
+    providers: [OrderEventsService, OrdersService, OrderSettingsService, PaymentsService],
+    exports: [OrderEventsService, OrdersService, OrderSettingsService, PaymentsService],
 })
 export class OrdersModule { }
