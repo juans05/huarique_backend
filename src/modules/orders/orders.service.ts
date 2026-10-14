@@ -1,4 +1,5 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { EventEmitter2 } from '@nestjs/event-emitter';
 import { InjectDataSource, InjectRepository } from '@nestjs/typeorm';
 import { DataSource, In, Repository } from 'typeorm';
 import { PlaceOrderSettings } from './entities/place-order-settings.entity';
@@ -38,6 +39,7 @@ export class OrdersService {
         @InjectRepository(Dish) private dishesRepo: Repository<Dish>,
         @InjectDataSource() private dataSource: DataSource,
         private events: OrderEventsService,
+        private emitter: EventEmitter2,
     ) { }
 
     async getSettings(placeId: string): Promise<PlaceOrderSettings> {
@@ -113,6 +115,7 @@ export class OrdersService {
         const updated = { ...order, ...patch } as Order;
         const tab = updated.tabId ? await this.tabsRepo.findOne({ where: { id: updated.tabId } }) : null;
         await this.publish('order.status_changed', updated, tab);
+        this.emitter.emit('orders.status.changed', { orderId: updated.id, status: updated.status });
         return updated;
     }
 

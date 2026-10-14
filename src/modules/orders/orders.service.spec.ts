@@ -38,8 +38,9 @@ const build = (opts: { mode?: 'CUENTA_ABIERTA' | 'PREPAGO'; dishAvailable?: bool
     let counter = 0;
     const dataSource = { query: jest.fn(async () => [{ last_number: ++counter }]) };
     const events = { publish: jest.fn(async () => undefined) };
-    const svc = new OrdersService(settings as any, tables as any, tabs as any, orders as any, payments as any, dishes as any, dataSource as any, events as any);
-    return { svc, tabs, orders, events };
+    const emitter = { emit: jest.fn() };
+    const svc = new OrdersService(settings as any, tables as any, tabs as any, orders as any, payments as any, dishes as any, dataSource as any, events as any, emitter as any);
+    return { svc, tabs, orders, events, emitter };
 };
 
 describe('OrdersService', () => {
@@ -114,9 +115,10 @@ describe('OrdersService', () => {
     });
 
     it('changeStatus rechaza saltos inválidos', async () => {
-        const { svc } = build();
+        const { svc, emitter } = build();
         const { order } = await svc.createTableOrder('qr-1', { items: [{ dishId: 'd1', quantity: 1 }] });
         await expect(svc.changeStatus('p1', order.id, 'ENTREGADO', 'admin')).rejects.toBeInstanceOf(BadRequestException);
         await expect(svc.changeStatus('p1', order.id, 'EN_PREPARACION', 'cocina')).resolves.toMatchObject({ status: 'EN_PREPARACION' });
+        expect(emitter.emit).toHaveBeenCalledWith('orders.status.changed', { orderId: order.id, status: 'EN_PREPARACION' });
     });
 });
