@@ -36,3 +36,11 @@ describe('StaffOrdersController roles', () => {
         await expect(guardWith(null).canActivate(ctxFor(proto.kds))).rejects.toBeInstanceOf(ForbiddenException);
     });
 });
+
+describe('StaffOrdersController.list', () => {
+    it('page no numérico se toma como 1', () => {
+        const orders = { listForPlace: jest.fn() };
+        new StaffOrdersController(orders as any, {} as any, {} as any).list('p1', undefined, undefined, undefined, 'abc');
+        expect(orders.listForPlace).toHaveBeenCalledWith('p1', expect.objectContaining({ page: 1 }));
+    });
+});

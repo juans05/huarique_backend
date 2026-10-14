@@ -24,7 +24,7 @@ export class StaffOrdersController {
     @Get()
     @RequiresPlaceRole('agente')
     list(@Param('placeId') placeId: string, @Query('status') status?: string, @Query('channel') channel?: OrderChannel, @Query('q') q?: string, @Query('page') page = '1') {
-        return this.orders.listForPlace(placeId, { status: status ? (status.split(',') as OrderStatus[]) : undefined, channel, q, page: +page });
+        return this.orders.listForPlace(placeId, { status: status ? (status.split(',') as OrderStatus[]) : undefined, channel, q, page: parseInt(page, 10) || 1 });
     }
 
     @Get('kds')
