@@ -146,6 +146,10 @@ export class OrdersService {
         return { total, paid, due: Math.max(0, total - paid) };
     }
 
+    async cancelUnpaid(orderId: string, reason: string): Promise<void> {
+        await this.ordersRepo.update({ id: orderId, status: 'PENDIENTE_PAGO' }, { status: 'CANCELADO', canceledAt: new Date(), cancelReason: reason });
+    }
+
     /** Llamado por PaymentsService cuando se confirma un pago de cuenta. */
     async refreshTabAfterPayment(tabId: string): Promise<void> {
         const tab = await this.tabsRepo.findOne({ where: { id: tabId } });
