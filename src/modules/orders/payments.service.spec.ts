@@ -70,11 +70,12 @@ describe('PaymentsService', () => {
     });
 
     it('3DS (REVIEW) no confirma', async () => {
-        const { svc, ordersService } = build();
+        const { svc, ordersService, payments } = build();
         fetchMock({ '/orders': { id: 'ord_4' }, '/charges': { action_code: 'REVIEW' } });
         const { paymentId } = await svc.startOnlinePayment({ orderToken: 'otok' }, { email: 'a@b.com' });
         await expect(svc.payWithToken(paymentId, 'tkn')).rejects.toBeInstanceOf(BadRequestException);
         expect(ordersService.markOrderPaid).not.toHaveBeenCalled();
+        expect(payments.rows[0].status).toBe('PENDIENTE');
     });
 
     it('webhook y revisión a la vez: el pago se confirma una sola vez', async () => {
@@ -100,5 +101,47 @@ describe('PaymentsService', () => {
         const payment = await svc.recordManualPayment('p1', { tabId: 'tab1' }, 'EFECTIVO', 'u1');
         expect(payment).toMatchObject({ amount: 7000, status: 'PAGADO', destination: 'LOCAL', recordedByUserId: 'u1' });
         expect(ordersService.refreshTabAfterPayment).toHaveBeenCalledWith('tab1');
+    });
+
+    const chargeCalls = () => (global.fetch as jest.Mock).mock.calls.filter(([url]) => url.includes('/charges')).length;
+
+    it('dos payWithToken a la vez: un solo cobro en Culqi', async () => {
+        const { svc, ordersService } = build();
+        fetchMock({ '/orders': { id: 'ord_5' }, '/charges': { id: 'chr_5', outcome: { type: 'venta_exitosa' } } });
+        const { paymentId } = await svc.startOnlinePayment({ orderToken: 'otok' }, { email: 'a@b.com' });
+        const results = await Promise.allSettled([svc.payWithToken(paymentId, 'tkn_a'), svc.payWithToken(paymentId, 'tkn_b')]);
+        expect(results.map((r) => r.status).sort()).toEqual(['fulfilled', 'rejected']);
+        expect(chargeCalls()).toBe(1);
+        expect(ordersService.markOrderPaid).toHaveBeenCalledTimes(1);
+    });
+
+    it('pedido cancelado con el checkout abierto: no se cobra', async () => {
+        const { svc, orders, payments } = build();
+        fetchMock({ '/orders': { id: 'ord_6' }, '/charges': { id: 'chr_6', outcome: { type: 'venta_exitosa' } } });
+        const { paymentId } = await svc.startOnlinePayment({ orderToken: 'otok' }, { email: 'a@b.com' });
+        orders.rows[0].status = 'CANCELADO';
+        await expect(svc.payWithToken(paymentId, 'tkn')).rejects.toThrow('Este pago ya no está pendiente');
+        expect(chargeCalls()).toBe(0);
+        expect(payments.rows[0].status).toBe('EXPIRADO');
+    });
+
+    it('cuenta ya pagada por otro medio: no se cobra', async () => {
+        const { svc, ordersService } = build();
+        fetchMock({ '/orders': { id: 'ord_7' }, '/charges': { id: 'chr_7', outcome: { type: 'venta_exitosa' } } });
+        const { paymentId } = await svc.startOnlinePayment({ tabToken: 'ttok' }, { email: 'a@b.com' });
+        ordersService.tabTotal.mockResolvedValue({ total: 9000, paid: 9000, due: 0 });
+        await expect(svc.payWithToken(paymentId, 'tkn')).rejects.toThrow('Este pago ya no está pendiente');
+        expect(chargeCalls()).toBe(0);
+    });
+
+    it('CIP pagado después de pagar con tarjeta: devolución pendiente y sin evento de pago', async () => {
+        const { svc, orders, payments, emitter } = build();
+        orders.rows[0].status = 'NUEVO'; // ya se pagó con tarjeta en otro intento
+        payments.rows.push({ id: 'pay-cip', placeId: 'p1', orderId: 'o1', tabId: null, status: 'PENDIENTE', method: 'ONLINE', amount: 4500, culqiOrderId: 'ord_cip', destination: 'WUARIKES', expiresAt: new Date(Date.now() + 3600_000) });
+        fetchMock({ '/orders/ord_cip': { id: 'ord_cip', state: 'paid' } });
+        await svc.reconcilePending('p1');
+        expect(payments.rows[0].status).toBe('PAGADO');
+        expect(orders.rows[0].refundPending).toBe(true);
+        expect(emitter.emit).not.toHaveBeenCalledWith('orders.payment.confirmed', expect.anything());
     });
 });

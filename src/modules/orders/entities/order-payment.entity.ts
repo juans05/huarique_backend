@@ -2,7 +2,7 @@ import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn } from 'typeor
 import { PaymentDestination } from './place-order-settings.entity';
 
 export type PaymentMethod = 'ONLINE' | 'TARJETA' | 'YAPE' | 'PAGOEFECTIVO' | 'EFECTIVO' | 'POS';
-export type PaymentStatus = 'PENDIENTE' | 'PAGADO' | 'FALLIDO' | 'EXPIRADO';
+export type PaymentStatus = 'PENDIENTE' | 'PROCESANDO' | 'PAGADO' | 'FALLIDO' | 'EXPIRADO';
 
 @Entity('order_payments')
 export class OrderPayment {
