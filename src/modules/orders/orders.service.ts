@@ -108,10 +108,12 @@ export class OrdersService {
         if (to === 'CANCELADO') {
             patch.canceledAt = now;
             patch.cancelReason = reason ?? null;
-            patch.refundPending = !!order.paidAt;
+            // Sobrepago: si la cuenta de la mesa ya recibió pagos, lo de este pedido se devuelve.
+            patch.refundPending = !!order.paidAt || (!!order.tabId && !!(await this.paymentsRepo.findOne({ where: { tabId: order.tabId, status: 'PAGADO' } })));
         }
         const result = await this.ordersRepo.update({ id: orderId, status: order.status }, patch);
         if (!result.affected) throw new BadRequestException('El pedido cambió mientras tanto, recarga la pantalla');
+        if (to === 'CANCELADO') await this.expirePendingPayments(orderId);
         const updated = { ...order, ...patch } as Order;
         const tab = updated.tabId ? await this.tabsRepo.findOne({ where: { id: updated.tabId } }) : null;
         await this.publish('order.status_changed', updated, tab);
@@ -150,7 +152,13 @@ export class OrdersService {
     }
 
     async cancelUnpaid(orderId: string, reason: string): Promise<void> {
-        await this.ordersRepo.update({ id: orderId, status: 'PENDIENTE_PAGO' }, { status: 'CANCELADO', canceledAt: new Date(), cancelReason: reason });
+        const result = await this.ordersRepo.update({ id: orderId, status: 'PENDIENTE_PAGO' }, { status: 'CANCELADO', canceledAt: new Date(), cancelReason: reason });
+        if (result.affected) await this.expirePendingPayments(orderId);
+    }
+
+    /** Un pedido cancelado no puede seguir cobrándose: sus checkouts abiertos dejan de ser pagables. */
+    private async expirePendingPayments(orderId: string): Promise<void> {
+        await this.paymentsRepo.update({ orderId, status: 'PENDIENTE' }, { status: 'EXPIRADO' });
     }
 
     /** Llamado por PaymentsService cuando se confirma un pago de cuenta. */

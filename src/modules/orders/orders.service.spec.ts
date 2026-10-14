@@ -40,7 +40,7 @@ const build = (opts: { mode?: 'CUENTA_ABIERTA' | 'PREPAGO'; dishAvailable?: bool
     const events = { publish: jest.fn(async () => undefined) };
     const emitter = { emit: jest.fn() };
     const svc = new OrdersService(settings as any, tables as any, tabs as any, orders as any, payments as any, dishes as any, dataSource as any, events as any, emitter as any);
-    return { svc, tabs, orders, events, emitter };
+    return { svc, tabs, orders, payments, events, emitter };
 };
 
 describe('OrdersService', () => {
@@ -120,5 +120,35 @@ describe('OrdersService', () => {
         await expect(svc.changeStatus('p1', order.id, 'ENTREGADO', 'admin')).rejects.toBeInstanceOf(BadRequestException);
         await expect(svc.changeStatus('p1', order.id, 'EN_PREPARACION', 'cocina')).resolves.toMatchObject({ status: 'EN_PREPARACION' });
         expect(emitter.emit).toHaveBeenCalledWith('orders.status.changed', { orderId: order.id, status: 'EN_PREPARACION' });
+    });
+
+    it('cancelar un pedido con checkout abierto expira sus pagos pendientes', async () => {
+        const { svc, payments } = build({ mode: 'PREPAGO' });
+        const { order } = await svc.createTableOrder('qr-1', { items: [{ dishId: 'd1', quantity: 1 }] });
+        payments.rows.push({ id: 'pay-1', orderId: order.id, status: 'PENDIENTE' }, { id: 'pay-2', orderId: order.id, status: 'PAGADO' });
+        await svc.changeStatus('p1', order.id, 'CANCELADO', 'admin', 'cliente se fue');
+        expect(payments.rows.map((p: any) => p.status)).toEqual(['EXPIRADO', 'PAGADO']);
+    });
+
+    it('cancelUnpaid también expira los pagos pendientes del pedido', async () => {
+        const { svc, payments, orders } = build({ mode: 'PREPAGO' });
+        const { order } = await svc.createTableOrder('qr-1', { items: [{ dishId: 'd1', quantity: 1 }] });
+        payments.rows.push({ id: 'pay-1', orderId: order.id, status: 'PENDIENTE' });
+        await svc.cancelUnpaid(order.id, 'El código de pago venció');
+        expect(orders.rows[0].status).toBe('CANCELADO');
+        expect(payments.rows[0].status).toBe('EXPIRADO');
+    });
+
+    it('cancelar un pedido de una cuenta con pagos hechos marca devolución pendiente (sobrepago)', async () => {
+        const { svc, payments } = build();
+        const { order, tab } = await svc.createTableOrder('qr-1', { items: [{ dishId: 'd1', quantity: 1 }] });
+        payments.rows.push({ id: 'pay-1', tabId: tab!.id, orderId: null, status: 'PAGADO', amount: 3500 });
+        await expect(svc.changeStatus('p1', order.id, 'CANCELADO', 'admin')).resolves.toMatchObject({ status: 'CANCELADO', refundPending: true });
+    });
+
+    it('cancelar sin pagos no marca devolución', async () => {
+        const { svc } = build();
+        const { order } = await svc.createTableOrder('qr-1', { items: [{ dishId: 'd1', quantity: 1 }] });
+        await expect(svc.changeStatus('p1', order.id, 'CANCELADO', 'admin')).resolves.toMatchObject({ refundPending: false });
     });
 });

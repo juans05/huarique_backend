@@ -3,7 +3,7 @@ import { ConfigService } from '@nestjs/config';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { InjectRepository } from '@nestjs/typeorm';
-import { IsNull, Not, Repository } from 'typeorm';
+import { In, IsNull, Not, Repository } from 'typeorm';
 import { OrderPayment, PaymentStatus } from './entities/order-payment.entity';
 import { Order } from './entities/order.entity';
 import { Tab } from './entities/tab.entity';
@@ -58,20 +58,50 @@ export class PaymentsService {
 
     async payWithToken(paymentId: string, token: string) {
         const payment = await this.paymentsRepo.findOne({ where: { id: paymentId } });
-        if (!payment || payment.status !== 'PENDIENTE') throw new BadRequestException('Este pago ya no está pendiente');
-        const keys = this.keysFor(await this.orders.getSettings(payment.placeId));
-        const charge = await culqiRequest(keys.secretKey, 'POST', '/charges', {
-            amount: payment.amount, currency_code: 'PEN', email: payment.customerEmail, source_id: token,
-            metadata: { paymentId: payment.id, placeId: payment.placeId },
-        });
+        if (!payment) throw new BadRequestException('Este pago ya no está pendiente');
+        // Reclamo condicional: dos envíos del mismo checkout nunca llegan los dos a Culqi.
+        const claimed = await this.paymentsRepo.update({ id: payment.id, status: 'PENDIENTE' }, { status: 'PROCESANDO' });
+        if (!claimed.affected) throw new BadRequestException('Este pago ya no está pendiente');
+
+        if (!(await this.targetStillDue(payment))) {
+            await this.paymentsRepo.update({ id: payment.id, status: 'PROCESANDO' }, { status: 'EXPIRADO' });
+            throw new BadRequestException('Este pago ya no está pendiente');
+        }
+
+        let charge: any;
+        try {
+            const keys = this.keysFor(await this.orders.getSettings(payment.placeId));
+            charge = await culqiRequest(keys.secretKey, 'POST', '/charges', {
+                amount: payment.amount, currency_code: 'PEN', email: payment.customerEmail, source_id: token,
+                metadata: { paymentId: payment.id, placeId: payment.placeId },
+            });
+        } catch (err) {
+            // Rechazo conocido (tarjeta, llaves): se puede reintentar. Error inesperado: FALLIDO para revisarlo a mano.
+            await this.paymentsRepo.update({ id: payment.id, status: 'PROCESANDO' }, { status: err instanceof BadRequestException ? 'PENDIENTE' : 'FALLIDO' });
+            throw err;
+        }
         if (charge.action_code === 'REVIEW' || charge.outcome?.type !== 'venta_exitosa') {
+            await this.paymentsRepo.update({ id: payment.id, status: 'PROCESANDO' }, { status: 'PENDIENTE' });
             // ponytail: sin flujo 3DS; si el banco lo exige se pide otra tarjeta (igual que suscripciones).
             throw new BadRequestException(charge.user_message || charge.outcome?.user_message || 'Tu banco pidió una verificación adicional. Prueba con otra tarjeta.');
         }
         const method = token.startsWith('ype') ? 'YAPE' : 'TARJETA';
         const confirmed = await this.confirm(payment.id, { method, culqiChargeId: charge.id, culqiFee: charge.total_fee ?? 0 });
-        if (!confirmed) throw new BadRequestException('Este pago ya no está pendiente');
+        if (!confirmed) {
+            this.logger.error(`Cargo ${charge.id} cobrado pero el pago ${payment.id} ya no estaba en proceso: revisar devolución`);
+            throw new BadRequestException('Este pago ya no está pendiente');
+        }
         return { status: 'PAGADO' as const };
+    }
+
+    /** Revalida justo antes de cobrar: el pedido sigue esperando pago o la cuenta aún debe al menos este monto. */
+    private async targetStillDue(payment: OrderPayment): Promise<boolean> {
+        if (payment.orderId) {
+            const order = await this.ordersRepo.findOne({ where: { id: payment.orderId } });
+            return order?.status === 'PENDIENTE_PAGO';
+        }
+        if (payment.tabId) return (await this.orders.tabTotal(payment.tabId)).due >= payment.amount;
+        return false;
     }
 
     async recordManualPayment(placeId: string, target: { orderId?: string; tabId?: string }, method: 'EFECTIVO' | 'POS', userId: string) {
@@ -125,12 +155,17 @@ export class PaymentsService {
     }
 
     private async confirm(paymentId: string, patch: Partial<OrderPayment>): Promise<boolean> {
-        const result = await this.paymentsRepo.update({ id: paymentId, status: 'PENDIENTE' }, { ...patch, status: 'PAGADO', paidAt: new Date() });
+        const result = await this.paymentsRepo.update({ id: paymentId, status: In(['PENDIENTE', 'PROCESANDO']) }, { ...patch, status: 'PAGADO', paidAt: new Date() });
         if (!result.affected) return false;
         const payment = (await this.paymentsRepo.findOne({ where: { id: paymentId } }))!;
         let orderIds: string[] = [];
         if (payment.orderId) {
-            await this.orders.markOrderPaid(payment.orderId);
+            if (!(await this.orders.markOrderPaid(payment.orderId))) {
+                // Pedido ya pagado por otro medio o cancelado: el dinero entró pero hay que devolverlo.
+                await this.ordersRepo.update({ id: payment.orderId }, { refundPending: true });
+                this.logger.warn(`Pago ${payment.id} confirmado para el pedido ${payment.orderId} que ya no esperaba pago: devolución pendiente`);
+                return true;
+            }
             orderIds = [payment.orderId];
         }
         if (payment.tabId) {
