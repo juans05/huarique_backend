@@ -245,6 +245,8 @@ export class OrdersService {
     private async findOrOpenTab(table: PlaceTable): Promise<Tab> {
         const live = await this.tabsRepo.findOne({ where: { tableId: table.id, status: In(['ABIERTA', 'CUENTA_PEDIDA']) } });
         if (live) return live;
+        // Una cuenta PAGADA ocupa el índice único de la mesa: se cierra (condicional) antes de abrir la nueva.
+        await this.tabsRepo.update({ tableId: table.id, status: 'PAGADA' }, { status: 'CERRADA', closedAt: new Date() });
         try {
             return await this.tabsRepo.save(this.tabsRepo.create({ placeId: table.placeId, tableId: table.id, status: 'ABIERTA', publicToken: newPublicToken() }));
         } catch (err: any) {
