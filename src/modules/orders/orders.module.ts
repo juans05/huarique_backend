@@ -14,13 +14,17 @@ import { TeamModule } from '../team/team.module';
 import { OrdersService } from './orders.service';
 import { OrderSettingsService } from './order-settings.service';
 import { PaymentsService } from './payments.service';
+import { StaffOrdersController } from './staff-orders.controller';
+import { OrdersStreamController } from './orders-stream.controller';
+import { PublicOrdersController } from './public-orders.controller';
+import { AuthModule } from '../auth/auth.module';
 import { OrderEventsService } from './order-events.service';
 
 export const ORDER_ENTITIES = [PlaceOrderSettings, PlaceTable, Tab, Order, OrderItem, OrderPayment, PlacePayout, WhatsappOrderDraft, Dish, Place];
 
 @Module({
-    imports: [TypeOrmModule.forFeature(ORDER_ENTITIES), TeamModule],
-    controllers: [],
+    imports: [TypeOrmModule.forFeature(ORDER_ENTITIES), TeamModule, AuthModule],
+    controllers: [StaffOrdersController, OrdersStreamController, PublicOrdersController],
     providers: [OrderEventsService, OrdersService, OrderSettingsService, PaymentsService],
     exports: [OrderEventsService, OrdersService, OrderSettingsService, PaymentsService],
 })
