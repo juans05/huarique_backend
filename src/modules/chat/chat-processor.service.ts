@@ -15,6 +15,7 @@ import { BotMenuOption } from '../plazbot-config/entities/bot-menu-option.entity
 import { Conversation } from '../whatsapp/entities/conversation.entity';
 import { Message } from '../whatsapp/entities/message.entity';
 import { isOptOutMessage, revokeMarketingConsent } from './marketing-opt-out.util';
+import { OrderAgentService } from '../orders/order-agent.service';
 
 const TONE_INSTRUCTIONS: Record<string, string> = {
   professional: 'Tono profesional: lenguaje formal y correcto, sin emojis ni jerga, oraciones completas y precisas.',
@@ -58,6 +59,7 @@ export class ChatProcessorService {
     private conversationRepo: Repository<Conversation>,
     @InjectRepository(Message)
     private messageRepo: Repository<Message>,
+    private orderAgent: OrderAgentService,
   ) {}
 
   // Prueba los proveedores en orden y pasa al siguiente si uno falla (key inválida, caído, etc.)
@@ -251,6 +253,19 @@ ${channel === 'instagram' ? INSTAGRAM_FORMAT : WHATSAPP_FORMAT}${channelRules.le
     if (conversation.mode === 'human') {
       this.logger.log(`Conversación ${conversation.id} en modo humano, ignorando`);
       return { success: true };
+    }
+
+    // 3b. Pedidos por WhatsApp: si el local recibe pedidos y el cliente está pidiendo, responde el agente de pedidos.
+    try {
+      const recent = await this.messageRepo.find({ where: { conversationId: conversation.id }, order: { createdAt: 'DESC' }, take: 11 });
+      const history = recent.reverse().slice(0, -1).map((m) => ({ role: m.messageType === 'INCOMING' ? ('user' as const) : ('assistant' as const), content: m.messageBody }));
+      const agent = await this.orderAgent.handle({ placeId, whatsappNumberId, customerName: contact.name, customerPhone: contact.phone, message: messageBody, history });
+      if (agent.handled) {
+        await this.sendAndLogText(conversation, agent.reply);
+        return { success: true };
+      }
+    } catch (err) {
+      this.logger.error(`Agente de pedidos falló, sigue el bot normal: ${(err as Error).message}`);
     }
 
     // 4. Configuración del bot para este restaurante

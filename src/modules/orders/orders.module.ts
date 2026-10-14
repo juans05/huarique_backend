@@ -18,14 +18,16 @@ import { StaffOrdersController } from './staff-orders.controller';
 import { OrdersStreamController } from './orders-stream.controller';
 import { PublicOrdersController } from './public-orders.controller';
 import { AuthModule } from '../auth/auth.module';
+import { AiModule } from '../ai/ai.module';
+import { OrderAgentService } from './order-agent.service';
 import { OrderEventsService } from './order-events.service';
 
 export const ORDER_ENTITIES = [PlaceOrderSettings, PlaceTable, Tab, Order, OrderItem, OrderPayment, PlacePayout, WhatsappOrderDraft, Dish, Place];
 
 @Module({
-    imports: [TypeOrmModule.forFeature(ORDER_ENTITIES), TeamModule, AuthModule],
+    imports: [TypeOrmModule.forFeature(ORDER_ENTITIES), TeamModule, AuthModule, AiModule],
     controllers: [StaffOrdersController, OrdersStreamController, PublicOrdersController],
-    providers: [OrderEventsService, OrdersService, OrderSettingsService, PaymentsService],
-    exports: [OrderEventsService, OrdersService, OrderSettingsService, PaymentsService],
+    providers: [OrderEventsService, OrdersService, OrderSettingsService, PaymentsService, OrderAgentService],
+    exports: [OrderEventsService, OrdersService, OrderSettingsService, PaymentsService, OrderAgentService],
 })
 export class OrdersModule { }
