@@ -11,6 +11,7 @@ import { WhatsappOrderDraft } from './entities/whatsapp-order-draft.entity';
 import { Dish } from '../places/entities/dish.entity';
 import { Place } from '../places/entities/place.entity';
 import { TeamModule } from '../team/team.module';
+import { OrdersService } from './orders.service';
 import { OrderEventsService } from './order-events.service';
 
 export const ORDER_ENTITIES = [PlaceOrderSettings, PlaceTable, Tab, Order, OrderItem, OrderPayment, PlacePayout, WhatsappOrderDraft, Dish, Place];
@@ -18,7 +19,7 @@ export const ORDER_ENTITIES = [PlaceOrderSettings, PlaceTable, Tab, Order, Order
 @Module({
     imports: [TypeOrmModule.forFeature(ORDER_ENTITIES), TeamModule],
     controllers: [],
-    providers: [OrderEventsService],
-    exports: [OrderEventsService],
+    providers: [OrderEventsService, OrdersService],
+    exports: [OrderEventsService, OrdersService],
 })
 export class OrdersModule { }
