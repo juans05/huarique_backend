@@ -4,7 +4,7 @@ import { REQUIRES_PLACE_ROLE_KEY } from '../decorators/requires-place-role.decor
 import { PlaceTeamService, } from '../../modules/team/place-team.service';
 import { PlaceTeamRole } from '../../modules/team/entities/place-team-member.entity';
 
-export const ROLE_RANK: Record<PlaceTeamRole, number> = { agente: 1, supervisor: 2, admin: 3 };
+export const ROLE_RANK: Record<PlaceTeamRole, number> = { cocina: 0, agente: 1, supervisor: 2, admin: 3 };
 
 @Injectable()
 export class PlaceRoleGuard implements CanActivate {

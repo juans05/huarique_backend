@@ -42,6 +42,7 @@ import { CreditsModule } from './modules/credits/credits.module';
 import { ReportsModule } from './modules/reports/reports.module';
 import { QrModule } from './modules/qr/qr.module';
 import { CommissionsModule } from './modules/commissions/commissions.module';
+import { OrdersModule } from './modules/orders/orders.module';
 
 @Module({
     imports: [
@@ -121,6 +122,7 @@ import { CommissionsModule } from './modules/commissions/commissions.module';
         ReportsModule,
         QrModule,
         CommissionsModule,
+        OrdersModule,
     ],
     providers: [
         {
