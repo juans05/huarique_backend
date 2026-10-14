@@ -65,6 +65,10 @@ export class OrderAgentService {
             return { handled: true, reply: 'No encontré ese plato en la carta. ¿Me dices el nombre como aparece en la carta?' };
         }
         if (result.confirmed) {
+            // Reclamo condicional: dos "sí" seguidos (o un reintento del webhook) no crean dos pedidos.
+            if (!draft.id) draft = await this.draftsRepo.save(draft);
+            const claimed = await this.draftsRepo.update({ id: draft.id, status: 'ARMANDO' }, { status: 'CONFIRMADO' });
+            if (!claimed.affected) return { handled: true, reply: 'Tu pedido ya está registrado. Usa el link de pago que te enviamos.' };
             let order: Awaited<ReturnType<OrdersService['createWhatsappOrder']>>;
             try {
                 order = await this.orders.createWhatsappOrder(input.placeId, {
@@ -74,8 +78,9 @@ export class OrderAgentService {
                 });
             } catch (err) {
                 // Plato desactivado entre medio, delivery apagado, etc.: se avisa y el borrador sigue abierto para corregir.
-                if (!(err instanceof BadRequestException)) throw err;
+                draft.status = 'ARMANDO';
                 await this.draftsRepo.save(draft);
+                if (!(err instanceof BadRequestException)) throw err;
                 return { handled: true, reply: `${err.message}. ¿Quieres cambiar algo de tu pedido?` };
             }
             draft.status = 'CONFIRMADO';

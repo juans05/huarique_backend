@@ -13,6 +13,7 @@ import { OrderEventsService } from './order-events.service';
 import { culqiRequest } from './culqi-client';
 
 const PAYMENT_TTL_MS = 24 * 3600_000;
+const WHATSAPP_UNPAID_TTL_MS = 2 * 3600_000;
 
 @Injectable()
 export class PaymentsService {
@@ -155,15 +156,24 @@ export class PaymentsService {
         await this.reconcileUnpaidOrders(placeId);
     }
 
-    /** Pedidos que siguen en PENDIENTE_PAGO: si ya tienen un pago PAGADO (caída entre ambos updates), se reintenta. */
+    /**
+     * Pedidos que siguen en PENDIENTE_PAGO: si ya tienen un pago PAGADO (caída entre ambos updates), se reintenta;
+     * si son de WhatsApp y llevan más de 2 h sin pagar, se cancelan.
+     */
     private async reconcileUnpaidOrders(placeId?: string): Promise<void> {
         const unpaid = await this.ordersRepo.find({ where: { status: 'PENDIENTE_PAGO', ...(placeId ? { placeId } : {}) } });
         for (const order of unpaid) {
             try {
                 const paid = await this.paymentsRepo.findOne({ where: { orderId: order.id, status: 'PAGADO' } });
-                if (paid && (await this.orders.markOrderPaid(order.id))) {
-                    this.emitter.emit('orders.payment.confirmed', { paymentId: paid.id, placeId: paid.placeId, orderIds: [order.id] });
+                if (paid) {
+                    if (await this.orders.markOrderPaid(order.id)) this.emitter.emit('orders.payment.confirmed', { paymentId: paid.id, placeId: paid.placeId, orderIds: [order.id] });
+                    continue;
                 }
+                if (order.channel !== 'WHATSAPP' || Date.now() - new Date(order.createdAt).getTime() < WHATSAPP_UNPAID_TTL_MS) continue;
+                // Un código PagoEfectivo vigente (24 h) se respeta: cancelar ahora haría perder ese pago.
+                const liveCip = await this.paymentsRepo.findOne({ where: { orderId: order.id, status: 'PENDIENTE', culqiOrderId: Not(IsNull()) } });
+                if (liveCip?.expiresAt && liveCip.expiresAt.getTime() > Date.now()) continue;
+                await this.orders.cancelUnpaid(order.id, 'No se completó el pago');
             } catch (err: any) {
                 this.logger.warn(`No se pudo conciliar el pedido ${order.id}: ${err?.message}`);
             }

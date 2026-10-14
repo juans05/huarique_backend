@@ -6,7 +6,12 @@ const build = (aiReply: string, existingDraft: any = null) => {
     const draftsRepo = {
         findOne: jest.fn(async () => drafts.find((d) => d.status === 'ARMANDO') ?? null),
         create: jest.fn((x: any) => ({ items: [], fulfillment: null, deliveryAddress: null, status: 'ARMANDO', ...x })),
-        save: jest.fn(async (x: any) => { if (!drafts.includes(x)) drafts.push(x); return x; }),
+        save: jest.fn(async (x: any) => { if (!x.id) x.id = `dr-${drafts.length + 1}`; if (!drafts.includes(x)) drafts.push(x); return x; }),
+        update: jest.fn(async (where: any, patch: any) => {
+            const hits = drafts.filter((d) => d.id === where.id && d.status === where.status);
+            hits.forEach((d) => Object.assign(d, patch));
+            return { affected: hits.length };
+        }),
     };
     const dishesRepo = { find: jest.fn(async () => [{ id: 'd1', name: 'Lomo saltado', price: '35.00', isAvailable: true }]) };
     const ai = { chat: jest.fn(async () => aiReply) };
@@ -66,5 +71,15 @@ describe('OrderAgentService', () => {
         await svc.handle({ ...input, message: 'quiero pedir' });
         expect(old.status).toBe('EXPIRADO');
         expect(drafts.filter((d) => d.status === 'ARMANDO')).toHaveLength(1);
+    });
+
+    it('dos "sí" casi simultáneos: un solo pedido', async () => {
+        const draft = { id: 'dr3', placeId: 'p1', customerPhone: '51999', items: [{ dishId: 'd1', name: 'Lomo saltado', unitPrice: 3500, quantity: 1 }], fulfillment: 'RECOJO', deliveryAddress: null, status: 'ARMANDO', updatedAt: new Date() };
+        const { svc, orders } = build('{"reply":"ok","actions":[{"type":"confirm"}]}', draft);
+        // Ambos mensajes leyeron el borrador ARMANDO antes de que alguno lo confirmara.
+        const results = await Promise.all([svc.handle({ ...input, message: 'sí' }), svc.handle({ ...input, message: 'sí' })]);
+        expect(orders.createWhatsappOrder).toHaveBeenCalledTimes(1);
+        expect(results.filter((r: any) => r.reply?.includes('/pagar/otok'))).toHaveLength(1);
+        expect(draft).toMatchObject({ status: 'CONFIRMADO', orderId: 'o1' });
     });
 });

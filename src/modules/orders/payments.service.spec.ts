@@ -152,4 +152,22 @@ describe('PaymentsService', () => {
         expect(ordersService.markOrderPaid).toHaveBeenCalledWith('o1');
         expect(emitter.emit).toHaveBeenCalledWith('orders.payment.confirmed', { paymentId: 'pay-z', placeId: 'p1', orderIds: ['o1'] });
     });
+
+    it('pedido WhatsApp con más de 2 h sin pago: se cancela', async () => {
+        const { svc, orders, ordersService } = build();
+        Object.assign(orders.rows[0], { channel: 'WHATSAPP', createdAt: new Date(Date.now() - 3 * 3600_000) });
+        await svc.reconcilePending();
+        expect(ordersService.cancelUnpaid).toHaveBeenCalledWith('o1', 'No se completó el pago');
+    });
+
+    it('pedido WhatsApp reciente o con código PagoEfectivo vigente: no se cancela', async () => {
+        const { svc, orders, payments, ordersService } = build();
+        Object.assign(orders.rows[0], { channel: 'WHATSAPP', createdAt: new Date(Date.now() - 30 * 60_000) });
+        await svc.reconcilePending();
+        Object.assign(orders.rows[0], { createdAt: new Date(Date.now() - 3 * 3600_000) });
+        payments.rows.push({ id: 'pay-cip', placeId: 'p1', orderId: 'o1', tabId: null, status: 'PENDIENTE', method: 'ONLINE', amount: 4500, culqiOrderId: 'ord_live', destination: 'WUARIKES', expiresAt: new Date(Date.now() + 3600_000) });
+        fetchMock({ '/orders/ord_live': { id: 'ord_live', state: 'pending' } });
+        await svc.reconcilePending();
+        expect(ordersService.cancelUnpaid).not.toHaveBeenCalled();
+    });
 });
