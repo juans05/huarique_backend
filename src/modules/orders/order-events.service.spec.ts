@@ -1,0 +1,40 @@
+import { firstValueFrom, take, toArray } from 'rxjs';
+import { OrderEventsService, OrderEvent } from './order-events.service';
+
+class FakeRedisBus {
+    static listeners: ((channel: string, message: string) => void)[] = [];
+    async publish(channel: string, message: string) { FakeRedisBus.listeners.forEach((fn) => fn(channel, message)); return 1; }
+    async subscribe() { return 1; }
+    on(_event: 'message', fn: (channel: string, message: string) => void) { FakeRedisBus.listeners.push(fn); return this; }
+    duplicate() { return new FakeRedisBus(); }
+    disconnect() { }
+}
+
+const config = { get: () => 'redis://fake' } as any;
+const build = () => {
+    const svc = new OrderEventsService(config, () => new FakeRedisBus() as any);
+    svc.onModuleInit();
+    return svc;
+};
+
+describe('OrderEventsService', () => {
+    beforeEach(() => { FakeRedisBus.listeners = []; });
+
+    it('entrega a la sede correcta y no a otra', async () => {
+        const svc = build();
+        const received = firstValueFrom(svc.streamForPlace('p1', 0).pipe(take(1)));
+        const other: OrderEvent[] = [];
+        svc.streamForPlace('p2', 0).subscribe((m) => other.push(m.data as OrderEvent));
+        await svc.publish({ type: 'order.created', placeId: 'p1', orderId: 'o1', publicTokens: ['t1'] });
+        expect((await received).data).toMatchObject({ type: 'order.created', orderId: 'o1' });
+        expect(other).toHaveLength(0);
+    });
+
+    it('el cliente solo recibe eventos de su token', async () => {
+        const svc = build();
+        const got = firstValueFrom(svc.streamForToken('tok-a', 0).pipe(take(1), toArray()));
+        await svc.publish({ type: 'order.status_changed', placeId: 'p1', status: 'LISTO', publicTokens: ['tok-b'] });
+        await svc.publish({ type: 'order.status_changed', placeId: 'p1', status: 'NUEVO', publicTokens: ['tok-a'] });
+        expect((await got)[0].data).toMatchObject({ status: 'NUEVO' });
+    });
+});
