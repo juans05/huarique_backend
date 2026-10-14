@@ -12,6 +12,7 @@ import { Place } from '../../places/entities/place.entity';
 
 export const PLACE_TEAM_ROLES = ['admin', 'supervisor', 'agente', 'cocina'] as const;
 export type PlaceTeamRole = (typeof PLACE_TEAM_ROLES)[number];
+export const ROLE_RANK: Record<PlaceTeamRole, number> = { cocina: 0, agente: 1, supervisor: 2, admin: 3 };
 
 @Entity('place_team_members')
 export class PlaceTeamMember {

@@ -1,7 +1,7 @@
 import { Injectable, ForbiddenException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
-import { PlaceTeamMember } from './entities/place-team-member.entity';
+import { PlaceTeamMember, ROLE_RANK } from './entities/place-team-member.entity';
 import { TeamMemberWhatsappAccess } from './entities/team-member-whatsapp-access.entity';
 import { Place } from '../places/entities/place.entity';
 import { SubscriptionsService, SubscriptionTier } from '../subscriptions/subscriptions.service';
@@ -74,6 +74,10 @@ export class PlaceTeamService {
         const member = await this.getMembership(userId, placeId);
         if (!member) {
             throw new ForbiddenException('No tenés acceso a esta sede');
+        }
+        // Cocina solo opera la KDS (rutas con PlaceRoleGuard): nada de CRM, campañas, reportes, etc.
+        if (!(member.role in ROLE_RANK) || ROLE_RANK[member.role] < ROLE_RANK.agente) {
+            throw new ForbiddenException('No tienes el rol necesario para esta acción');
         }
 
         if (requiredTier) {

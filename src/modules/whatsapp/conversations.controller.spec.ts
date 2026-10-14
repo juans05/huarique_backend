@@ -13,6 +13,7 @@ import { UploadService } from '../upload/upload.service';
 import { PlaceTeamService } from '../team/place-team.service';
 import { JwtService } from '@nestjs/jwt';
 import { EventEmitter2 } from '@nestjs/event-emitter';
+import { firstValueFrom } from 'rxjs';
 
 describe('ConversationsController.claim', () => {
     let controller: ConversationsController;
@@ -54,7 +55,7 @@ describe('ConversationsController.claim', () => {
                 { provide: UploadService, useValue: {} },
                 { provide: PlaceTeamService, useValue: placeTeamService },
                 { provide: EventEmitter2, useValue: { on: jest.fn(), off: jest.fn() } },
-                { provide: JwtService, useValue: { verify: jest.fn() } },
+                { provide: JwtService, useValue: { verify: jest.fn(() => ({ sub: 'u1' })) } },
             ],
         }).compile();
 
@@ -88,6 +89,20 @@ describe('ConversationsController.claim', () => {
         placeTeamService.getMembership.mockResolvedValueOnce(null);
 
         await expect(controller.claim('c1', { id: 'u1' })).rejects.toThrow(ForbiddenException);
+    });
+
+    it('throws 403 for the cocina role on conversation routes', async () => {
+        conversationRepo.findOne.mockResolvedValueOnce({ id: 'c1', placeId: 'p1', whatsappNumberId: null });
+        placeTeamService.getMembership.mockResolvedValueOnce({ id: 'm1', role: 'cocina' });
+
+        await expect(controller.claim('c1', { id: 'u1' })).rejects.toThrow(ForbiddenException);
+    });
+
+    it('SSE stream rejects a valid JWT from a user outside the place, and the cocina role', async () => {
+        placeTeamService.getMembership.mockResolvedValueOnce(null);
+        await expect(firstValueFrom(controller.stream('p1', { query: { token: 'jwt' } }))).rejects.toThrow(ForbiddenException);
+        placeTeamService.getMembership.mockResolvedValueOnce({ id: 'm1', role: 'cocina' });
+        await expect(firstValueFrom(controller.stream('p1', { query: { token: 'jwt' } }))).rejects.toThrow(ForbiddenException);
     });
 
     it("throws 403 when the place's subscription doesn't cover the required tier", async () => {

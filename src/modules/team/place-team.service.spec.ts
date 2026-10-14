@@ -111,6 +111,12 @@ describe('PlaceTeamService', () => {
             expect(subscriptionsService.getSubscriptionForPlace).not.toHaveBeenCalled();
         });
 
+        it('rejects the cocina role (kitchen staff only sees the KDS)', async () => {
+            memberRepo.findOne.mockResolvedValue({ id: 'm1', userId: 'u1', placeId: 'p1', role: 'cocina' });
+
+            await expect(service.assertAccess('u1', 'p1')).rejects.toThrow(ForbiddenException);
+        });
+
         it('throws when the user has no membership in the place', async () => {
             memberRepo.findOne.mockResolvedValue(null);
             placeRepo.findOne.mockResolvedValue({ id: 'p1', claimedByUserId: 'someone-else' });

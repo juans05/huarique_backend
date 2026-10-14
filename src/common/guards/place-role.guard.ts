@@ -2,9 +2,10 @@ import { Injectable, CanActivate, ExecutionContext, ForbiddenException } from '@
 import { Reflector } from '@nestjs/core';
 import { REQUIRES_PLACE_ROLE_KEY } from '../decorators/requires-place-role.decorator';
 import { PlaceTeamService, } from '../../modules/team/place-team.service';
-import { PlaceTeamRole } from '../../modules/team/entities/place-team-member.entity';
+import { PlaceTeamRole, ROLE_RANK } from '../../modules/team/entities/place-team-member.entity';
 
-export const ROLE_RANK: Record<PlaceTeamRole, number> = { cocina: 0, agente: 1, supervisor: 2, admin: 3 };
+// Definido junto al rol para que PlaceTeamService lo use sin import circular con este guard.
+export { ROLE_RANK };
 
 @Injectable()
 export class PlaceRoleGuard implements CanActivate {
@@ -26,11 +27,11 @@ export class PlaceRoleGuard implements CanActivate {
 
         const member = await this.teamService.getMembership(userId, placeId);
         if (!member) {
-            throw new ForbiddenException('No tenés acceso a esta sede');
+            throw new ForbiddenException('No tienes acceso a esta sede');
         }
         // Un rol desconocido nunca debe pasar (antes: undefined < n era false y dejaba pasar).
         if (!(member.role in ROLE_RANK) || ROLE_RANK[member.role] < ROLE_RANK[requiredRole]) {
-            throw new ForbiddenException('No tenés el rol necesario para esta acción');
+            throw new ForbiddenException('No tienes el rol necesario para esta acción');
         }
 
         request.placeTeamMember = member;
