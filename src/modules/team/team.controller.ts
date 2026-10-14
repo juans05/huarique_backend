@@ -9,6 +9,7 @@ import {
     UseGuards,
     ConflictException,
     NotFoundException,
+    BadRequestException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
@@ -16,11 +17,16 @@ import { randomBytes } from 'crypto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { PlaceRoleGuard } from '../../common/guards/place-role.guard';
 import { RequiresPlaceRole } from '../../common/decorators/requires-place-role.decorator';
-import { PlaceTeamMember, PlaceTeamRole } from './entities/place-team-member.entity';
+import { PlaceTeamMember, PlaceTeamRole, PLACE_TEAM_ROLES } from './entities/place-team-member.entity';
 import { TeamMemberWhatsappAccess } from './entities/team-member-whatsapp-access.entity';
 import { Place } from '../places/entities/place.entity';
 import { UsersService } from '../users/users.service';
 import { MailService } from '../../common/services/mail.service';
+
+// Sin esta validación cualquier texto se guardaba como rol y el guard (rango indefinido) lo dejaba pasar.
+function assertValidRole(role: string): asserts role is PlaceTeamRole {
+    if (!(PLACE_TEAM_ROLES as readonly string[]).includes(role)) throw new BadRequestException('Rol no válido');
+}
 
 @UseGuards(JwtAuthGuard, PlaceRoleGuard)
 @Controller('business/places/:placeId/team')
@@ -67,6 +73,7 @@ export class TeamController {
         @Param('placeId') placeId: string,
         @Body() dto: { email: string; fullName: string; role: PlaceTeamRole; whatsappNumberIds?: string[] },
     ) {
+        assertValidRole(dto.role);
         const place = await this.placesRepo.findOne({ where: { id: placeId } });
         if (!place) throw new NotFoundException('Local no encontrado');
 
@@ -164,6 +171,7 @@ export class TeamController {
         if (!member) throw new NotFoundException('Miembro no encontrado');
 
         if (dto.role) {
+            assertValidRole(dto.role);
             member.role = dto.role;
             await this.memberRepo.save(member);
         }

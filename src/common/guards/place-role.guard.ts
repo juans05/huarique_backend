@@ -28,7 +28,8 @@ export class PlaceRoleGuard implements CanActivate {
         if (!member) {
             throw new ForbiddenException('No tenés acceso a esta sede');
         }
-        if (ROLE_RANK[member.role] < ROLE_RANK[requiredRole]) {
+        // Un rol desconocido nunca debe pasar (antes: undefined < n era false y dejaba pasar).
+        if (!(member.role in ROLE_RANK) || ROLE_RANK[member.role] < ROLE_RANK[requiredRole]) {
             throw new ForbiddenException('No tenés el rol necesario para esta acción');
         }
 
