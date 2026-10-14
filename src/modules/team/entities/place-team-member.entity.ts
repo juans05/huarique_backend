@@ -10,7 +10,7 @@ import {
 import { User } from '../../users/entities/user.entity';
 import { Place } from '../../places/entities/place.entity';
 
-export type PlaceTeamRole = 'admin' | 'supervisor' | 'agente';
+export type PlaceTeamRole = 'admin' | 'supervisor' | 'agente' | 'cocina';
 
 @Entity('place_team_members')
 export class PlaceTeamMember {
