@@ -19,7 +19,7 @@ export class OrdersStreamController {
         }
         return from(this.team.getMembership(userId, placeId)).pipe(
             switchMap((member) => {
-                if (!member) throw new ForbiddenException('No tenés acceso a esta sede');
+                if (!member) throw new ForbiddenException('No tienes acceso a esta sede');
                 return this.events.streamForPlace(placeId);
             }),
         );

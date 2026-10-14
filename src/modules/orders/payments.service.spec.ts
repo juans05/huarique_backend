@@ -170,4 +170,10 @@ describe('PaymentsService', () => {
         await svc.reconcilePending();
         expect(ordersService.cancelUnpaid).not.toHaveBeenCalled();
     });
+
+    it('pago manual: exactamente uno de cuenta o pedido', async () => {
+        const { svc } = build();
+        await expect(svc.recordManualPayment('p1', {}, 'EFECTIVO', 'u1')).rejects.toBeInstanceOf(BadRequestException);
+        await expect(svc.recordManualPayment('p1', { tabId: 'tab1', orderId: 'o1' }, 'EFECTIVO', 'u1')).rejects.toBeInstanceOf(BadRequestException);
+    });
 });

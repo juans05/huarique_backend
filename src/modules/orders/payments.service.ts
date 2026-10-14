@@ -106,6 +106,7 @@ export class PaymentsService {
     }
 
     async recordManualPayment(placeId: string, target: { orderId?: string; tabId?: string }, method: 'EFECTIVO' | 'POS', userId: string) {
+        if (!target.tabId === !target.orderId) throw new BadRequestException('Indica la cuenta o el pedido, no ambos');
         let amount: number;
         if (target.tabId) {
             const tab = await this.tabsRepo.findOne({ where: { id: target.tabId, placeId } });
