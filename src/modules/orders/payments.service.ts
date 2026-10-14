@@ -152,6 +152,22 @@ export class PaymentsService {
                 this.logger.warn(`No se pudo conciliar el pago ${payment.id}: ${err?.message}`);
             }
         }
+        await this.reconcileUnpaidOrders(placeId);
+    }
+
+    /** Pedidos que siguen en PENDIENTE_PAGO: si ya tienen un pago PAGADO (caída entre ambos updates), se reintenta. */
+    private async reconcileUnpaidOrders(placeId?: string): Promise<void> {
+        const unpaid = await this.ordersRepo.find({ where: { status: 'PENDIENTE_PAGO', ...(placeId ? { placeId } : {}) } });
+        for (const order of unpaid) {
+            try {
+                const paid = await this.paymentsRepo.findOne({ where: { orderId: order.id, status: 'PAGADO' } });
+                if (paid && (await this.orders.markOrderPaid(order.id))) {
+                    this.emitter.emit('orders.payment.confirmed', { paymentId: paid.id, placeId: paid.placeId, orderIds: [order.id] });
+                }
+            } catch (err: any) {
+                this.logger.warn(`No se pudo conciliar el pedido ${order.id}: ${err?.message}`);
+            }
+        }
     }
 
     private async confirm(paymentId: string, patch: Partial<OrderPayment>): Promise<boolean> {
