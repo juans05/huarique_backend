@@ -26,14 +26,14 @@ const memRepo = <T extends { id?: string }>(rows: T[] = []) => ({
     }),
 });
 
-const build = (opts: { mode?: 'CUENTA_ABIERTA' | 'PREPAGO'; dishAvailable?: boolean } = {}) => {
+const build = (opts: { mode?: 'CUENTA_ABIERTA' | 'PREPAGO'; dishAvailable?: boolean; dishPrice?: string | null } = {}) => {
     const settings = memRepo([{ placeId: 'p1', ordersEnabled: true, tablePaymentMode: opts.mode ?? 'CUENTA_ABIERTA', pricesIncludeIgv: true, deliveryFee: 500, deliveryEnabled: true, pickupEnabled: true } as any]);
     const tables = memRepo([{ id: 't1', placeId: 'p1', name: 'Mesa 4', qrToken: 'qr-1', active: true } as any]);
     const tabs = memRepo<any>([]);
     const orders = memRepo<any>([]);
     const payments = memRepo<any>([]);
     const dishes = memRepo([
-        { id: 'd1', placeId: 'p1', name: 'Lomo saltado', price: '35.00', isAvailable: opts.dishAvailable ?? true } as any,
+        { id: 'd1', placeId: 'p1', name: 'Lomo saltado', price: opts.dishPrice === undefined ? '35.00' : opts.dishPrice, isAvailable: opts.dishAvailable ?? true } as any,
         { id: 'd2', placeId: 'p1', name: 'Chicha', price: '8.50', isAvailable: true } as any,
     ]);
     let counter = 0;
@@ -187,5 +187,21 @@ describe('OrdersService', () => {
             items: [{ id: 'i1', name: 'Lomo saltado', quantity: 2, note: 'bien cocido' }],
         });
         expect(orders.find).toHaveBeenLastCalledWith(expect.objectContaining({ order: { createdAt: 'ASC' }, take: 200 }));
+    });
+
+    it.each([null, '0.00'])('plato sin precio (%p): 400 con el nombre', async (price) => {
+        const { svc, orders } = build({ dishPrice: price });
+        await expect(svc.createTableOrder('qr-1', { items: [{ dishId: 'd1', quantity: 1 }] })).rejects.toThrow('Este plato ya no está disponible: Lomo saltado');
+        expect(orders.rows).toHaveLength(0);
+    });
+
+    it('normaliza el teléfono del cliente a dígitos con prefijo 51', async () => {
+        const { svc } = build();
+        const { order } = await svc.createTableOrder('qr-1', { items: [{ dishId: 'd1', quantity: 1 }], customerPhone: '987 654 321' });
+        expect(order.customerPhone).toBe('51987654321');
+        const wa = await svc.createWhatsappOrder('p1', { items: [{ dishId: 'd2', quantity: 1 }], customerName: 'Luis', customerPhone: '+51 987-654-321', whatsappNumberId: null, fulfillment: 'RECOJO' });
+        expect(wa.customerPhone).toBe('51987654321');
+        const blank = await svc.createTableOrder('qr-1', { items: [{ dishId: 'd1', quantity: 1 }], customerPhone: '  ' });
+        expect(blank.order.customerPhone).toBeNull();
     });
 });
