@@ -36,6 +36,7 @@ describe('OrderEventsService', () => {
         await svc.publish({ type: 'order.status_changed', placeId: 'p1', status: 'LISTO', publicTokens: ['tok-b'] });
         await svc.publish({ type: 'order.status_changed', placeId: 'p1', status: 'NUEVO', publicTokens: ['tok-a'] });
         expect((await got)[0].data).toMatchObject({ status: 'NUEVO' });
+        expect((await got)[0].data).not.toHaveProperty('publicTokens');
     });
 
     it('publish no bloquea ni lanza si Redis falla o no responde', async () => {

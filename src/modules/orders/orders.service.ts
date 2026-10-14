@@ -121,14 +121,13 @@ export class OrdersService {
         return updated;
     }
 
-    async requestBill(tabToken: string): Promise<Tab> {
+    async requestBill(tabToken: string): Promise<{ status: Tab['status'] }> {
         const tab = await this.tabsRepo.findOne({ where: { publicToken: tabToken } });
         if (!tab) throw new NotFoundException('Cuenta no encontrada');
-        if (tab.status !== 'ABIERTA') return tab;
+        if (tab.status !== 'ABIERTA') return { status: tab.status };
         await this.tabsRepo.update({ id: tab.id, status: 'ABIERTA' }, { status: 'CUENTA_PEDIDA', billRequestedAt: new Date() });
-        const updated = { ...tab, status: 'CUENTA_PEDIDA' as const };
-        await this.events.publish({ type: 'tab.bill_requested', placeId: tab.placeId, tabId: tab.id, tableId: tab.tableId, status: updated.status, publicTokens: [tab.publicToken] });
-        return updated;
+        await this.events.publish({ type: 'tab.bill_requested', placeId: tab.placeId, tabId: tab.id, tableId: tab.tableId, status: 'CUENTA_PEDIDA', publicTokens: [tab.publicToken] });
+        return { status: 'CUENTA_PEDIDA' };
     }
 
     async closeTab(placeId: string, tabId: string): Promise<Tab> {
