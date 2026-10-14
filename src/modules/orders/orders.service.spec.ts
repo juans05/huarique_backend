@@ -151,4 +151,19 @@ describe('OrdersService', () => {
         const { order } = await svc.createTableOrder('qr-1', { items: [{ dishId: 'd1', quantity: 1 }] });
         await expect(svc.changeStatus('p1', order.id, 'CANCELADO', 'admin')).resolves.toMatchObject({ refundPending: false });
     });
+
+    it('mesa con cuenta PAGADA: se cierra y el nuevo pedido abre otra cuenta', async () => {
+        const { svc, tabs } = build();
+        tabs.rows.push({ id: 'tab-old', placeId: 'p1', tableId: 't1', status: 'PAGADA', publicToken: 'old', closedAt: null });
+        // Igual que uq_tabs_live_per_table: una sola cuenta ABIERTA/CUENTA_PEDIDA/PAGADA por mesa.
+        const save = tabs.save.getMockImplementation()!;
+        tabs.save.mockImplementation(async (x: any) => {
+            if (tabs.rows.some((r: any) => r.tableId === x.tableId && ['ABIERTA', 'CUENTA_PEDIDA', 'PAGADA'].includes(r.status))) throw Object.assign(new Error('dup'), { code: '23505' });
+            return save(x);
+        });
+        const { tab } = await svc.createTableOrder('qr-1', { items: [{ dishId: 'd1', quantity: 1 }] });
+        expect(tab!.id).not.toBe('tab-old');
+        expect(tab!.status).toBe('ABIERTA');
+        expect(tabs.rows[0]).toMatchObject({ status: 'CERRADA', closedAt: expect.any(Date) });
+    });
 });
