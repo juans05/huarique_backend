@@ -37,4 +37,21 @@ describe('OrderEventsService', () => {
         await svc.publish({ type: 'order.status_changed', placeId: 'p1', status: 'NUEVO', publicTokens: ['tok-a'] });
         expect((await got)[0].data).toMatchObject({ status: 'NUEVO' });
     });
+
+    it('publish no bloquea ni lanza si Redis falla o no responde', async () => {
+        const failing = new OrderEventsService(config, () => ({ ...new FakeRedisBus(), publish: async () => { throw new Error('down'); }, duplicate: () => new FakeRedisBus() }) as any);
+        failing.onModuleInit();
+        await expect(failing.publish({ type: 'order.created', placeId: 'p1', publicTokens: [] })).resolves.toBeUndefined();
+
+        jest.useFakeTimers();
+        try {
+            const hanging = new OrderEventsService(config, () => ({ ...new FakeRedisBus(), publish: () => new Promise(() => undefined), duplicate: () => new FakeRedisBus() }) as any);
+            hanging.onModuleInit();
+            const done = hanging.publish({ type: 'order.created', placeId: 'p1', publicTokens: [] });
+            await jest.advanceTimersByTimeAsync(1000);
+            await expect(done).resolves.toBeUndefined();
+        } finally {
+            jest.useRealTimers();
+        }
+    });
 });

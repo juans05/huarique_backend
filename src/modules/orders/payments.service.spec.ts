@@ -144,4 +144,12 @@ describe('PaymentsService', () => {
         expect(orders.rows[0].refundPending).toBe(true);
         expect(emitter.emit).not.toHaveBeenCalledWith('orders.payment.confirmed', expect.anything());
     });
+
+    it('conciliación reintenta pedidos con pago PAGADO que quedaron en PENDIENTE_PAGO', async () => {
+        const { svc, payments, ordersService, emitter } = build();
+        payments.rows.push({ id: 'pay-z', placeId: 'p1', orderId: 'o1', tabId: null, status: 'PAGADO', method: 'TARJETA', amount: 4500, culqiOrderId: null });
+        await svc.reconcilePending();
+        expect(ordersService.markOrderPaid).toHaveBeenCalledWith('o1');
+        expect(emitter.emit).toHaveBeenCalledWith('orders.payment.confirmed', { paymentId: 'pay-z', placeId: 'p1', orderIds: ['o1'] });
+    });
 });

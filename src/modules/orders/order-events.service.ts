@@ -28,6 +28,7 @@ interface RedisLike {
 export const ORDERS_REDIS_FACTORY = 'ORDERS_REDIS_FACTORY';
 const CHANNEL = 'orders:events';
 const HEARTBEAT_MS = 25_000;
+const PUBLISH_TIMEOUT_MS = 1000;
 
 @Injectable()
 export class OrderEventsService implements OnModuleInit, OnModuleDestroy {
@@ -56,8 +57,17 @@ export class OrderEventsService implements OnModuleInit, OnModuleDestroy {
         this.subscriber?.disconnect();
     }
 
+    /** Nunca bloquea ni rompe el flujo que avisa (pago, cambio de estado): si Redis falla, solo se pierde el aviso en vivo. */
     async publish(event: OrderEvent): Promise<void> {
-        await this.publisher.publish(CHANNEL, JSON.stringify(event));
+        let timer: NodeJS.Timeout | undefined;
+        const timeout = new Promise<never>((_, reject) => { timer = setTimeout(() => reject(new Error(`sin respuesta en ${PUBLISH_TIMEOUT_MS} ms`)), PUBLISH_TIMEOUT_MS); });
+        try {
+            await Promise.race([this.publisher.publish(CHANNEL, JSON.stringify(event)), timeout]);
+        } catch (err: any) {
+            this.logger.error(`No se pudo publicar ${event.type} (${event.placeId}): ${err?.message}`);
+        } finally {
+            clearTimeout(timer);
+        }
     }
 
     streamForPlace(placeId: string, heartbeatMs = HEARTBEAT_MS): Observable<StreamMessage> {
