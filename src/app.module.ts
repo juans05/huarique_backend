@@ -43,6 +43,7 @@ import { ReportsModule } from './modules/reports/reports.module';
 import { QrModule } from './modules/qr/qr.module';
 import { CommissionsModule } from './modules/commissions/commissions.module';
 import { OrdersModule } from './modules/orders/orders.module';
+import { OrdersNotificationsModule } from './modules/orders/orders-notifications.module';
 
 @Module({
     imports: [
@@ -123,6 +124,7 @@ import { OrdersModule } from './modules/orders/orders.module';
         QrModule,
         CommissionsModule,
         OrdersModule,
+        OrdersNotificationsModule,
     ],
     providers: [
         {
