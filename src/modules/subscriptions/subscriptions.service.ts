@@ -38,7 +38,7 @@ const TIER_DEFINITIONS: TierDefinition[] = [
         envAmountKey: 'CULQI_PLAN_AMOUNT_REPUTACION',
         defaultAmount: 7999, // S/.79.99
         features: [
-            'Filtro de reputación Google activado',
+            'Solicitud de reseñas en Google por NFC y QR',
             'Instagram IA ilimitado',
             'Buzón privado de feedback',
             'Carta digital interactiva',

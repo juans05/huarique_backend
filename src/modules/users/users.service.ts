@@ -7,6 +7,7 @@ import { UserFollow } from './entities/user-follow.entity';
 import { Place } from '../places/entities/place.entity';
 import { PlaceResponseDto } from '../places/dto/place-response.dto';
 import * as bcrypt from 'bcryptjs';
+import { assertCurrentTermsVersion, CURRENT_TERMS_VERSION } from './terms-acceptance';
 
 @Injectable()
 export class UsersService {
@@ -552,5 +553,21 @@ export class UsersService {
             page: 1,
             limit: places.length,
         };
+    }
+
+    async getTermsAcceptance(userId: string) {
+        const user = await this.usersRepository.findOne({ where: { id: userId } });
+        return {
+            currentVersion: CURRENT_TERMS_VERSION,
+            acceptedVersion: user?.termsVersionAccepted ?? null,
+            acceptedAt: user?.termsAcceptedAt ?? null,
+        };
+    }
+
+    /** Registra la versión aceptada, la fecha y la IP como prueba de la aceptación electrónica. */
+    async acceptTerms(userId: string, version: string, ip: string | null) {
+        assertCurrentTermsVersion(version);
+        await this.usersRepository.update({ id: userId }, { termsVersionAccepted: version, termsAcceptedAt: new Date(), termsAcceptedIp: ip?.slice(0, 64) ?? null });
+        return this.getTermsAcceptance(userId);
     }
 }
