@@ -61,12 +61,23 @@ export class MailService {
     }
 
     async sendMarketingEmail(to: string[], subject: string, htmlContent: string) {
+        // Medio sencillo y gratuito para darse de baja (art. 26.5 del Reglamento de la Ley 29733): pie visible,
+        // respuesta a un buzón atendido y cabecera estándar que los clientes de correo muestran como "Cancelar suscripción".
+        const optOutAddress = 'consulta@wuarikes.com';
+        const footer = `
+            <p style="font-family: Arial, sans-serif; font-size: 12px; color: #6b7280; margin-top: 32px; border-top: 1px solid #eee; padding-top: 16px;">
+                Recibes este correo porque aceptaste recibir promociones de este establecimiento a través de Wuarike.
+                Para no recibir más, responde a este correo con la palabra BAJA o escribe a
+                <a href="mailto:${optOutAddress}?subject=BAJA" style="color: #6b7280;">${optOutAddress}</a>.
+            </p>`;
         try {
             const { data, error } = await this.resend.emails.send({
                 from: 'Wuarike Promociones <promociones@wuarikes.com>',
                 to,
+                replyTo: optOutAddress,
                 subject,
-                html: htmlContent,
+                html: `${htmlContent}${footer}`,
+                headers: { 'List-Unsubscribe': `<mailto:${optOutAddress}?subject=BAJA>` },
             });
 
             if (error) throw error;
@@ -221,7 +232,7 @@ export class MailService {
                             <p style="margin: 0; font-size: 20px; font-weight: 900; color: #F26122; font-family: monospace;">${folio}</p>
                         </div>
                         <p style="color: #4b5563; font-size: 14px;">
-                            Conforme a la normativa vigente, tenemos hasta 30 días calendario para darte una respuesta.
+                            Conforme al artículo 24.1 del Código de Protección y Defensa del Consumidor, te responderemos en un plazo máximo de 15 días hábiles improrrogables.
                         </p>
                     </div>
                 `,

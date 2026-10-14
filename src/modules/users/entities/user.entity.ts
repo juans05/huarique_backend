@@ -72,6 +72,17 @@ export class User {
     @Column({ name: 'last_login_at', nullable: true })
     lastLoginAt: Date;
 
+    // Prueba de la aceptación electrónica de los Términos y Condiciones del panel para negocios.
+    @Column({ name: 'terms_version_accepted', type: 'varchar', length: 20, nullable: true })
+    termsVersionAccepted: string | null;
+
+    @Column({ name: 'terms_accepted_at', type: 'timestamptz', nullable: true })
+    termsAcceptedAt: Date | null;
+
+    @Column({ name: 'terms_accepted_ip', type: 'varchar', length: 64, nullable: true })
+    @Exclude()
+    termsAcceptedIp: string | null;
+
     @OneToMany(() => Checkin, (checkin) => checkin.user)
     checkins: Checkin[];
 

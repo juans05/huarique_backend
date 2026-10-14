@@ -1,4 +1,5 @@
-import { Controller, Get, Patch, Delete, Param, HttpCode, Body, Query, UseGuards, ParseIntPipe, DefaultValuePipe, Post, UseInterceptors, UploadedFile, ParseFilePipe, MaxFileSizeValidator, FileTypeValidator, Logger, BadRequestException } from '@nestjs/common';
+import { Controller, Get, Patch, Delete, Param, HttpCode, Body, Query, UseGuards, ParseIntPipe, DefaultValuePipe, Post, UseInterceptors, UploadedFile, ParseFilePipe, MaxFileSizeValidator, FileTypeValidator, Logger, BadRequestException, Req } from '@nestjs/common';
+import { IsString, MaxLength } from 'class-validator';
 import { ApiBearerAuth, ApiTags, ApiOperation, ApiQuery, ApiParam, ApiConsumes, ApiResponse, ApiBody } from '@nestjs/swagger';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { InjectRepository } from '@nestjs/typeorm';
@@ -14,6 +15,12 @@ import { ChangePasswordDto } from './dto/change-password.dto';
 import { CloudinaryService } from '../../common/services/cloudinary.service';
 
 @ApiTags('users')
+class AcceptTermsDto {
+    @IsString()
+    @MaxLength(20)
+    version: string;
+}
+
 @Controller('users')
 @UseGuards(JwtAuthGuard)
 @ApiBearerAuth()
@@ -68,6 +75,19 @@ export class UsersController {
     async unfollow(@CurrentUser() user: any, @Param('id') id: string) {
         await this.usersService.unfollow(user.id, id);
         return { message: 'Dejaste de seguir a este usuario' };
+    }
+
+    @Get('me/terms-acceptance')
+    @ApiOperation({ summary: 'Versión vigente de los Términos y la que aceptó el usuario' })
+    getTermsAcceptance(@CurrentUser() user: any) {
+        return this.usersService.getTermsAcceptance(user.id);
+    }
+
+    @Post('me/terms-acceptance')
+    @ApiOperation({ summary: 'Registra la aceptación de la versión vigente de los Términos (prueba de aceptación electrónica)' })
+    acceptTerms(@CurrentUser() user: any, @Body() dto: AcceptTermsDto, @Req() req: any) {
+        const ip = (req.headers?.['x-forwarded-for'] as string | undefined)?.split(',')[0]?.trim() || req.ip || null;
+        return this.usersService.acceptTerms(user.id, dto.version, ip);
     }
 
     @Get('me/profile')

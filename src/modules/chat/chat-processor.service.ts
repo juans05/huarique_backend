@@ -14,6 +14,7 @@ import { BotMenuOptionService } from '../plazbot-config/bot-menu-option.service'
 import { BotMenuOption } from '../plazbot-config/entities/bot-menu-option.entity';
 import { Conversation } from '../whatsapp/entities/conversation.entity';
 import { Message } from '../whatsapp/entities/message.entity';
+import { isOptOutMessage, revokeMarketingConsent } from './marketing-opt-out.util';
 
 const TONE_INSTRUCTIONS: Record<string, string> = {
   professional: 'Tono profesional: lenguaje formal y correcto, sin emojis ni jerga, oraciones completas y precisas.',
@@ -238,6 +239,13 @@ ${channel === 'instagram' ? INSTAGRAM_FORMAT : WHATSAPP_FORMAT}${channelRules.le
       messageBody,
       messageType: 'INCOMING',
     });
+
+    // 2b. Baja de promociones (art. 26.5 del Reglamento de la Ley 29733): se atiende siempre, también en modo humano.
+    if (isOptOutMessage(messageBody)) {
+      await revokeMarketingConsent(this.messageRepo.manager, placeId, contact.phone);
+      await this.sendAndLogText(conversation, 'Listo, ya no te enviaremos promociones por este medio. Si escribes por otro motivo, te seguiremos atendiendo con gusto.');
+      return { success: true };
+    }
 
     // 3. Si está en modo humano, el agente responde manualmente — no procesar
     if (conversation.mode === 'human') {
