@@ -2,7 +2,7 @@ import { Controller, Get, Post, Patch, Param, Body, UseGuards, UseInterceptors, 
 import { FileInterceptor } from '@nestjs/platform-express';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, LessThan } from 'typeorm';
-import { Observable } from 'rxjs';
+import { Observable, from, switchMap } from 'rxjs';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { Conversation } from './entities/conversation.entity';
 import { Message } from './entities/message.entity';
@@ -123,7 +123,7 @@ export class ConversationsController {
     private async assertConversationAccess(
         conversationId: string,
         userId: string,
-        minRole?: PlaceTeamRole,
+        minRole: PlaceTeamRole = 'agente',
     ): Promise<{ conversation: Conversation; member: PlaceTeamMember }> {
         const conversation = await this.conversationRepo.findOne({ where: { id: conversationId } });
         if (!conversation) throw new NotFoundException('Conversation not found');
@@ -133,7 +133,7 @@ export class ConversationsController {
 
         await this.placeTeamService.assertPlaceTier(conversation.placeId, 'ia_total');
 
-        if (minRole && ROLE_RANK[member.role] < ROLE_RANK[minRole]) {
+        if (!(member.role in ROLE_RANK) || ROLE_RANK[member.role] < ROLE_RANK[minRole]) {
             throw new ForbiddenException('No tenés el rol necesario para esta acción');
         }
 
@@ -393,13 +393,15 @@ export class ConversationsController {
             throw new BadRequestException('Token is required');
         }
 
+        let userId: string;
         try {
-            this.jwtService.verify(token);
+            userId = this.jwtService.verify(token).sub;
         } catch (error) {
             throw new BadRequestException('Invalid or expired token');
         }
 
-        return new Observable(subscriber => {
+        // Un JWT válido no basta: el usuario tiene que ser del equipo de esta sede (y no cocina).
+        const listen = new Observable<any>(subscriber => {
             const handler = (data: any) => {
                 if (data.placeId === placeId) {
                     subscriber.next({ data });
@@ -412,5 +414,13 @@ export class ConversationsController {
                 this.eventEmitter.off('whatsapp.message.received', handler);
             };
         });
+        return from(this.placeTeamService.getMembership(userId, placeId)).pipe(
+            switchMap((member) => {
+                if (!member || !(member.role in ROLE_RANK) || ROLE_RANK[member.role] < ROLE_RANK.agente) {
+                    throw new ForbiddenException('No tienes acceso a esta sede');
+                }
+                return listen;
+            }),
+        );
     }
 }
