@@ -3,7 +3,8 @@ import { OrdersService } from './orders.service';
 
 // Compara una fila con un `where` de TypeORM, incluido `In([...])` (FindOperator con `_value`).
 const matches = (row: any, where: any = {}) => Object.entries(where).every(([k, v]: [string, any]) =>
-    v && typeof v === 'object' && '_value' in v
+    v && typeof v === 'object' && v._type === 'moreThanOrEqual' ? row[k] >= v._value
+    : v && typeof v === 'object' && '_value' in v
         ? (Array.isArray(v._value) ? v._value.includes(row[k]) : row[k] === v._value)
         : row[k] === v);
 
@@ -165,5 +166,26 @@ describe('OrdersService', () => {
         expect(tab!.id).not.toBe('tab-old');
         expect(tab!.status).toBe('ABIERTA');
         expect(tabs.rows[0]).toMatchObject({ status: 'CERRADA', closedAt: expect.any(Date) });
+    });
+
+    it('KDS: pedidos activos de las últimas 24 h, más antiguos primero y solo con datos de cocina', async () => {
+        const { svc, orders } = build();
+        const now = Date.now();
+        const base = { placeId: 'p1', channel: 'WHATSAPP', fulfillment: 'DELIVERY', tableId: null, notes: 'sin ají', customerPhone: '51987654321', deliveryAddress: 'Av. Siempre Viva 1', publicToken: 'secret', customerName: 'Ana', total: 100 };
+        const item = { id: 'i1', dishNameSnapshot: 'Lomo saltado', quantity: 2, note: 'bien cocido', unitPrice: 3500 };
+        orders.rows.push(
+            { ...base, id: 'a', number: 1, status: 'NUEVO', createdAt: new Date(now - 60_000), items: [item] },
+            { ...base, id: 'b', number: 2, status: 'LISTO', createdAt: new Date(now - 120_000), items: [] },
+            { ...base, id: 'c', number: 3, status: 'ENTREGADO', createdAt: new Date(now - 60_000), items: [] },
+            { ...base, id: 'd', number: 4, status: 'NUEVO', createdAt: new Date(now - 25 * 3600_000), items: [] },
+            { ...base, id: 'e', number: 5, status: 'PENDIENTE_PAGO', createdAt: new Date(now - 60_000), items: [] },
+        );
+        const kds = await svc.listActiveForKds('p1');
+        expect(kds.map((o: any) => o.id).sort()).toEqual(['a', 'b']);
+        expect(kds.find((o: any) => o.id === 'a')).toEqual({
+            id: 'a', number: 1, channel: 'WHATSAPP', fulfillment: 'DELIVERY', status: 'NUEVO', tableId: null, notes: 'sin ají', createdAt: expect.any(Date),
+            items: [{ id: 'i1', name: 'Lomo saltado', quantity: 2, note: 'bien cocido' }],
+        });
+        expect(orders.find).toHaveBeenLastCalledWith(expect.objectContaining({ order: { createdAt: 'ASC' }, take: 200 }));
     });
 });
