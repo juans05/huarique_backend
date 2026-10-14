@@ -212,3 +212,13 @@ describe('OrdersService', () => {
         await expect(svc.requestBill('ttok')).resolves.toEqual({ status: 'CUENTA_PEDIDA' });
     });
 });
+
+describe('OrdersService.publicTokenExists', () => {
+    it('rechaza textos que no son tokens y acepta los de pedidos existentes', async () => {
+        const { svc } = build();
+        const { order } = await svc.createTableOrder('qr-1', { items: [{ dishId: 'd1', quantity: 1 }] });
+        await expect(svc.publicTokenExists('no-es-un-token')).resolves.toBe(false);
+        await expect(svc.publicTokenExists('0'.repeat(32))).resolves.toBe(false);
+        await expect(svc.publicTokenExists(order.publicToken)).resolves.toBe(true);
+    });
+});
