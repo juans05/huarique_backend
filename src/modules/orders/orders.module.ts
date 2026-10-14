@@ -12,6 +12,7 @@ import { Dish } from '../places/entities/dish.entity';
 import { Place } from '../places/entities/place.entity';
 import { TeamModule } from '../team/team.module';
 import { OrdersService } from './orders.service';
+import { OrderSettingsService } from './order-settings.service';
 import { OrderEventsService } from './order-events.service';
 
 export const ORDER_ENTITIES = [PlaceOrderSettings, PlaceTable, Tab, Order, OrderItem, OrderPayment, PlacePayout, WhatsappOrderDraft, Dish, Place];
@@ -19,7 +20,7 @@ export const ORDER_ENTITIES = [PlaceOrderSettings, PlaceTable, Tab, Order, Order
 @Module({
     imports: [TypeOrmModule.forFeature(ORDER_ENTITIES), TeamModule],
     controllers: [],
-    providers: [OrderEventsService, OrdersService],
-    exports: [OrderEventsService, OrdersService],
+    providers: [OrderEventsService, OrdersService, OrderSettingsService],
+    exports: [OrderEventsService, OrdersService, OrderSettingsService],
 })
 export class OrdersModule { }
