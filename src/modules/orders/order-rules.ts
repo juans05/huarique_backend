@@ -41,3 +41,10 @@ export function assertCanCancel(status: OrderStatus, role: PlaceTeamRole): void 
 export function newPublicToken(): string {
     return randomBytes(16).toString('hex');
 }
+
+/** Solo dígitos; un celular peruano de 9 dígitos (empieza en 9) recibe el prefijo 51, como llega por WhatsApp. */
+export function normalizePhone(phone?: string | null): string | null {
+    const digits = (phone ?? '').replace(/\D/g, '');
+    if (!digits) return null;
+    return digits.length === 9 && digits.startsWith('9') ? `51${digits}` : digits;
+}

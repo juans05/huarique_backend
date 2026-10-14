@@ -11,7 +11,7 @@ import { OrderPayment } from './entities/order-payment.entity';
 import { Dish } from '../places/entities/dish.entity';
 import { PlaceTeamRole } from '../team/entities/place-team-member.entity';
 import { OrderEventsService } from './order-events.service';
-import { assertCanCancel, calculateTotals, canTransition, newPublicToken, toCents } from './order-rules';
+import { assertCanCancel, calculateTotals, canTransition, newPublicToken, normalizePhone, toCents } from './order-rules';
 
 export interface CartLine { dishId: string; quantity: number; note?: string }
 
@@ -62,7 +62,7 @@ export class OrdersService {
 
         const order = await this.saveOrder({
             placeId: table.placeId, tabId: tab?.id ?? null, tableId: table.id, channel: 'MESA', fulfillment: 'SALA',
-            status: prepaid ? 'PENDIENTE_PAGO' : 'NUEVO', customerName: input.customerName ?? null, customerPhone: input.customerPhone ?? null,
+            status: prepaid ? 'PENDIENTE_PAGO' : 'NUEVO', customerName: input.customerName ?? null, customerPhone: normalizePhone(input.customerPhone),
             notes: input.notes ?? null, subtotal: totals.subtotal, deliveryFee: 0, total: totals.total, items,
         });
         if (!prepaid) await this.publish('order.created', order, tab);
@@ -80,7 +80,7 @@ export class OrdersService {
         const totals = calculateTotals(items, fee, settings.pricesIncludeIgv);
         return this.saveOrder({
             placeId, tabId: null, tableId: null, channel: 'WHATSAPP', fulfillment: input.fulfillment, status: 'PENDIENTE_PAGO',
-            customerName: input.customerName, customerPhone: input.customerPhone, whatsappNumberId: input.whatsappNumberId,
+            customerName: input.customerName, customerPhone: normalizePhone(input.customerPhone), whatsappNumberId: input.whatsappNumberId,
             deliveryAddress: input.deliveryAddress ?? null, notes: null, subtotal: totals.subtotal, deliveryFee: fee, total: totals.total, items,
         });
     }
@@ -231,9 +231,9 @@ export class OrdersService {
         return lines.map((line) => {
             const dish = dishes.find((d) => d.id === line.dishId);
             if (!dish) throw new BadRequestException('Este plato ya no está disponible');
-            if (!dish.isAvailable) throw new BadRequestException(`Este plato ya no está disponible: ${dish.name}`);
-            const quantity = Math.max(1, Math.min(50, Math.floor(line.quantity)));
             const unitPrice = toCents(dish.price as any);
+            if (!dish.isAvailable || unitPrice <= 0) throw new BadRequestException(`Este plato ya no está disponible: ${dish.name}`);
+            const quantity = Math.max(1, Math.min(50, Math.floor(line.quantity)));
             return { dishId: dish.id, dishNameSnapshot: dish.name, unitPrice, quantity, note: line.note?.slice(0, 200) ?? null, lineTotal: unitPrice * quantity };
         });
     }
