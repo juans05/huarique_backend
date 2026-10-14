@@ -75,7 +75,8 @@ export class OrderEventsService implements OnModuleInit, OnModuleDestroy {
     }
 
     streamForToken(publicToken: string, heartbeatMs = HEARTBEAT_MS): Observable<StreamMessage> {
-        return this.withHeartbeat(this.bus.pipe(filter((e) => e.publicTokens.includes(publicToken))), heartbeatMs);
+        // Los tokens de otros comensales/pedidos no salen al cliente público.
+        return this.withHeartbeat(this.bus.pipe(filter((e) => e.publicTokens.includes(publicToken)), map(({ publicTokens: _, ...rest }) => rest as OrderEvent)), heartbeatMs);
     }
 
     private withHeartbeat(events: Observable<OrderEvent>, heartbeatMs: number): Observable<StreamMessage> {

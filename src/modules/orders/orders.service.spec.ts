@@ -204,4 +204,11 @@ describe('OrdersService', () => {
         const blank = await svc.createTableOrder('qr-1', { items: [{ dishId: 'd1', quantity: 1 }], customerPhone: '  ' });
         expect(blank.order.customerPhone).toBeNull();
     });
+
+    it('pedir la cuenta devuelve solo el estado', async () => {
+        const { svc, tabs } = build();
+        tabs.rows.push({ id: 'tab-1', placeId: 'p1', tableId: 't1', status: 'ABIERTA', publicToken: 'ttok' });
+        await expect(svc.requestBill('ttok')).resolves.toEqual({ status: 'CUENTA_PEDIDA' });
+        await expect(svc.requestBill('ttok')).resolves.toEqual({ status: 'CUENTA_PEDIDA' });
+    });
 });

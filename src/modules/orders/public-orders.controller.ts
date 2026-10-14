@@ -1,4 +1,4 @@
-import { Body, Controller, Get, HttpCode, NotFoundException, Param, Post, Query, Sse } from '@nestjs/common';
+import { BadRequestException, Body, Controller, Get, HttpCode, NotFoundException, Param, Post, Query, Sse } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Throttle } from '@nestjs/throttler';
 import { In, Repository } from 'typeorm';
@@ -11,8 +11,12 @@ import { PaymentsService } from './payments.service';
 import { OrderEventsService, StreamMessage } from './order-events.service';
 import { CreateTableOrderDto, PaymentIntentDto, PaymentTokenDto } from './dto/orders.dto';
 
+const WEBHOOK_COOLDOWN_MS = 30_000;
+
 @Controller('public')
 export class PublicOrdersController {
+    private readonly lastWebhookAt = new Map<string, number>();
+
     constructor(
         @InjectRepository(PlaceTable) private tablesRepo: Repository<PlaceTable>,
         @InjectRepository(Tab) private tabsRepo: Repository<Tab>,
@@ -43,7 +47,7 @@ export class PublicOrdersController {
     @Throttle({ default: { ttl: 60000, limit: 10 } })
     async createOrder(@Body() dto: CreateTableOrderDto) {
         const { order, tab, requiresPayment } = await this.orders.createTableOrder(dto.qrToken, dto);
-        return { orderToken: order.publicToken, tabToken: tab?.publicToken ?? null, requiresPayment };
+        return { orderToken: order.publicToken, tabToken: tab?.publicToken ?? null, requiresPayment, total: order.total };
     }
 
     @Get('orders/:token')
@@ -86,8 +90,15 @@ export class PublicOrdersController {
     // Público a propósito (CulqiPanel → Webhooks): no se confía en el cuerpo, solo dispara la conciliación.
     @Post('payments/culqi-webhook')
     @HttpCode(200)
+    @Throttle({ default: { ttl: 60000, limit: 20 } })
     webhook(@Query('place') placeId?: string) {
-        this.payments.reconcilePending(placeId).catch(() => undefined);
+        if (!placeId) throw new BadRequestException('Falta el parámetro place');
+        // ponytail: enfriamiento en memoria por instancia; el cron de 5 min cubre lo que se salte.
+        const now = Date.now();
+        if (now - (this.lastWebhookAt.get(placeId) ?? 0) >= WEBHOOK_COOLDOWN_MS) {
+            this.lastWebhookAt.set(placeId, now);
+            this.payments.reconcilePending(placeId).catch(() => undefined);
+        }
         return { received: true };
     }
 }
