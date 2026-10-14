@@ -1,11 +1,18 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { Cron } from '@nestjs/schedule';
 import { InjectRepository } from '@nestjs/typeorm';
-import { In, Repository } from 'typeorm';
+import { In, IsNull, Repository } from 'typeorm';
 import { OrderPayment } from './entities/order-payment.entity';
 import { PlacePayout } from './entities/place-payout.entity';
 import { PlaceOrderSettings } from './entities/place-order-settings.entity';
 import { limaMonthRange, limaPeriod } from './lima-period';
+
+function amounts(rows: OrderPayment[], pct: number) {
+    const gross = rows.reduce((s, p) => s + p.amount, 0);
+    const commission = Math.round(gross * pct);
+    const culqiFees = rows.reduce((s, p) => s + p.culqiFee, 0);
+    return { gross, commission, culqiFees, net: gross - commission - culqiFees };
+}
 
 @Injectable()
 export class PayoutsService {
@@ -35,11 +42,16 @@ export class PayoutsService {
         const created: PlacePayout[] = [];
         for (const [placeId, rows] of byPlace) {
             const settings = await this.settingsRepo.findOne({ where: { placeId } });
-            const gross = rows.reduce((s, p) => s + p.amount, 0);
-            const commission = Math.round(gross * (settings?.wuarikesCommissionPct ?? 0.05));
-            const culqiFees = rows.reduce((s, p) => s + p.culqiFee, 0);
-            const payout = await this.payoutsRepo.save(this.payoutsRepo.create({ placeId, period, gross, commission, culqiFees, net: gross - commission - culqiFees, status: 'BORRADOR' }));
-            await this.paymentsRepo.update({ id: In(rows.map((r) => r.id)) }, { payoutId: payout.id });
+            const pct = settings?.wuarikesCommissionPct ?? 0.05;
+            let payout = await this.payoutsRepo.save(this.payoutsRepo.create({ placeId, period, ...amounts(rows, pct), status: 'BORRADOR' }));
+            // Toma condicional: si otra corrida ya se llevó algún pago, no se liquida dos veces.
+            await this.paymentsRepo.update({ id: In(rows.map((r) => r.id)), payoutId: IsNull() }, { payoutId: payout.id });
+            const taken = await this.paymentsRepo.find({ where: { payoutId: payout.id } });
+            if (!taken.length) {
+                await this.payoutsRepo.delete({ id: payout.id });
+                continue;
+            }
+            if (taken.length !== rows.length) payout = await this.payoutsRepo.save({ ...payout, ...amounts(taken, pct) });
             created.push(payout);
         }
         return created;
@@ -50,9 +62,12 @@ export class PayoutsService {
     }
 
     async markPaid(id: string, reference: string) {
-        const payout = await this.payoutsRepo.findOne({ where: { id } });
-        if (!payout) throw new NotFoundException('Liquidación no encontrada');
-        return this.payoutsRepo.save({ ...payout, status: 'PAGADO', paidAt: new Date(), reference });
+        const result = await this.payoutsRepo.update({ id, status: 'BORRADOR' }, { status: 'PAGADO', paidAt: new Date(), reference });
+        if (!result.affected) {
+            if (!(await this.payoutsRepo.findOne({ where: { id } }))) throw new NotFoundException('Liquidación no encontrada');
+            throw new BadRequestException('Solo se puede pagar una liquidación en borrador');
+        }
+        return this.payoutsRepo.findOne({ where: { id } });
     }
 
     async setCommission(placeId: string, pct: number) {
