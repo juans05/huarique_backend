@@ -29,9 +29,8 @@ export class StaffOrdersController {
 
     @Get('kds')
     @RequiresPlaceRole('cocina')
-    async kds(@Param('placeId') placeId: string) {
-        const { items } = await this.orders.listForPlace(placeId, { status: ['NUEVO', 'EN_PREPARACION', 'LISTO'], from: new Date(Date.now() - 24 * 3600_000) });
-        return items;
+    kds(@Param('placeId') placeId: string) {
+        return this.orders.listActiveForKds(placeId);
     }
 
     @Patch(':orderId/status')

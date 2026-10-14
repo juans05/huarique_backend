@@ -1,7 +1,7 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { InjectDataSource, InjectRepository } from '@nestjs/typeorm';
-import { DataSource, In, Repository } from 'typeorm';
+import { DataSource, In, MoreThanOrEqual, Repository } from 'typeorm';
 import { PlaceOrderSettings } from './entities/place-order-settings.entity';
 import { PlaceTable } from './entities/place-table.entity';
 import { Tab } from './entities/tab.entity';
@@ -197,6 +197,18 @@ export class OrdersService {
         const page = Math.max(1, filter.page ?? 1);
         const [items, total] = await qb.orderBy('o.created_at', 'DESC').skip((page - 1) * PAGE_SIZE).take(PAGE_SIZE).getManyAndCount();
         return { items, total };
+    }
+
+    /** Pantalla de cocina: sin paginar (tope 200) y sin datos del cliente (teléfono, dirección, token público). */
+    async listActiveForKds(placeId: string) {
+        const orders = await this.ordersRepo.find({
+            where: { placeId, status: In(['NUEVO', 'EN_PREPARACION', 'LISTO']), createdAt: MoreThanOrEqual(new Date(Date.now() - 24 * 3600_000)) },
+            relations: ['items'], order: { createdAt: 'ASC' }, take: 200,
+        });
+        return orders.map((o) => ({
+            id: o.id, number: o.number, channel: o.channel, fulfillment: o.fulfillment, status: o.status, tableId: o.tableId, notes: o.notes, createdAt: o.createdAt,
+            items: (o.items ?? []).map((i) => ({ id: i.id, name: i.dishNameSnapshot, quantity: i.quantity, note: i.note })),
+        }));
     }
 
     async tablesBoard(placeId: string): Promise<TableBoardRow[]> {
