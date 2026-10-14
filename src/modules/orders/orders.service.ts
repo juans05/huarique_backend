@@ -175,6 +175,14 @@ export class OrdersService {
         return this.publicView(order);
     }
 
+    /** El token público pertenece a un pedido o a una cuenta existente (para abrir el canal en vivo). */
+    async publicTokenExists(publicToken: string): Promise<boolean> {
+        if (!/^[0-9a-f]{32}$/.test(publicToken ?? '')) return false;
+        const order = await this.ordersRepo.findOne({ where: { publicToken } });
+        if (order) return true;
+        return !!(await this.tabsRepo.findOne({ where: { publicToken } }));
+    }
+
     async getPublicTab(publicToken: string) {
         const tab = await this.tabsRepo.findOne({ where: { publicToken } });
         if (!tab) throw new NotFoundException('Cuenta no encontrada');

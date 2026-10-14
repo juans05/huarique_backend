@@ -212,6 +212,7 @@ export class ConversationsController {
         this.eventEmitter.emit('whatsapp.message.received', {
             placeId: conversation.placeId,
             conversationId: conversation.id,
+            whatsappNumberId: conversation.whatsappNumberId,
             customerName: conversation.customerName,
             customerPhone: conversation.customerPhone,
             messageBody: body.text,
@@ -256,6 +257,7 @@ export class ConversationsController {
         this.eventEmitter.emit('whatsapp.message.received', {
             placeId: conversation.placeId,
             conversationId: conversation.id,
+            whatsappNumberId: conversation.whatsappNumberId,
             customerName: conversation.customerName,
             customerPhone: conversation.customerPhone,
             messageBody: body.caption || '📎 Adjunto',
@@ -400,12 +402,13 @@ export class ConversationsController {
             throw new BadRequestException('Invalid or expired token');
         }
 
-        // Un JWT válido no basta: el usuario tiene que ser del equipo de esta sede (y no cocina).
-        const listen = new Observable<any>(subscriber => {
+        // Un JWT válido no basta: el usuario tiene que ser del equipo de esta sede (y no cocina), y un agente
+        // solo recibe los mensajes de sus números asignados, igual que en la lista de conversaciones.
+        const listen = (accessible: string[] | 'all') => new Observable<any>(subscriber => {
             const handler = (data: any) => {
-                if (data.placeId === placeId) {
-                    subscriber.next({ data });
-                }
+                if (data.placeId !== placeId) return;
+                if (accessible !== 'all' && !accessible.includes(data.whatsappNumberId)) return;
+                subscriber.next({ data });
             };
 
             this.eventEmitter.on('whatsapp.message.received', handler);
@@ -415,12 +418,13 @@ export class ConversationsController {
             };
         });
         return from(this.placeTeamService.getMembership(userId, placeId)).pipe(
-            switchMap((member) => {
+            switchMap(async (member) => {
                 if (!member || !(member.role in ROLE_RANK) || ROLE_RANK[member.role] < ROLE_RANK.agente) {
                     throw new ForbiddenException('No tienes acceso a esta sede');
                 }
-                return listen;
+                return this.placeTeamService.getAccessibleWhatsappNumberIds(member);
             }),
+            switchMap((accessible) => listen(accessible)),
         );
     }
 }

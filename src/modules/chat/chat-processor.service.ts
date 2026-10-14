@@ -236,6 +236,7 @@ ${channel === 'instagram' ? INSTAGRAM_FORMAT : WHATSAPP_FORMAT}${channelRules.le
     this.eventEmitter.emit('whatsapp.message.received', {
       placeId,
       conversationId: conversation.id,
+      whatsappNumberId: conversation.whatsappNumberId,
       customerName: conversation.customerName,
       customerPhone: conversation.customerPhone,
       messageBody,
@@ -365,6 +366,7 @@ ${channel === 'instagram' ? INSTAGRAM_FORMAT : WHATSAPP_FORMAT}${channelRules.le
     this.eventEmitter.emit('whatsapp.message.received', {
       placeId,
       conversationId: conversation.id,
+      whatsappNumberId: conversation.whatsappNumberId,
       customerName: conversation.customerName,
       customerPhone: conversation.customerPhone,
       messageBody: botResponse,
@@ -407,6 +409,7 @@ ${channel === 'instagram' ? INSTAGRAM_FORMAT : WHATSAPP_FORMAT}${channelRules.le
     this.eventEmitter.emit('whatsapp.message.received', {
       placeId: conversation.placeId,
       conversationId: conversation.id,
+      whatsappNumberId: conversation.whatsappNumberId,
       customerName: conversation.customerName,
       customerPhone: conversation.customerPhone,
       messageBody: text,
@@ -430,6 +433,7 @@ ${channel === 'instagram' ? INSTAGRAM_FORMAT : WHATSAPP_FORMAT}${channelRules.le
     this.eventEmitter.emit('whatsapp.message.received', {
       placeId: conversation.placeId,
       conversationId: conversation.id,
+      whatsappNumberId: conversation.whatsappNumberId,
       customerName: conversation.customerName,
       customerPhone: conversation.customerPhone,
       messageBody: caption || '📎 Adjunto',

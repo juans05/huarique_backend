@@ -2,7 +2,7 @@ import { BadRequestException, Body, Controller, Get, HttpCode, NotFoundException
 import { InjectRepository } from '@nestjs/typeorm';
 import { Throttle } from '@nestjs/throttler';
 import { In, Repository } from 'typeorm';
-import { Observable } from 'rxjs';
+import { Observable, from, switchMap } from 'rxjs';
 import { PlaceTable } from './entities/place-table.entity';
 import { Tab } from './entities/tab.entity';
 import { Place } from '../places/entities/place.entity';
@@ -65,9 +65,17 @@ export class PublicOrdersController {
         return this.orders.requestBill(token);
     }
 
+    // Solo tokens que existen (pedido o cuenta) y con límite: si no, cualquiera podría abrir conexiones
+    // de larga duración ilimitadas con textos inventados.
     @Sse('stream/:token')
+    @Throttle({ default: { ttl: 60000, limit: 20 } })
     stream(@Param('token') token: string): Observable<StreamMessage> {
-        return this.events.streamForToken(token);
+        return from(this.orders.publicTokenExists(token)).pipe(
+            switchMap((exists) => {
+                if (!exists) throw new NotFoundException('Pedido no encontrado');
+                return this.events.streamForToken(token);
+            }),
+        );
     }
 
     @Post('payments/intent')
