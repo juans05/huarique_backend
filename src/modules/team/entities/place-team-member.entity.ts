@@ -10,7 +10,8 @@ import {
 import { User } from '../../users/entities/user.entity';
 import { Place } from '../../places/entities/place.entity';
 
-export type PlaceTeamRole = 'admin' | 'supervisor' | 'agente' | 'cocina';
+export const PLACE_TEAM_ROLES = ['admin', 'supervisor', 'agente', 'cocina'] as const;
+export type PlaceTeamRole = (typeof PLACE_TEAM_ROLES)[number];
 
 @Entity('place_team_members')
 export class PlaceTeamMember {
