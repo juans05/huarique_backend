@@ -287,3 +287,13 @@ describe('OrdersService: registro de intentos de PIN acotado', () => {
         expect((svc as any).pinFailures.size).toBeLessThanOrEqual(10_000);
     });
 });
+
+describe('OrdersService: un bloqueo de PIN no se puede borrar inundando el registro', () => {
+    it('la IP bloqueada sigue bloqueada después de miles de intentos desde otras IPs', async () => {
+        const { svc } = build();
+        const table = { id: 't1', pin: '1234' } as any;
+        for (let i = 0; i < 5; i++) { try { svc.assertTablePin(table, '0000', 'ip-atacante'); } catch { /* esperado */ } }
+        for (let i = 0; i < 10_050; i++) { try { svc.assertTablePin({ id: `otra-${i}`, pin: '1234' } as any, '0000', `ip-${i}`); } catch { /* esperado */ } }
+        expect(() => svc.assertTablePin(table, '1234', 'ip-atacante')).toThrow('Demasiados intentos');
+    });
+});

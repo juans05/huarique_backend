@@ -290,20 +290,24 @@ export class OrdersService {
         if (!table.pin || expected.length !== given.length || !timingSafeEqual(expected, given)) {
             // ponytail: contadores en memoria por instancia; pasarlos a Redis si Railway corre varias réplicas.
             this.registerFailure(perClient, PIN_MAX_FAILURES_PER_CLIENT, now);
-            this.registerFailure(table.id, PIN_MAX_FAILURES_PER_TABLE, now);
+            // El contador por mesa se registra siempre (son pocas claves), aunque el registro esté lleno.
+            this.registerFailure(table.id, PIN_MAX_FAILURES_PER_TABLE, now, true);
             throw new ForbiddenException('PIN incorrecto. Pídelo al personal del local.');
         }
         this.pinFailures.delete(perClient);
     }
 
-    /** Borra entradas vencidas; si aún está lleno, descarta las más antiguas (Map conserva el orden de inserción). */
+    /**
+     * Borra entradas vencidas; si aún está lleno, descarta las más antiguas que NO estén bloqueadas.
+     * Un bloqueo vigente nunca se descarta: si no, un atacante podría inundar el registro para borrar el suyo.
+     */
     private prunePinFailures(now: number): void {
         for (const [key, entry] of this.pinFailures) {
             if (now - entry.firstAt >= PIN_WINDOW_MS && entry.lockedUntil <= now) this.pinFailures.delete(key);
         }
-        for (const key of this.pinFailures.keys()) {
+        for (const [key, entry] of this.pinFailures) {
             if (this.pinFailures.size < PIN_FAILURES_MAX_ENTRIES) break;
-            this.pinFailures.delete(key);
+            if (entry.lockedUntil <= now) this.pinFailures.delete(key);
         }
     }
 
@@ -312,8 +316,12 @@ export class OrdersService {
         return !!entry && entry.lockedUntil > now;
     }
 
-    private registerFailure(key: string, max: number, now: number): void {
-        if (!this.pinFailures.has(key) && this.pinFailures.size >= PIN_FAILURES_MAX_ENTRIES) this.prunePinFailures(now);
+    private registerFailure(key: string, max: number, now: number, alwaysTrack = false): void {
+        if (!this.pinFailures.has(key) && this.pinFailures.size >= PIN_FAILURES_MAX_ENTRIES) {
+            this.prunePinFailures(now);
+            // Lleno de bloqueos vigentes: no se agrega esta IP, pero el tope por mesa sigue contando.
+            if (this.pinFailures.size >= PIN_FAILURES_MAX_ENTRIES && !alwaysTrack) return;
+        }
         const previous = this.pinFailures.get(key);
         const entry = previous && now - previous.firstAt < PIN_WINDOW_MS ? previous : { count: 0, firstAt: now, lockedUntil: 0 };
         entry.count += 1;
