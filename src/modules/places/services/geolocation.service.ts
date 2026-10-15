@@ -31,7 +31,7 @@ export class GeolocationService {
                     p.location::geography,
                     ST_SetSRID(ST_MakePoint($1, $2), 4326)::geography
                 ) / 1000 AS distance
-            FROM places p
+            FROM wuarike_db.places p
             WHERE 
                 p.status = 'active'
                 AND ST_DWithin(

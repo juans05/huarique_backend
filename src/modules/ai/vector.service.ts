@@ -43,7 +43,7 @@ export class VectorService {
     async saveChunk(knowledgeBaseId: string, text: string, embedding: number[]) {
         const vectorString = JSON.stringify(embedding);
         await this.dataSource.query(
-            `INSERT INTO knowledge_base_chunks (knowledge_base_id, chunk_text, embedding)
+            `INSERT INTO wuarike_db.knowledge_base_chunks (knowledge_base_id, chunk_text, embedding)
              VALUES ($1, $2, $3)`,
             [knowledgeBaseId, text, vectorString]
         );
