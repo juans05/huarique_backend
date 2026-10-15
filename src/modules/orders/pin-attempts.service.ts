@@ -4,10 +4,9 @@ import Redis from 'ioredis';
 
 /** Lo mínimo de Redis que usa el contador (inyectable para tests). */
 export interface PinAttemptsStore {
-    get(key: string): Promise<string | null>;
+    set(key: string, value: string, mode: 'EX', seconds: number, condition: 'NX'): Promise<'OK' | null>;
     incr(key: string): Promise<number>;
-    expire(key: string, seconds: number): Promise<number>;
-    del(key: string): Promise<number>;
+    decr(key: string): Promise<number>;
     disconnect(): void;
 }
 
@@ -15,9 +14,9 @@ export const PIN_ATTEMPTS_STORE_FACTORY = 'PIN_ATTEMPTS_STORE_FACTORY';
 const WINDOW_SECONDS = 10 * 60;
 
 /**
- * Contadores de PIN incorrectos en Redis, con vencimiento a los 10 min desde el primer fallo.
- * A diferencia de un mapa en memoria no hay tamaño máximo ni nada que descartar (un atacante que rota IPs
- * no puede borrar contadores ni bloqueos) y se comparte entre todas las réplicas.
+ * Intentos de PIN en Redis, con vencimiento a los 10 min. Cada intento se cuenta ANTES de comparar el PIN
+ * (así muchos intentos en paralelo no se cuelan antes de registrar el primer fallo) y se descuenta si el PIN
+ * era correcto. La clave se crea con su vencimiento en un solo paso (SET NX EX): nunca queda sin TTL.
  */
 @Injectable()
 export class PinAttemptsService implements OnModuleInit, OnModuleDestroy {
@@ -38,32 +37,27 @@ export class PinAttemptsService implements OnModuleInit, OnModuleDestroy {
         this.store?.disconnect();
     }
 
-    /** ¿Alguna de las claves alcanzó su tope en la ventana vigente? */
-    async isLocked(limits: { key: string; max: number }[]): Promise<boolean> {
+    /**
+     * Registra un intento en cada clave y dice si se permite (ninguna superó su tope).
+     * Si Redis no responde, aplica `onStoreError` ('allow' o 'deny').
+     */
+    async consume(limits: { key: string; max: number }[], onStoreError: 'allow' | 'deny'): Promise<boolean> {
         try {
-            const counts = await Promise.all(limits.map((limit) => this.store.get(this.redisKey(limit.key))));
-            return counts.some((count, i) => Number(count ?? 0) >= limits[i].max);
-        } catch (err: any) {
-            // Decisión explícita: si Redis no responde no se bloquea a los comensales (el PIN sigue exigiéndose
-            // y el rate limit por IP sigue activo); queda registrado para revisarlo.
-            this.logger.error(`No se pudo leer el contador de PIN: ${err?.message}`);
-            return false;
-        }
-    }
-
-    async registerFailure(keys: string[]): Promise<void> {
-        try {
-            await Promise.all(keys.map(async (key) => {
-                const count = await this.store.incr(this.redisKey(key));
-                if (count === 1) await this.store.expire(this.redisKey(key), WINDOW_SECONDS);
+            const counts = await Promise.all(limits.map(async (limit) => {
+                const key = this.redisKey(limit.key);
+                await this.store.set(key, '0', 'EX', WINDOW_SECONDS, 'NX');
+                return this.store.incr(key);
             }));
+            return counts.every((count, i) => count <= limits[i].max);
         } catch (err: any) {
-            this.logger.error(`No se pudo registrar el fallo de PIN: ${err?.message}`);
+            this.logger.error(`Contador de PIN no disponible (${onStoreError}): ${err?.message}`);
+            return onStoreError === 'allow';
         }
     }
 
-    async reset(key: string): Promise<void> {
-        await this.store.del(this.redisKey(key)).catch(() => undefined);
+    /** Devuelve el intento consumido por un PIN correcto (no cuenta como fallo). */
+    async refund(keys: string[]): Promise<void> {
+        await Promise.all(keys.map((key) => this.store.decr(this.redisKey(key)).catch(() => undefined)));
     }
 
     private redisKey(key: string): string {

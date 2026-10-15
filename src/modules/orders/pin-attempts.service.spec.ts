@@ -5,10 +5,12 @@ const store = () => {
     const ttl = new Map<string, number>();
     return {
         values, ttl,
-        get: jest.fn(async (key: string) => (values.has(key) ? String(values.get(key)) : null)),
+        set: jest.fn(async (key: string, value: string, _mode: string, seconds: number) => {
+            if (values.has(key)) return null;
+            values.set(key, Number(value)); ttl.set(key, seconds); return 'OK';
+        }),
         incr: jest.fn(async (key: string) => { values.set(key, (values.get(key) ?? 0) + 1); return values.get(key)!; }),
-        expire: jest.fn(async (key: string, seconds: number) => { ttl.set(key, seconds); return 1; }),
-        del: jest.fn(async (key: string) => Number(values.delete(key))),
+        decr: jest.fn(async (key: string) => { values.set(key, (values.get(key) ?? 0) - 1); return values.get(key)!; }),
         disconnect: jest.fn(),
     };
 };
@@ -19,36 +21,41 @@ const build = (fake = store()) => {
     return { svc, fake };
 };
 
+const limits = [{ key: 't1:ip', max: 5 }, { key: 't1', max: 15 }];
+
 describe('PinAttemptsService', () => {
-    it('cuenta fallos con vencimiento de 10 min fijado en el primer fallo', async () => {
+    it('la clave se crea con vencimiento de 10 min en un solo paso (nunca queda sin TTL)', async () => {
         const { svc, fake } = build();
-        await svc.registerFailure(['t1:ip']);
-        await svc.registerFailure(['t1:ip']);
-        expect(fake.values.get('pin:fail:t1:ip')).toBe(2);
-        expect(fake.expire).toHaveBeenCalledTimes(1);
+        await svc.consume(limits, 'allow');
+        await svc.consume(limits, 'allow');
         expect(fake.ttl.get('pin:fail:t1:ip')).toBe(600);
+        expect(fake.values.get('pin:fail:t1:ip')).toBe(2);
     });
 
-    it('bloquea al alcanzar el tope de cualquiera de las claves', async () => {
+    it('cuenta el intento antes de comparar: el sexto intento ya no se permite', async () => {
         const { svc } = build();
-        for (let i = 0; i < 5; i++) await svc.registerFailure(['t1:ip']);
-        await expect(svc.isLocked([{ key: 't1:ip', max: 5 }, { key: 't1', max: 15 }])).resolves.toBe(true);
-        await expect(svc.isLocked([{ key: 't1:otra', max: 5 }, { key: 't1', max: 15 }])).resolves.toBe(false);
+        for (let i = 0; i < 5; i++) await expect(svc.consume(limits, 'allow')).resolves.toBe(true);
+        await expect(svc.consume(limits, 'allow')).resolves.toBe(false);
     });
 
-    it('no hay tamaño máximo: miles de claves no borran un bloqueo existente', async () => {
+    it('intentos en paralelo no se cuelan más allá del tope', async () => {
         const { svc } = build();
-        for (let i = 0; i < 5; i++) await svc.registerFailure(['t1:atacante']);
-        for (let i = 0; i < 10_050; i++) await svc.registerFailure([`otra-${i}:ip-${i}`]);
-        await expect(svc.isLocked([{ key: 't1:atacante', max: 5 }])).resolves.toBe(true);
+        const results = await Promise.all(Array.from({ length: 20 }, () => svc.consume(limits, 'allow')));
+        expect(results.filter(Boolean)).toHaveLength(5);
     });
 
-    it('si Redis no responde no bloquea (decisión explícita) y no lanza', async () => {
+    it('un PIN correcto devuelve su intento', async () => {
+        const { svc, fake } = build();
+        await svc.consume(limits, 'allow');
+        await svc.refund(['t1:ip', 't1']);
+        expect(fake.values.get('pin:fail:t1:ip')).toBe(0);
+    });
+
+    it('si Redis no responde aplica la política indicada', async () => {
         const fake = store();
-        fake.get.mockRejectedValue(new Error('redis caído'));
-        fake.incr.mockRejectedValue(new Error('redis caído'));
+        fake.set.mockRejectedValue(new Error('redis caído'));
         const { svc } = build(fake);
-        await expect(svc.isLocked([{ key: 't1:ip', max: 5 }])).resolves.toBe(false);
-        await expect(svc.registerFailure(['t1:ip'])).resolves.toBeUndefined();
+        await expect(svc.consume(limits, 'allow')).resolves.toBe(true);
+        await expect(svc.consume(limits, 'deny')).resolves.toBe(false);
     });
 });
