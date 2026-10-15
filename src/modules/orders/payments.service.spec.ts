@@ -2,8 +2,12 @@ import { BadRequestException } from '@nestjs/common';
 import { PaymentsService } from './payments.service';
 
 // Compara filas con un `where` de TypeORM: `Not(IsNull())` = "no nulo"; `In([...])` / FindOperator con `_value`.
-const matches = (row: any, where: any = {}) => Object.entries(where).every(([k, v]: [string, any]) => {
+// Un `where` en arreglo es OR (como en TypeORM); LessThan/MoreThan/IsNull por `_type`.
+const matches = (row: any, where: any = {}): boolean => Array.isArray(where) ? where.some((w) => matches(row, w)) : Object.entries(where).every(([k, v]: [string, any]) => {
     if (v && typeof v === 'object' && v._type === 'not') return row[k] !== null && row[k] !== undefined;
+    if (v && typeof v === 'object' && v._type === 'isNull') return row[k] === null || row[k] === undefined;
+    if (v && typeof v === 'object' && v._type === 'lessThan') return row[k] != null && row[k] < v._value;
+    if (v && typeof v === 'object' && v._type === 'moreThan') return row[k] != null && row[k] > v._value;
     if (v && typeof v === 'object' && '_value' in v) return Array.isArray(v._value) ? v._value.includes(row[k]) : row[k] === v._value;
     return row[k] === v;
 });
@@ -183,5 +187,115 @@ describe('PaymentsService', () => {
         const { svc } = build();
         await expect(svc.recordManualPayment('p1', {}, 'EFECTIVO', 'u1')).rejects.toBeInstanceOf(BadRequestException);
         await expect(svc.recordManualPayment('p1', { tabId: 'tab1', orderId: 'o1' }, 'EFECTIVO', 'u1')).rejects.toBeInstanceOf(BadRequestException);
+    });
+
+    describe('pagos atascados en PROCESANDO', () => {
+        const stuck = (over: any = {}) => ({ id: 'pay-s', placeId: 'p1', orderId: 'o1', tabId: null, status: 'PROCESANDO', method: 'ONLINE', amount: 4500, culqiOrderId: null, culqiChargeId: null, destination: 'WUARIKES', customerEmail: 'a@b.com', createdAt: new Date(Date.now() - 20 * 60_000), processingStartedAt: new Date(Date.now() - 15 * 60_000), expiresAt: new Date(Date.now() + 3600_000), ...over });
+        const postCharges = () => (global.fetch as jest.Mock).mock.calls.filter(([url, init]) => url.includes('/charges') && init.method === 'POST').length;
+
+        it('payWithToken registra cuándo empezó a procesar', async () => {
+            const { svc, payments } = build();
+            fetchMock({ '/orders': { id: 'ord_p' }, '/charges': { id: 'chr_p', outcome: { type: 'venta_exitosa' } } });
+            const { paymentId } = await svc.startOnlinePayment({ orderToken: 'otok' }, { email: 'a@b.com' });
+            await svc.payWithToken(paymentId, 'tkn');
+            expect(payments.update).toHaveBeenCalledWith({ id: paymentId, status: 'PENDIENTE' }, { status: 'PROCESANDO', processingStartedAt: expect.any(Date) });
+        });
+
+        it('cargo exitoso en Culqi: confirma una sola vez aunque coincidan webhook y cron, sin volver a cobrar', async () => {
+            const { svc, payments, ordersService, emitter } = build();
+            payments.rows.push(stuck());
+            fetchMock({ '/charges': { data: [{ id: 'chr_other', metadata: { paymentId: 'otro' }, outcome: { type: 'venta_exitosa' } }, { id: 'chr_s', metadata: { paymentId: 'pay-s' }, outcome: { type: 'venta_exitosa' }, total_fee: 120, source: { id: 'ype_123' } }] } });
+            await Promise.all([svc.reconcilePending('p1'), svc.reconcilePending()]);
+            expect(payments.rows[0]).toMatchObject({ status: 'PAGADO', culqiChargeId: 'chr_s', culqiFee: 120, method: 'YAPE' });
+            expect(ordersService.markOrderPaid).toHaveBeenCalledTimes(1);
+            expect(emitter.emit).toHaveBeenCalledTimes(1);
+            expect(postCharges()).toBe(0);
+            const [url] = (global.fetch as jest.Mock).mock.calls[0];
+            expect(url).toContain('email=a%40b.com');
+        });
+
+        it('sin cargo en Culqi: vuelve a PENDIENTE para reintentar', async () => {
+            const { svc, payments, ordersService } = build();
+            payments.rows.push(stuck());
+            fetchMock({ '/charges': { data: [] } });
+            await svc.reconcilePending();
+            expect(payments.rows[0].status).toBe('PENDIENTE');
+            expect(ordersService.markOrderPaid).not.toHaveBeenCalled();
+            expect(postCharges()).toBe(0);
+        });
+
+        it('sin cargo y ya vencido: FALLIDO', async () => {
+            const { svc, payments } = build();
+            payments.rows.push(stuck({ expiresAt: new Date(Date.now() - 1000) }));
+            fetchMock({ '/charges': { data: [] } });
+            await svc.reconcilePending();
+            expect(payments.rows[0].status).toBe('FALLIDO');
+        });
+
+        it('cargo rechazado en Culqi: vuelve a PENDIENTE', async () => {
+            const { svc, payments } = build();
+            payments.rows.push(stuck());
+            fetchMock({ '/charges': { data: [{ id: 'chr_r', metadata: { paymentId: 'pay-s' }, outcome: { type: 'venta_rechazada' } }] } });
+            await svc.reconcilePending();
+            expect(payments.rows[0].status).toBe('PENDIENTE');
+        });
+
+        it('lista de Culqi incompleta (página llena sin el cargo): no se toca, se revisa a mano', async () => {
+            const { svc, payments } = build();
+            payments.rows.push(stuck());
+            fetchMock({ '/charges': { data: Array.from({ length: 100 }, (_, i) => ({ id: `chr_${i}`, metadata: {} })) } });
+            await svc.reconcilePending();
+            expect(payments.rows[0].status).toBe('PROCESANDO');
+        });
+
+        it('PROCESANDO reciente (< 10 min): no se consulta a Culqi', async () => {
+            const { svc, payments } = build();
+            payments.rows.push(stuck({ processingStartedAt: new Date(Date.now() - 2 * 60_000) }));
+            fetchMock({ '/charges': { data: [] } });
+            await svc.reconcilePending();
+            expect(payments.rows[0].status).toBe('PROCESANDO');
+            expect(global.fetch).not.toHaveBeenCalled();
+        });
+
+        it('PROCESANDO anterior a la columna nueva (processing_started_at nulo): se usa created_at', async () => {
+            const { svc, payments } = build();
+            payments.rows.push(stuck({ processingStartedAt: null }));
+            fetchMock({ '/charges': { data: [] } });
+            await svc.reconcilePending();
+            expect(payments.rows[0].status).toBe('PENDIENTE');
+        });
+    });
+
+    describe('PagoEfectivo pagado después de expirar', () => {
+        const expired = (over: any = {}) => ({ id: 'pay-e', placeId: 'p1', orderId: 'o1', tabId: null, status: 'EXPIRADO', method: 'ONLINE', amount: 4500, culqiOrderId: 'ord_e', destination: 'WUARIKES', createdAt: new Date(Date.now() - 2 * 86400_000), expiresAt: new Date(Date.now() - 86400_000), ...over });
+
+        it('CIP pagado tras cancelar: registra el dinero, devolución pendiente, sin reactivar ni evento', async () => {
+            const { svc, payments, orders, ordersService, emitter } = build();
+            orders.rows[0].status = 'CANCELADO';
+            payments.rows.push(expired());
+            fetchMock({ '/orders/ord_e': { id: 'ord_e', state: 'paid' } });
+            await Promise.all([svc.reconcilePending('p1'), svc.reconcilePending()]);
+            expect(payments.rows[0]).toMatchObject({ status: 'PAGADO', method: 'PAGOEFECTIVO', paidAt: expect.any(Date) });
+            expect(orders.rows[0]).toMatchObject({ status: 'CANCELADO', refundPending: true });
+            expect(ordersService.markOrderPaid).not.toHaveBeenCalled();
+            expect(emitter.emit).not.toHaveBeenCalled();
+            expect(orders.update.mock.calls.filter(([, patch]: any) => patch.refundPending)).toHaveLength(1);
+        });
+
+        it('CIP vencido y no pagado: sigue EXPIRADO', async () => {
+            const { svc, payments } = build();
+            payments.rows.push(expired());
+            fetchMock({ '/orders/ord_e': { id: 'ord_e', state: 'expired' } });
+            await svc.reconcilePending();
+            expect(payments.rows[0].status).toBe('EXPIRADO');
+        });
+
+        it('EXPIRADO de hace más de 7 días: no se consulta', async () => {
+            const { svc, payments } = build();
+            payments.rows.push(expired({ createdAt: new Date(Date.now() - 8 * 86400_000) }));
+            fetchMock({ '/orders/ord_e': { id: 'ord_e', state: 'paid' } });
+            await svc.reconcilePending();
+            expect(payments.rows[0].status).toBe('EXPIRADO');
+        });
     });
 });

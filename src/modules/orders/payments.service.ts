@@ -3,7 +3,7 @@ import { ConfigService } from '@nestjs/config';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { InjectRepository } from '@nestjs/typeorm';
-import { In, IsNull, Not, Repository } from 'typeorm';
+import { In, IsNull, LessThan, MoreThan, Not, Repository } from 'typeorm';
 import { OrderPayment, PaymentStatus } from './entities/order-payment.entity';
 import { Order } from './entities/order.entity';
 import { Tab } from './entities/tab.entity';
@@ -14,6 +14,10 @@ import { culqiRequest } from './culqi-client';
 
 const PAYMENT_TTL_MS = 24 * 3600_000;
 const WHATSAPP_UNPAID_TTL_MS = 2 * 3600_000;
+const STUCK_PROCESSING_MS = 10 * 60_000;
+// Un CIP dura 24 h; 7 días cubre pagos tardíos sin consultar a Culqi para siempre.
+const LATE_CIP_WINDOW_MS = 7 * 24 * 3600_000;
+const CHARGES_PAGE = 100;
 
 @Injectable()
 export class PaymentsService {
@@ -62,7 +66,7 @@ export class PaymentsService {
         const payment = await this.paymentsRepo.findOne({ where: { id: paymentId } });
         if (!payment) throw new BadRequestException('Este pago ya no está pendiente');
         // Reclamo condicional: dos envíos del mismo checkout nunca llegan los dos a Culqi.
-        const claimed = await this.paymentsRepo.update({ id: payment.id, status: 'PENDIENTE' }, { status: 'PROCESANDO' });
+        const claimed = await this.paymentsRepo.update({ id: payment.id, status: 'PENDIENTE' }, { status: 'PROCESANDO', processingStartedAt: new Date() });
         if (!claimed.affected) throw new BadRequestException('Este pago ya no está pendiente');
 
         if (!(await this.targetStillDue(payment))) {
@@ -155,7 +159,69 @@ export class PaymentsService {
                 this.logger.warn(`No se pudo conciliar el pago ${payment.id}: ${err?.message}`);
             }
         }
+        await this.reconcileStuckProcessing(placeId);
+        await this.reconcileLateCips(placeId);
         await this.reconcileUnpaidOrders(placeId);
+    }
+
+    /**
+     * Pagos que quedaron en PROCESANDO (caída entre el reclamo y la respuesta de Culqi). Nunca se cobra de nuevo:
+     * se busca en Culqi un cargo con `metadata.paymentId`; si salió bien se confirma, si no existe vuelve a PENDIENTE.
+     * Culqi no documenta filtro por metadata en `GET /v2/charges`: se filtra por email y se compara la metadata aquí.
+     * Si la página vuelve llena sin el cargo, la búsqueda no es concluyente y el pago se deja para revisión manual.
+     */
+    private async reconcileStuckProcessing(placeId?: string): Promise<void> {
+        const cutoff = new Date(Date.now() - STUCK_PROCESSING_MS);
+        const scope = { status: 'PROCESANDO' as const, ...(placeId ? { placeId } : {}) };
+        const stuck = await this.paymentsRepo.find({ where: [
+            { ...scope, processingStartedAt: LessThan(cutoff) },
+            { ...scope, processingStartedAt: IsNull(), createdAt: LessThan(cutoff) }, // filas anteriores a la columna
+        ] });
+        for (const payment of stuck) {
+            try {
+                const keys = this.keysFor(await this.orders.getSettings(payment.placeId));
+                const query = new URLSearchParams({ limit: String(CHARGES_PAGE), ...(payment.customerEmail ? { email: payment.customerEmail } : {}) });
+                const list = await culqiRequest(keys.secretKey, 'GET', `/charges?${query}`);
+                const charges: any[] = list?.data ?? [];
+                const charge = charges.find((c) => c?.metadata?.paymentId === payment.id);
+                if (charge && charge.action_code !== 'REVIEW' && charge.outcome?.type === 'venta_exitosa') {
+                    const method = String(charge.source?.id ?? '').startsWith('ype') ? 'YAPE' : 'TARJETA';
+                    await this.confirm(payment.id, { method, culqiChargeId: charge.id, culqiFee: charge.total_fee ?? 0 });
+                    continue;
+                }
+                if (!charge && charges.length >= CHARGES_PAGE) {
+                    this.logger.error(`Pago ${payment.id} en PROCESANDO: Culqi no confirmó si hubo cargo, revisar a mano`);
+                    continue;
+                }
+                const expired = !!payment.expiresAt && payment.expiresAt.getTime() < Date.now();
+                await this.paymentsRepo.update({ id: payment.id, status: 'PROCESANDO' }, { status: expired ? 'FALLIDO' : 'PENDIENTE' });
+            } catch (err: any) {
+                this.logger.warn(`No se pudo conciliar el pago en proceso ${payment.id}: ${err?.message}`);
+            }
+        }
+    }
+
+    /**
+     * CIP pagado después de que el pago pasó a EXPIRADO (pedido cancelado o vencido): el dinero se registra,
+     * el pedido NO se reactiva ni se emite `orders.payment.confirmed`; queda devolución pendiente para el local.
+     */
+    private async reconcileLateCips(placeId?: string): Promise<void> {
+        const late = await this.paymentsRepo.find({ where: {
+            status: 'EXPIRADO', culqiOrderId: Not(IsNull()), createdAt: MoreThan(new Date(Date.now() - LATE_CIP_WINDOW_MS)), ...(placeId ? { placeId } : {}),
+        } });
+        for (const payment of late) {
+            try {
+                const keys = this.keysFor(await this.orders.getSettings(payment.placeId));
+                const remote = await culqiRequest(keys.secretKey, 'GET', `/orders/${payment.culqiOrderId}`);
+                if (remote.state !== 'paid') continue;
+                const marked = await this.paymentsRepo.update({ id: payment.id, status: 'EXPIRADO' }, { status: 'PAGADO', method: 'PAGOEFECTIVO', paidAt: new Date() });
+                if (!marked.affected) continue;
+                if (payment.orderId) await this.ordersRepo.update({ id: payment.orderId }, { refundPending: true });
+                this.logger.warn(`CIP ${payment.culqiOrderId} pagado después de expirar: pago ${payment.id}, pedido ${payment.orderId ?? '-'}, cuenta ${payment.tabId ?? '-'}, local ${payment.placeId}. Devolver el dinero`);
+            } catch (err: any) {
+                this.logger.warn(`No se pudo conciliar el pago expirado ${payment.id}: ${err?.message}`);
+            }
+        }
     }
 
     /**
