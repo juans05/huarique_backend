@@ -44,9 +44,9 @@ describe('order-rules', () => {
 });
 
 describe('assertCanCancel: mozo', () => {
-    it('cancela un pedido nuevo pero no uno en preparación', () => {
-        expect(() => assertCanCancel('NUEVO', 'mozo')).not.toThrow();
-        expect(() => assertCanCancel('EN_PREPARACION', 'mozo')).toThrow();
+    it('el mozo no cancela pedidos', () => {
+        expect(() => assertCanCancel('NUEVO', 'mozo')).toThrow(ForbiddenException);
+        expect(() => assertCanCancel('EN_PREPARACION', 'mozo')).toThrow(ForbiddenException);
         expect(() => assertCanCancel('EN_PREPARACION', 'supervisor')).not.toThrow();
     });
 });

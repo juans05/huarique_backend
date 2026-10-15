@@ -34,7 +34,8 @@ export function canTransition(from: OrderStatus, to: OrderStatus): boolean {
 
 export function assertCanCancel(status: OrderStatus, role: PlaceTeamRole): void {
     if (!canTransition(status, 'CANCELADO')) throw new BadRequestException('No puedes cancelar un pedido ya listo o entregado');
-    if (role === 'cocina') throw new ForbiddenException('Cocina no puede cancelar pedidos');
+    // Cocina y mozo no cancelan: un pedido cancelado puede implicar devolver un pago (lo decide caja o gerencia).
+    if (ROLE_RANK[role] < ROLE_RANK.agente) throw new ForbiddenException('Tu rol no puede cancelar pedidos');
     if (status === 'EN_PREPARACION' && ROLE_RANK[role] < ROLE_RANK.supervisor) throw new ForbiddenException('Solo un gerente puede cancelar un pedido en preparación');
 }
 
