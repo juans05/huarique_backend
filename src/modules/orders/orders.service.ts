@@ -11,6 +11,7 @@ import { OrderItem } from './entities/order-item.entity';
 import { OrderPayment } from './entities/order-payment.entity';
 import { Dish } from '../places/entities/dish.entity';
 import { PlaceTeamRole } from '../team/entities/place-team-member.entity';
+import { PinAttemptsService } from './pin-attempts.service';
 import { OrderEventsService } from './order-events.service';
 import { assertCanCancel, calculateTotals, canTransition, newPublicToken, newTablePin, normalizePhone, toCents } from './order-rules';
 
@@ -31,13 +32,9 @@ const PAGE_SIZE = 25;
 // PIN incorrectos en 10 min: 5 bloquean a esa IP en esa mesa; 15 (de cualquier origen) bloquean la mesa.
 const PIN_MAX_FAILURES_PER_CLIENT = 5;
 const PIN_MAX_FAILURES_PER_TABLE = 15;
-// Tope de entradas del registro de intentos: un atacante que rota IPs no puede llenar la memoria.
-const PIN_FAILURES_MAX_ENTRIES = 10_000;
-const PIN_WINDOW_MS = 10 * 60_000;
 
 @Injectable()
 export class OrdersService {
-    private readonly pinFailures = new Map<string, { count: number; firstAt: number; lockedUntil: number }>();
 
     constructor(
         @InjectRepository(PlaceOrderSettings) private settingsRepo: Repository<PlaceOrderSettings>,
@@ -49,6 +46,7 @@ export class OrdersService {
         @InjectDataSource() private dataSource: DataSource,
         private events: OrderEventsService,
         private emitter: EventEmitter2,
+        private pinAttempts: PinAttemptsService,
     ) { }
 
     async getSettings(placeId: string): Promise<PlaceOrderSettings> {
@@ -59,7 +57,7 @@ export class OrdersService {
     async createTableOrder(qrToken: string, input: { pin: string; items: CartLine[]; customerName?: string; customerPhone?: string; notes?: string }, clientKey?: string) {
         const table = await this.tablesRepo.findOne({ where: { qrToken, active: true } });
         if (!table) throw new NotFoundException('Mesa no encontrada');
-        this.assertTablePin(table, input.pin, clientKey);
+        await this.assertTablePin(table, input.pin, clientKey);
         const settings = await this.getSettings(table.placeId);
         if (!settings.ordersEnabled) throw new BadRequestException('Este local no está recibiendo pedidos por ahora');
 
@@ -276,57 +274,24 @@ export class OrdersService {
         return rows[0].last_number;
     }
 
-    /** Valida el PIN vigente de la mesa (comparación en tiempo constante). */
-    assertTablePin(table: PlaceTable, pin: string | undefined, clientKey = 'desconocido'): void {
-        const now = Date.now();
+    /** Valida el PIN vigente de la mesa (comparación en tiempo constante) con bloqueo por mesa+IP y por mesa. */
+    async assertTablePin(table: PlaceTable, pin: string | undefined, clientKey = 'desconocido'): Promise<void> {
         const perClient = `${table.id}:${clientKey}`;
-        // Bloqueo por mesa+IP: quien prueba PINs se bloquea a sí mismo, no a los comensales de la mesa.
-        // El tope por mesa (más alto) frena intentos repartidos entre muchas IPs.
-        if (this.isLocked(perClient, now) || this.isLocked(table.id, now)) {
-            throw new ForbiddenException('Demasiados intentos con PIN incorrecto. Pídelo al personal del local e intenta en unos minutos.');
-        }
+        const perTable = `${table.id}`;
+        // Por mesa+IP: quien prueba PINs se bloquea a sí mismo, no a los comensales. Por mesa (tope más alto):
+        // frena intentos repartidos entre muchas IPs. Los contadores viven en Redis (PinAttemptsService).
+        const locked = await this.pinAttempts.isLocked([
+            { key: perClient, max: PIN_MAX_FAILURES_PER_CLIENT },
+            { key: perTable, max: PIN_MAX_FAILURES_PER_TABLE },
+        ]);
+        if (locked) throw new ForbiddenException('Demasiados intentos con PIN incorrecto. Pídelo al personal del local e intenta en unos minutos.');
         const expected = Buffer.from(table.pin ?? '');
         const given = Buffer.from(String(pin ?? ''));
         if (!table.pin || expected.length !== given.length || !timingSafeEqual(expected, given)) {
-            // ponytail: contadores en memoria por instancia; pasarlos a Redis si Railway corre varias réplicas.
-            this.registerFailure(perClient, PIN_MAX_FAILURES_PER_CLIENT, now);
-            // El contador por mesa se registra siempre (son pocas claves), aunque el registro esté lleno.
-            this.registerFailure(table.id, PIN_MAX_FAILURES_PER_TABLE, now, true);
+            await this.pinAttempts.registerFailure([perClient, perTable]);
             throw new ForbiddenException('PIN incorrecto. Pídelo al personal del local.');
         }
-        this.pinFailures.delete(perClient);
-    }
-
-    /**
-     * Borra entradas vencidas; si aún está lleno, descarta las más antiguas que NO estén bloqueadas.
-     * Un bloqueo vigente nunca se descarta: si no, un atacante podría inundar el registro para borrar el suyo.
-     */
-    private prunePinFailures(now: number): void {
-        for (const [key, entry] of this.pinFailures) {
-            if (now - entry.firstAt >= PIN_WINDOW_MS && entry.lockedUntil <= now) this.pinFailures.delete(key);
-        }
-        for (const [key, entry] of this.pinFailures) {
-            if (this.pinFailures.size < PIN_FAILURES_MAX_ENTRIES) break;
-            if (entry.lockedUntil <= now) this.pinFailures.delete(key);
-        }
-    }
-
-    private isLocked(key: string, now: number): boolean {
-        const entry = this.pinFailures.get(key);
-        return !!entry && entry.lockedUntil > now;
-    }
-
-    private registerFailure(key: string, max: number, now: number, alwaysTrack = false): void {
-        if (!this.pinFailures.has(key) && this.pinFailures.size >= PIN_FAILURES_MAX_ENTRIES) {
-            this.prunePinFailures(now);
-            // Lleno de bloqueos vigentes: no se agrega esta IP, pero el tope por mesa sigue contando.
-            if (this.pinFailures.size >= PIN_FAILURES_MAX_ENTRIES && !alwaysTrack) return;
-        }
-        const previous = this.pinFailures.get(key);
-        const entry = previous && now - previous.firstAt < PIN_WINDOW_MS ? previous : { count: 0, firstAt: now, lockedUntil: 0 };
-        entry.count += 1;
-        if (entry.count >= max) entry.lockedUntil = now + PIN_WINDOW_MS;
-        this.pinFailures.set(key, entry);
+        await this.pinAttempts.reset(perClient);
     }
 
     async rotateTablePin(tableId: string): Promise<void> {

@@ -54,7 +54,7 @@ export class PublicOrdersController {
     async verifyPin(@Param('qrToken') qrToken: string, @Body() dto: VerifyTablePinDto, @Req() req: any) {
         const table = await this.tablesRepo.findOne({ where: { qrToken, active: true } });
         if (!table) throw new NotFoundException('Mesa no encontrada');
-        this.orders.assertTablePin(table, dto.pin, clientIp(req));
+        await this.orders.assertTablePin(table, dto.pin, clientIp(req));
         const liveTab = await this.tabsRepo.findOne({ where: { tableId: table.id, status: In(['ABIERTA', 'CUENTA_PEDIDA']) } });
         return { ok: true, liveTabToken: liveTab?.publicToken ?? null };
     }
