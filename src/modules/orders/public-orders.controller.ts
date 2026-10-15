@@ -13,11 +13,9 @@ import { CreateTableOrderDto, PaymentIntentDto, PaymentTokenDto, VerifyTablePinD
 
 const WEBHOOK_COOLDOWN_MS = 30_000;
 
-// IP del cliente detrás del proxy de Railway: se toma la ÚLTIMA entrada de X-Forwarded-For (la agrega el proxy);
-// las primeras las puede inventar el propio cliente.
+// Con `trust proxy` = 1 (main.ts), req.ip ya es la IP real del cliente detrás del proxy de Railway.
 function clientIp(req: any): string {
-    const forwarded = String(req?.headers?.['x-forwarded-for'] ?? '').split(',').map((part) => part.trim()).filter(Boolean);
-    return forwarded[forwarded.length - 1] || req?.ip || 'desconocido';
+    return req?.ip || 'desconocido';
 }
 
 @Controller('public')

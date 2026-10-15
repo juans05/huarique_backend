@@ -28,9 +28,11 @@ export interface TableBoardRow {
 
 const LIVE_TAB: Tab['status'][] = ['ABIERTA', 'CUENTA_PEDIDA', 'PAGADA'];
 const PAGE_SIZE = 25;
-// PIN incorrectos en 10 min: 5 bloquean a esa IP en esa mesa; 30 (de cualquier origen) bloquean la mesa.
+// PIN incorrectos en 10 min: 5 bloquean a esa IP en esa mesa; 15 (de cualquier origen) bloquean la mesa.
 const PIN_MAX_FAILURES_PER_CLIENT = 5;
-const PIN_MAX_FAILURES_PER_TABLE = 30;
+const PIN_MAX_FAILURES_PER_TABLE = 15;
+// Tope de entradas del registro de intentos: un atacante que rota IPs no puede llenar la memoria.
+const PIN_FAILURES_MAX_ENTRIES = 10_000;
 const PIN_WINDOW_MS = 10 * 60_000;
 
 @Injectable()
@@ -294,12 +296,24 @@ export class OrdersService {
         this.pinFailures.delete(perClient);
     }
 
+    /** Borra entradas vencidas; si aún está lleno, descarta las más antiguas (Map conserva el orden de inserción). */
+    private prunePinFailures(now: number): void {
+        for (const [key, entry] of this.pinFailures) {
+            if (now - entry.firstAt >= PIN_WINDOW_MS && entry.lockedUntil <= now) this.pinFailures.delete(key);
+        }
+        for (const key of this.pinFailures.keys()) {
+            if (this.pinFailures.size < PIN_FAILURES_MAX_ENTRIES) break;
+            this.pinFailures.delete(key);
+        }
+    }
+
     private isLocked(key: string, now: number): boolean {
         const entry = this.pinFailures.get(key);
         return !!entry && entry.lockedUntil > now;
     }
 
     private registerFailure(key: string, max: number, now: number): void {
+        if (!this.pinFailures.has(key) && this.pinFailures.size >= PIN_FAILURES_MAX_ENTRIES) this.prunePinFailures(now);
         const previous = this.pinFailures.get(key);
         const entry = previous && now - previous.firstAt < PIN_WINDOW_MS ? previous : { count: 0, firstAt: now, lockedUntil: 0 };
         entry.count += 1;
