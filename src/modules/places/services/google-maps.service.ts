@@ -95,6 +95,15 @@ export class GoogleMapsService {
     }
   }
 
+  /** Datos públicos de la ficha para el puntaje SEO estimado (cuando el local no conectó Google Business). */
+  async getSeoDetails(googlePlaceId: string) {
+    if (!this.apiKey) return null;
+    const fields = 'name,formatted_address,formatted_phone_number,website,opening_hours,rating,user_ratings_total,photos';
+    const res = await fetch(`https://maps.googleapis.com/maps/api/place/details/json?place_id=${encodeURIComponent(googlePlaceId)}&fields=${fields}&key=${this.apiKey}&language=es`);
+    const data = await res.json();
+    return data.status === 'OK' ? data.result : null;
+  }
+
   /**
    * Intenta encontrar el Place ID a partir de un nombre y dirección
    */
