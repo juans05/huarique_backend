@@ -10,9 +10,10 @@ import {
 import { User } from '../../users/entities/user.entity';
 import { Place } from '../../places/entities/place.entity';
 
-export const PLACE_TEAM_ROLES = ['admin', 'supervisor', 'agente', 'cocina'] as const;
+export const PLACE_TEAM_ROLES = ['admin', 'supervisor', 'agente', 'mozo', 'cocina'] as const;
 export type PlaceTeamRole = (typeof PLACE_TEAM_ROLES)[number];
-export const ROLE_RANK: Record<PlaceTeamRole, number> = { cocina: 0, agente: 1, supervisor: 2, admin: 3 };
+// Mozo: mesas, cobro en efectivo/POS y cerrar mesa; sin WhatsApp, CRM ni configuración (todo eso pide 'agente' o más).
+export const ROLE_RANK: Record<PlaceTeamRole, number> = { cocina: 0, mozo: 1, agente: 2, supervisor: 3, admin: 4 };
 
 @Entity('place_team_members')
 export class PlaceTeamMember {

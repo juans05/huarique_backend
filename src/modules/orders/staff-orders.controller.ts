@@ -42,13 +42,19 @@ export class StaffOrdersController {
     }
 
     @Get('tables-board')
-    @RequiresPlaceRole('agente')
+    @RequiresPlaceRole('mozo')
     tablesBoard(@Param('placeId') placeId: string) {
         return this.orders.tablesBoard(placeId);
     }
 
+    @Get('tables/by-qr/:qrToken')
+    @RequiresPlaceRole('mozo')
+    staffTable(@Param('placeId') placeId: string, @Param('qrToken') qrToken: string) {
+        return this.orders.staffTableView(placeId, qrToken);
+    }
+
     @Post('tabs/:tabId/close')
-    @RequiresPlaceRole('agente')
+    @RequiresPlaceRole('mozo')
     closeTab(@Param('placeId') placeId: string, @Param('tabId') tabId: string) {
         return this.orders.closeTab(placeId, tabId);
     }
@@ -85,7 +91,7 @@ export class StaffOrdersController {
     }
 
     @Post('payments/manual')
-    @RequiresPlaceRole('agente')
+    @RequiresPlaceRole('mozo')
     manualPayment(@Param('placeId') placeId: string, @Body() dto: ManualPaymentDto, @CurrentUser() user: any) {
         return this.payments.recordManualPayment(placeId, { tabId: dto.tabId, orderId: dto.orderId }, dto.method, user.id);
     }

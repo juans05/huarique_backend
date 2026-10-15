@@ -320,3 +320,19 @@ describe('OrdersService: bloqueo por intentos de PIN', () => {
     });
 });
 
+
+describe('OrdersService.staffTableView (mozo escanea el QR)', () => {
+    it('devuelve la cuenta viva con saldo; mesa sin cuenta = tab null', async () => {
+        const { svc } = build();
+        await expect(svc.staffTableView('p1', 'qr-1')).resolves.toMatchObject({ table: { name: 'Mesa 4' }, tab: null });
+        await svc.createTableOrder('qr-1', { pin: '1234', items: [{ dishId: 'd1', quantity: 2 }] });
+        const view = await svc.staffTableView('p1', 'qr-1');
+        expect(view.tab).toMatchObject({ status: 'ABIERTA', total: 7000, paid: 0, due: 7000 });
+        expect(view.tab!.orders).toHaveLength(1);
+    });
+
+    it('QR de una mesa de otra sede: 404 (no se filtra la cuenta ajena)', async () => {
+        const { svc } = build();
+        await expect(svc.staffTableView('p2', 'qr-1')).rejects.toBeInstanceOf(NotFoundException);
+    });
+});

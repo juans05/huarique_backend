@@ -43,7 +43,7 @@ export class PublicOrdersController {
         return {
             place: { id: table.placeId, name: place?.name ?? '' },
             table: { name: table.name },
-            ordering: { enabled: settings.ordersEnabled, tablePaymentMode: settings.tablePaymentMode, cashPaymentEnabled: settings.cashPaymentEnabled },
+            ordering: { enabled: settings.ordersEnabled, tablePaymentMode: settings.tablePaymentMode, cashPaymentEnabled: settings.cashPaymentEnabled, tableOnlinePaymentEnabled: settings.tableOnlinePaymentEnabled },
             pinRequired: true,
         };
     }

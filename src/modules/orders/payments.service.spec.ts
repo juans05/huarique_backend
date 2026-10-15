@@ -171,6 +171,14 @@ describe('PaymentsService', () => {
         expect(ordersService.cancelUnpaid).not.toHaveBeenCalled();
     });
 
+    it('local que cobra en mesa: el comensal no puede pagar la cuenta online, el mozo sí registra efectivo', async () => {
+        const { svc } = build({ tableOnlinePaymentEnabled: false });
+        fetchMock({ '/orders': { id: 'ord_m' } });
+        await expect(svc.startOnlinePayment({ tabToken: 'ttok' }, { email: 'a@b.com' })).rejects.toThrow('Pídela al mozo');
+        expect(global.fetch).not.toHaveBeenCalled();
+        await expect(svc.recordManualPayment('p1', { tabId: 'tab1' }, 'POS', 'mozo1')).resolves.toMatchObject({ status: 'PAGADO', method: 'POS' });
+    });
+
     it('pago manual: exactamente uno de cuenta o pedido', async () => {
         const { svc } = build();
         await expect(svc.recordManualPayment('p1', {}, 'EFECTIVO', 'u1')).rejects.toBeInstanceOf(BadRequestException);

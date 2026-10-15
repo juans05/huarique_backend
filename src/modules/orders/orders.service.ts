@@ -57,7 +57,7 @@ export class OrdersService {
 
     async getSettings(placeId: string): Promise<PlaceOrderSettings> {
         const found = await this.settingsRepo.findOne({ where: { placeId } });
-        return found ?? this.settingsRepo.create({ placeId, ordersEnabled: false, tablePaymentMode: 'CUENTA_ABIERTA', paymentDestination: 'LOCAL', pickupEnabled: true, deliveryEnabled: false, deliveryFee: 0, prepTimeMin: 20, pricesIncludeIgv: true, cashPaymentEnabled: true, wuarikesCommissionPct: 0.05, culqiPublicKey: null, culqiSecretKey: null, deliveryNote: null });
+        return found ?? this.settingsRepo.create({ placeId, ordersEnabled: false, tablePaymentMode: 'CUENTA_ABIERTA', paymentDestination: 'LOCAL', pickupEnabled: true, deliveryEnabled: false, deliveryFee: 0, prepTimeMin: 20, pricesIncludeIgv: true, cashPaymentEnabled: true, tableOnlinePaymentEnabled: true, wuarikesCommissionPct: 0.05, culqiPublicKey: null, culqiSecretKey: null, deliveryNote: null });
     }
 
     async createTableOrder(qrToken: string, input: { pin: string; items: CartLine[]; customerName?: string; customerPhone?: string; notes?: string }, clientKey?: string) {
@@ -246,6 +246,19 @@ export class OrdersService {
             id: o.id, number: o.number, channel: o.channel, fulfillment: o.fulfillment, status: o.status, tableId: o.tableId, notes: o.notes, createdAt: o.createdAt,
             items: (o.items ?? []).map((i) => ({ id: i.id, name: i.dishNameSnapshot, quantity: i.quantity, note: i.note })),
         }));
+    }
+
+    /** Vista del mozo al escanear el QR de una mesa: la cuenta viva completa, solo si la mesa es de su sede. */
+    async staffTableView(placeId: string, qrToken: string) {
+        const table = await this.tablesRepo.findOne({ where: { qrToken, placeId, active: true } });
+        if (!table) throw new NotFoundException('Mesa no encontrada en esta sede');
+        const tab = await this.tabsRepo.findOne({ where: { tableId: table.id, status: In(LIVE_TAB) } });
+        if (!tab) return { table: { id: table.id, name: table.name, pin: table.pin }, tab: null };
+        const orders = await this.ordersRepo.find({ where: { tabId: tab.id }, relations: ['items'], order: { createdAt: 'ASC' } });
+        return {
+            table: { id: table.id, name: table.name, pin: table.pin },
+            tab: { id: tab.id, status: tab.status, openedAt: tab.openedAt, ...(await this.tabTotal(tab.id)), orders: orders.map((o) => this.publicView(o)) },
+        };
     }
 
     async tablesBoard(placeId: string): Promise<TableBoardRow[]> {

@@ -23,6 +23,8 @@ export class PlaceOrderSettings {
     @Column({ name: 'prep_time_min', type: 'int', default: 20 }) prepTimeMin: number;
     @Column({ name: 'prices_include_igv', default: true }) pricesIncludeIgv: boolean;
     @Column({ name: 'cash_payment_enabled', default: true }) cashPaymentEnabled: boolean;
+    // false: el comensal no paga la cuenta de mesa desde su celular; cobra el mozo (efectivo/POS).
+    @Column({ name: 'table_online_payment_enabled', default: true }) tableOnlinePaymentEnabled: boolean;
     @Column({ name: 'wuarikes_commission_pct', type: 'numeric', precision: 5, scale: 4, default: 0.05, transformer: numeric }) wuarikesCommissionPct: number;
     @Column({ name: 'receipt_series', type: 'jsonb', default: () => `'${JSON.stringify(DEFAULT_RECEIPT_SERIES)}'` }) receiptSeries: ReceiptSeries;
     @UpdateDateColumn({ name: 'updated_at' }) updatedAt: Date;
