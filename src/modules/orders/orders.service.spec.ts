@@ -207,9 +207,18 @@ describe('OrdersService', () => {
         expect(kds.map((o: any) => o.id).sort()).toEqual(['a', 'b']);
         expect(kds.find((o: any) => o.id === 'a')).toEqual({
             id: 'a', number: 1, channel: 'WHATSAPP', fulfillment: 'DELIVERY', status: 'NUEVO', tableId: null, notes: 'sin ají', createdAt: expect.any(Date),
+            tableName: null, prepTimeMin: 20,
             items: [{ id: 'i1', name: 'Lomo saltado', quantity: 2, note: 'bien cocido' }],
         });
         expect(orders.find).toHaveBeenLastCalledWith(expect.objectContaining({ order: { createdAt: 'ASC' }, take: 200 }));
+    });
+
+    it('KDS: pedido de mesa trae el nombre de la mesa y el tiempo de preparación del local', async () => {
+        const { svc, orders } = build();
+        await svc.createTableOrder('qr-1', { pin: '1234', items: [{ dishId: 'd1', quantity: 1 }] });
+        orders.rows[0].createdAt = new Date(); // el repo en memoria no pone created_at
+        const [order] = await svc.listActiveForKds('p1');
+        expect(order).toMatchObject({ tableName: 'Mesa 4', prepTimeMin: 20 });
     });
 
     it.each([null, '0.00'])('plato sin precio (%p): 400 con el nombre', async (price) => {
