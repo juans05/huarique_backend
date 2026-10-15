@@ -123,7 +123,7 @@ export class GamificationService {
 
     async getMyStats(userId: string): Promise<any> {
         const userResult = await this.pointsLogRepository.query(
-            `SELECT current_level, total_points FROM users WHERE id = $1`,
+            `SELECT current_level, total_points FROM wuarike_db.users WHERE id = $1`,
             [userId],
         );
         const level = parseInt(userResult[0]?.current_level ?? 1);
@@ -147,7 +147,7 @@ export class GamificationService {
     private async getWeeklyStreak(userId: string): Promise<number> {
         const rows = await this.pointsLogRepository.query(
             `SELECT DISTINCT date_trunc('week', (created_at AT TIME ZONE 'UTC') AT TIME ZONE 'America/Lima')::date::text AS week
-       FROM checkins WHERE user_id = $1 ORDER BY week DESC`,
+       FROM wuarike_db.checkins WHERE user_id = $1 ORDER BY week DESC`,
             [userId],
         );
         const weeks = rows.map((r: any) => Date.parse(r.week + 'T00:00:00Z'));
@@ -199,7 +199,7 @@ export class GamificationService {
 
     async getProfile(userId: string): Promise<any> {
         const userResult = await this.pointsLogRepository.query(
-            `SELECT current_level, total_points FROM users WHERE id = $1`,
+            `SELECT current_level, total_points FROM wuarike_db.users WHERE id = $1`,
             [userId],
         );
         const currentLevel = parseInt(userResult[0]?.current_level ?? 1);
@@ -219,7 +219,7 @@ export class GamificationService {
         if (!district) {
             const rows = await this.pointsLogRepository.query(
                 `SELECT full_name, current_level, total_points
-         FROM users
+         FROM wuarike_db.users
          ORDER BY total_points DESC
          LIMIT 10`,
             );
@@ -235,9 +235,9 @@ export class GamificationService {
         // "top wuarikero de San Miguel", no la XP global del usuario.
         const rows = await this.pointsLogRepository.query(
             `SELECT u.full_name, u.current_level, COUNT(c.id) as checkins_in_district
-       FROM checkins c
-       JOIN users u ON u.id = c.user_id
-       JOIN places p ON p.id = c.place_id
+       FROM wuarike_db.checkins c
+       JOIN wuarike_db.users u ON u.id = c.user_id
+       JOIN wuarike_db.places p ON p.id = c.place_id
        JOIN ubigeos d ON d.id = p.district_id
        WHERE d.district = $1
        GROUP BY u.id, u.full_name, u.current_level
@@ -267,7 +267,7 @@ export class GamificationService {
         const sevenDaysAgo = new Date(Date.now() - 7 * 86400_000);
         const top = await this.pointsLogRepository.query(
             `SELECT user_id, COUNT(*) as total
-       FROM checkins
+       FROM wuarike_db.checkins
        WHERE created_at >= $1
        GROUP BY user_id
        ORDER BY total DESC
@@ -295,45 +295,45 @@ export class GamificationService {
     private async getUserActivityStats(userId: string): Promise<any> {
         // This is a simplified version of stats
         const checkins = await this.pointsLogRepository.query(
-            `SELECT COUNT(*) as total_checkins FROM checkins WHERE user_id = $1`,
+            `SELECT COUNT(*) as total_checkins FROM wuarike_db.checkins WHERE user_id = $1`,
             [userId],
         );
 
         const submissions = await this.pointsLogRepository.query(
-            `SELECT COUNT(*) as approved_submissions FROM place_submissions WHERE submitted_by_user_id = $1 AND status = 'approved'`,
+            `SELECT COUNT(*) as approved_submissions FROM wuarike_db.place_submissions WHERE submitted_by_user_id = $1 AND status = 'approved'`,
             [userId],
         );
 
         const likes = await this.pointsLogRepository.query(
-            `SELECT SUM(likes_count) as total_likes_received FROM checkins WHERE user_id = $1`,
+            `SELECT SUM(likes_count) as total_likes_received FROM wuarike_db.checkins WHERE user_id = $1`,
             [userId],
         );
 
         const districts = await this.pointsLogRepository.query(
             `SELECT COUNT(DISTINCT p.district_id) as districts_visited
-       FROM checkins c
-       JOIN places p ON c.place_id = p.id
+       FROM wuarike_db.checkins c
+       JOIN wuarike_db.places p ON c.place_id = p.id
        WHERE c.user_id = $1`,
             [userId],
         );
 
         const photos = await this.pointsLogRepository.query(
             `SELECT COUNT(*) as total_photos
-       FROM checkin_photos cp
-       JOIN checkins c ON cp.checkin_id = c.id
+       FROM wuarike_db.checkin_photos cp
+       JOIN wuarike_db.checkins c ON cp.checkin_id = c.id
        WHERE c.user_id = $1`,
             [userId],
         );
 
         const videos = await this.pointsLogRepository.query(
-            `SELECT COUNT(*) as total_videos FROM place_videos WHERE user_id = $1`,
+            `SELECT COUNT(*) as total_videos FROM wuarike_db.place_videos WHERE user_id = $1`,
             [userId],
         );
 
         const maxDistrict = await this.pointsLogRepository.query(
             `SELECT COUNT(*) as total
-       FROM checkins c
-       JOIN places p ON c.place_id = p.id
+       FROM wuarike_db.checkins c
+       JOIN wuarike_db.places p ON c.place_id = p.id
        WHERE c.user_id = $1 AND p.district_id IS NOT NULL
        GROUP BY p.district_id
        ORDER BY total DESC

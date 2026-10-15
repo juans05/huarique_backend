@@ -547,8 +547,8 @@ export class PlacesService {
 
         const rows = await this.placesRepository.manager.query(
             `SELECT DISTINCT u.id, u.full_name, u.avatar_url
-       FROM checkins c
-       JOIN users u ON u.id = c.user_id
+       FROM wuarike_db.checkins c
+       JOIN wuarike_db.users u ON u.id = c.user_id
        WHERE c.place_id = $1 AND c.user_id = ANY($2::uuid[]) AND c.is_suspicious = false`,
             [placeId, followingIds],
         );
@@ -577,7 +577,7 @@ export class PlacesService {
         }
 
         const checkinsCount = await this.placesRepository.manager.query(
-            `SELECT COUNT(*) as total FROM checkins WHERE place_id = $1 AND is_suspicious = false`,
+            `SELECT COUNT(*) as total FROM wuarike_db.checkins WHERE place_id = $1 AND is_suspicious = false`,
             [placeId],
         );
         const COMMUNITY_VERIFIED_THRESHOLD = 10;
