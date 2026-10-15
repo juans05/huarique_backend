@@ -214,22 +214,14 @@ describe('PaymentsService', () => {
             expect(url).toContain('email=a%40b.com');
         });
 
-        it('sin cargo en Culqi: vuelve a PENDIENTE para reintentar', async () => {
+        it('sin cargo en Culqi: FALLIDO, nunca PENDIENTE (Culqi puede tardar en listarlo)', async () => {
             const { svc, payments, ordersService } = build();
             payments.rows.push(stuck());
             fetchMock({ '/charges': { data: [] } });
             await svc.reconcilePending();
-            expect(payments.rows[0].status).toBe('PENDIENTE');
+            expect(payments.rows[0].status).toBe('FALLIDO');
             expect(ordersService.markOrderPaid).not.toHaveBeenCalled();
             expect(postCharges()).toBe(0);
-        });
-
-        it('sin cargo y ya vencido: FALLIDO', async () => {
-            const { svc, payments } = build();
-            payments.rows.push(stuck({ expiresAt: new Date(Date.now() - 1000) }));
-            fetchMock({ '/charges': { data: [] } });
-            await svc.reconcilePending();
-            expect(payments.rows[0].status).toBe('FALLIDO');
         });
 
         it('cargo rechazado en Culqi: vuelve a PENDIENTE', async () => {
@@ -262,8 +254,62 @@ describe('PaymentsService', () => {
             payments.rows.push(stuck({ processingStartedAt: null }));
             fetchMock({ '/charges': { data: [] } });
             await svc.reconcilePending();
-            expect(payments.rows[0].status).toBe('PENDIENTE');
+            expect(payments.rows[0].status).toBe('FALLIDO');
         });
+
+        it('con un pago en proceso no se abre otro checkout para el mismo pedido', async () => {
+            const { svc, payments } = build();
+            payments.rows.push(stuck({ processingStartedAt: new Date(Date.now() - 60_000) }));
+            fetchMock({ '/orders': { id: 'ord_g' } });
+            await expect(svc.startOnlinePayment({ orderToken: 'otok' }, { email: 'a@b.com' })).rejects.toThrow('pago en proceso');
+            payments.rows[0].processingStartedAt = new Date(Date.now() - 20 * 60_000);
+            await expect(svc.startOnlinePayment({ orderToken: 'otok' }, { email: 'a@b.com' })).resolves.toMatchObject({ amount: 4500 });
+        });
+    });
+
+    describe('cargo que aparece tarde en Culqi para un pago FALLIDO', () => {
+        const failed = (over: any = {}) => ({ id: 'pay-f', placeId: 'p1', orderId: 'o1', tabId: null, status: 'FALLIDO', method: 'ONLINE', amount: 4500, culqiOrderId: null, destination: 'WUARIKES', customerEmail: 'a@b.com', createdAt: new Date(Date.now() - 3600_000), processingStartedAt: new Date(Date.now() - 3600_000), ...over });
+        const ok = { data: [{ id: 'chr_f', metadata: { paymentId: 'pay-f' }, outcome: { type: 'venta_exitosa' }, total_fee: 90, source: { id: 'tkn_1' } }] };
+
+        it('el pedido aún espera pago: se confirma una sola vez', async () => {
+            const { svc, payments, ordersService, emitter } = build();
+            payments.rows.push(failed());
+            fetchMock({ '/charges': ok });
+            await Promise.all([svc.reconcilePending('p1'), svc.reconcilePending()]);
+            expect(payments.rows[0]).toMatchObject({ status: 'PAGADO', culqiChargeId: 'chr_f', method: 'TARJETA' });
+            expect(ordersService.markOrderPaid).toHaveBeenCalledTimes(1);
+            expect(emitter.emit).toHaveBeenCalledTimes(1);
+        });
+
+        it('el cliente ya pagó por otro lado: PAGADO con devolución pendiente, sin evento', async () => {
+            const { svc, payments, orders, ordersService, emitter } = build();
+            orders.rows[0].status = 'NUEVO';
+            payments.rows.push(failed());
+            fetchMock({ '/charges': ok });
+            await svc.reconcilePending();
+            expect(payments.rows[0].status).toBe('PAGADO');
+            expect(orders.rows[0].refundPending).toBe(true);
+            expect(ordersService.markOrderPaid).not.toHaveBeenCalled();
+            expect(emitter.emit).not.toHaveBeenCalled();
+        });
+
+        it('FALLIDO de hace más de 24 h o que nunca llegó a Culqi: no se consulta', async () => {
+            const { svc, payments } = build();
+            payments.rows.push(failed({ processingStartedAt: new Date(Date.now() - 25 * 3600_000) }), failed({ id: 'pay-n', processingStartedAt: null }));
+            fetchMock({ '/charges': ok });
+            await svc.reconcilePending();
+            expect(global.fetch).not.toHaveBeenCalled();
+        });
+    });
+
+    it('error de Culqi: el log no lleva el email del cliente ni el cuerpo de la respuesta', async () => {
+        const { svc, payments } = build();
+        const spy = jest.spyOn(require('@nestjs/common').Logger.prototype, 'error').mockImplementation(() => undefined);
+        payments.rows.push({ id: 'pay-l', placeId: 'p1', orderId: 'o1', tabId: null, status: 'PROCESANDO', amount: 4500, customerEmail: 'cliente@correo.pe', createdAt: new Date(Date.now() - 3600_000), processingStartedAt: new Date(Date.now() - 3600_000) });
+        global.fetch = jest.fn(async () => ({ ok: false, status: 400, json: async () => ({ type: 'invalid_request_error', merchant_message: 'x', echo: 'cliente@correo.pe' }) })) as any;
+        await svc.reconcilePending();
+        expect(JSON.stringify(spy.mock.calls)).not.toContain('cliente@correo.pe');
+        spy.mockRestore();
     });
 
     describe('PagoEfectivo pagado después de expirar', () => {

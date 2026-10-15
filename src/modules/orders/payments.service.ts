@@ -18,6 +18,10 @@ const STUCK_PROCESSING_MS = 10 * 60_000;
 // Un CIP dura 24 h; 7 días cubre pagos tardíos sin consultar a Culqi para siempre.
 const LATE_CIP_WINDOW_MS = 7 * 24 * 3600_000;
 const CHARGES_PAGE = 100;
+// Un cargo que Culqi tarda en listar puede aparecer después: los FALLIDO se re-revisan este tiempo.
+const FAILED_RECHECK_MS = 24 * 3600_000;
+// Mientras otro pago del mismo pedido/cuenta está en curso no se abre otro checkout (evita doble cobro).
+const IN_FLIGHT_GUARD_MS = 15 * 60_000;
 
 @Injectable()
 export class PaymentsService {
@@ -36,6 +40,10 @@ export class PaymentsService {
     async startOnlinePayment(target: { orderToken?: string; tabToken?: string }, customer: { email: string; name?: string; phone?: string }) {
         const { placeId, orderId, tabId, amount, title } = await this.resolveTarget(target);
         if (amount <= 0) throw new BadRequestException('No hay saldo pendiente por pagar');
+        const inFlight = await this.paymentsRepo.findOne({ where: {
+            ...(orderId ? { orderId } : { tabId: tabId! }), status: 'PROCESANDO', processingStartedAt: MoreThan(new Date(Date.now() - IN_FLIGHT_GUARD_MS)),
+        } });
+        if (inFlight) throw new BadRequestException('Hay un pago en proceso para esta cuenta. Espera unos minutos antes de intentar de nuevo.');
         const settings = await this.orders.getSettings(placeId);
         if (tabId && settings.tableOnlinePaymentEnabled === false) throw new BadRequestException('Este local cobra la cuenta en la mesa. Pídela al mozo.');
         const keys = this.keysFor(settings);
@@ -160,15 +168,16 @@ export class PaymentsService {
             }
         }
         await this.reconcileStuckProcessing(placeId);
+        await this.reconcileFailedCharges(placeId);
         await this.reconcileLateCips(placeId);
         await this.reconcileUnpaidOrders(placeId);
     }
 
     /**
      * Pagos que quedaron en PROCESANDO (caída entre el reclamo y la respuesta de Culqi). Nunca se cobra de nuevo:
-     * se busca en Culqi un cargo con `metadata.paymentId`; si salió bien se confirma, si no existe vuelve a PENDIENTE.
-     * Culqi no documenta filtro por metadata en `GET /v2/charges`: se filtra por email y se compara la metadata aquí.
-     * Si la página vuelve llena sin el cargo, la búsqueda no es concluyente y el pago se deja para revisión manual.
+     * se busca en Culqi un cargo con `metadata.paymentId`; si salió bien se confirma y si fue rechazado vuelve a PENDIENTE.
+     * Si no aparece NO vuelve a PENDIENTE (Culqi puede tardar en listarlo y se cobraría dos veces): pasa a FALLIDO
+     * y `reconcileFailedCharges` lo sigue buscando 24 h.
      */
     private async reconcileStuckProcessing(placeId?: string): Promise<void> {
         const cutoff = new Date(Date.now() - STUCK_PROCESSING_MS);
@@ -179,26 +188,67 @@ export class PaymentsService {
         ] });
         for (const payment of stuck) {
             try {
-                const keys = this.keysFor(await this.orders.getSettings(payment.placeId));
-                const query = new URLSearchParams({ limit: String(CHARGES_PAGE), ...(payment.customerEmail ? { email: payment.customerEmail } : {}) });
-                const list = await culqiRequest(keys.secretKey, 'GET', `/charges?${query}`);
-                const charges: any[] = list?.data ?? [];
-                const charge = charges.find((c) => c?.metadata?.paymentId === payment.id);
-                if (charge && charge.action_code !== 'REVIEW' && charge.outcome?.type === 'venta_exitosa') {
-                    const method = String(charge.source?.id ?? '').startsWith('ype') ? 'YAPE' : 'TARJETA';
-                    await this.confirm(payment.id, { method, culqiChargeId: charge.id, culqiFee: charge.total_fee ?? 0 });
+                const { charge, conclusive } = await this.findCharge(payment);
+                if (charge && this.chargeSucceeded(charge)) {
+                    await this.confirm(payment.id, this.chargePatch(charge));
                     continue;
                 }
-                if (!charge && charges.length >= CHARGES_PAGE) {
+                if (!conclusive) {
                     this.logger.error(`Pago ${payment.id} en PROCESANDO: Culqi no confirmó si hubo cargo, revisar a mano`);
                     continue;
                 }
-                const expired = !!payment.expiresAt && payment.expiresAt.getTime() < Date.now();
-                await this.paymentsRepo.update({ id: payment.id, status: 'PROCESANDO' }, { status: expired ? 'FALLIDO' : 'PENDIENTE' });
+                await this.paymentsRepo.update({ id: payment.id, status: 'PROCESANDO' }, { status: charge ? 'PENDIENTE' : 'FALLIDO' });
             } catch (err: any) {
                 this.logger.warn(`No se pudo conciliar el pago en proceso ${payment.id}: ${err?.message}`);
             }
         }
+    }
+
+    /**
+     * FALLIDO que llegó a Culqi (tiene `processing_started_at`): si en las 24 h siguientes aparece el cargo exitoso,
+     * se confirma si el pedido/cuenta aún lo espera; si no (el cliente ya pagó por otro lado), queda PAGADO con devolución pendiente.
+     */
+    private async reconcileFailedCharges(placeId?: string): Promise<void> {
+        const failed = await this.paymentsRepo.find({ where: {
+            status: 'FALLIDO', processingStartedAt: MoreThan(new Date(Date.now() - FAILED_RECHECK_MS)), ...(placeId ? { placeId } : {}),
+        } });
+        for (const payment of failed) {
+            try {
+                const { charge } = await this.findCharge(payment);
+                if (!charge || !this.chargeSucceeded(charge)) continue;
+                if (await this.targetStillDue(payment)) {
+                    await this.confirm(payment.id, this.chargePatch(charge), ['FALLIDO']);
+                    continue;
+                }
+                const marked = await this.paymentsRepo.update({ id: payment.id, status: 'FALLIDO' }, { ...this.chargePatch(charge), status: 'PAGADO', paidAt: new Date() });
+                if (!marked.affected) continue;
+                if (payment.orderId) await this.ordersRepo.update({ id: payment.orderId }, { refundPending: true });
+                // ponytail: las cuentas no tienen marca de devolución; se avisa por log hasta que haya bandeja de devoluciones.
+                this.logger.error(`Cargo ${charge.id} apareció tarde para el pago ${payment.id} (pedido ${payment.orderId ?? '-'}, cuenta ${payment.tabId ?? '-'}) que ya no esperaba pago: devolver el dinero`);
+            } catch (err: any) {
+                this.logger.warn(`No se pudo revisar el pago fallido ${payment.id}: ${err?.message}`);
+            }
+        }
+    }
+
+    /**
+     * Culqi no documenta filtro por metadata en `GET /v2/charges`: se filtra por email y se compara la metadata aquí.
+     * Página llena sin el cargo = búsqueda no concluyente.
+     */
+    private async findCharge(payment: OrderPayment): Promise<{ charge: any | null; conclusive: boolean }> {
+        const keys = this.keysFor(await this.orders.getSettings(payment.placeId));
+        const query = new URLSearchParams({ limit: String(CHARGES_PAGE), ...(payment.customerEmail ? { email: payment.customerEmail } : {}) });
+        const charges: any[] = (await culqiRequest(keys.secretKey, 'GET', `/charges?${query}`))?.data ?? [];
+        const charge = charges.find((c) => c?.metadata?.paymentId === payment.id) ?? null;
+        return { charge, conclusive: !!charge || charges.length < CHARGES_PAGE };
+    }
+
+    private chargeSucceeded(charge: any): boolean {
+        return charge.action_code !== 'REVIEW' && charge.outcome?.type === 'venta_exitosa';
+    }
+
+    private chargePatch(charge: any): Partial<OrderPayment> {
+        return { method: String(charge.source?.id ?? '').startsWith('ype') ? 'YAPE' : 'TARJETA', culqiChargeId: charge.id, culqiFee: charge.total_fee ?? 0 };
     }
 
     /**
@@ -248,8 +298,8 @@ export class PaymentsService {
         }
     }
 
-    private async confirm(paymentId: string, patch: Partial<OrderPayment>): Promise<boolean> {
-        const result = await this.paymentsRepo.update({ id: paymentId, status: In(['PENDIENTE', 'PROCESANDO']) }, { ...patch, status: 'PAGADO', paidAt: new Date() });
+    private async confirm(paymentId: string, patch: Partial<OrderPayment>, from: PaymentStatus[] = ['PENDIENTE', 'PROCESANDO']): Promise<boolean> {
+        const result = await this.paymentsRepo.update({ id: paymentId, status: In(from) }, { ...patch, status: 'PAGADO', paidAt: new Date() });
         if (!result.affected) return false;
         const payment = (await this.paymentsRepo.findOne({ where: { id: paymentId } }))!;
         let orderIds: string[] = [];
