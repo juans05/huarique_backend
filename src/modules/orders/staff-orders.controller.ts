@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Patch, Post, Query, Req, UseGuards } from '@nestjs/common';
+import { Body, Controller, ForbiddenException, Get, Param, Patch, Post, Query, Req, UseGuards } from '@nestjs/common';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { PlaceRoleGuard } from '../../common/guards/place-role.guard';
 import { RequiresPlaceRole } from '../../common/decorators/requires-place-role.decorator';
@@ -92,7 +92,9 @@ export class StaffOrdersController {
 
     @Post('payments/manual')
     @RequiresPlaceRole('mozo')
-    manualPayment(@Param('placeId') placeId: string, @Body() dto: ManualPaymentDto, @CurrentUser() user: any) {
+    manualPayment(@Param('placeId') placeId: string, @Body() dto: ManualPaymentDto, @CurrentUser() user: any, @Req() req: any) {
+        // El mozo cobra cuentas de mesa; marcar pagado un pedido suelto (WhatsApp, recojo) es de caja.
+        if (req.placeTeamMember.role === 'mozo' && dto.orderId) throw new ForbiddenException('El mozo solo cobra cuentas de mesa');
         return this.payments.recordManualPayment(placeId, { tabId: dto.tabId, orderId: dto.orderId }, dto.method, user.id);
     }
 

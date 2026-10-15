@@ -218,7 +218,8 @@ export class OrdersService {
         if (!tab) throw new NotFoundException('Cuenta no encontrada');
         const orders = await this.ordersRepo.find({ where: { tabId: tab.id }, relations: ['items'], order: { createdAt: 'ASC' } });
         const sums = await this.tabTotal(tab.id);
-        return { status: tab.status, ...sums, orders: orders.map((o) => this.publicView(o)) };
+        const { tableOnlinePaymentEnabled } = await this.getSettings(tab.placeId);
+        return { status: tab.status, ...sums, onlinePaymentEnabled: tableOnlinePaymentEnabled !== false, orders: orders.map((o) => this.publicView(o)) };
     }
 
     async listForPlace(placeId: string, filter: { status?: OrderStatus[]; channel?: OrderChannel; q?: string; from?: Date; page?: number }) {
