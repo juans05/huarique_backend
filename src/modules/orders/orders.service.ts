@@ -243,8 +243,13 @@ export class OrdersService {
             where: { placeId, status: In(['NUEVO', 'EN_PREPARACION', 'LISTO']), createdAt: MoreThanOrEqual(new Date(Date.now() - 24 * 3600_000)) },
             relations: ['items'], order: { createdAt: 'ASC' }, take: 200,
         });
+        const tableIds = [...new Set(orders.map((o) => o.tableId).filter((id): id is string => !!id))];
+        const tables = tableIds.length ? await this.tablesRepo.find({ where: { id: In(tableIds) } }) : [];
+        // Por pedido (no envolvemos el arreglo) para que un panel viejo siga funcionando durante el despliegue.
+        const { prepTimeMin } = await this.getSettings(placeId);
         return orders.map((o) => ({
             id: o.id, number: o.number, channel: o.channel, fulfillment: o.fulfillment, status: o.status, tableId: o.tableId, notes: o.notes, createdAt: o.createdAt,
+            tableName: tables.find((t) => t.id === o.tableId)?.name ?? null, prepTimeMin: prepTimeMin ?? 20,
             items: (o.items ?? []).map((i) => ({ id: i.id, name: i.dishNameSnapshot, quantity: i.quantity, note: i.note })),
         }));
     }
