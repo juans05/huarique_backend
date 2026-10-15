@@ -20,6 +20,8 @@ export class OrderPayment {
     @Column({ name: 'culqi_fee', type: 'int', default: 0 }) culqiFee: number;
     @Column({ name: 'expires_at', type: 'timestamptz', nullable: true }) expiresAt: Date | null;
     @Column({ name: 'paid_at', type: 'timestamptz', nullable: true }) paidAt: Date | null;
+    /** Cuándo payWithToken reclamó el pago (PENDIENTE→PROCESANDO); la conciliación revisa los atascados. */
+    @Column({ name: 'processing_started_at', type: 'timestamptz', nullable: true }) processingStartedAt: Date | null;
     @Column({ name: 'recorded_by_user_id', type: 'uuid', nullable: true }) recordedByUserId: string | null;
     @Column({ name: 'payout_id', type: 'uuid', nullable: true }) payoutId: string | null;
     @CreateDateColumn({ name: 'created_at' }) createdAt: Date;
