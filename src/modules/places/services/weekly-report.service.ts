@@ -5,6 +5,7 @@ import { Repository } from 'typeorm';
 import { Place } from '../entities/place.entity';
 import { User } from '../../users/entities/user.entity';
 import { MailService } from '../../../common/services/mail.service';
+import { computeWeeklyStats, hasActivity } from './weekly-stats';
 
 @Injectable()
 export class WeeklyReportService {
@@ -31,17 +32,15 @@ export class WeeklyReportService {
     for (const place of places) {
       if (place.claimedByUserId && place.claimedBy?.email) {
         try {
-          // Aquí calcularíamos las estadísticas reales de la última semana
-          // Por ahora simulamos los datos según el pedido del usuario
-          const stats = {
-            reviews: 5, // Simulado: Sería un count de reseñas de los últimos 7 días
-            visibilityChange: 12, // Simulado: Basado en la subida de rating o taps
-          };
+          // Solo datos reales de los últimos 7 días; si el local no tuvo actividad no se le escribe.
+          const stats = await computeWeeklyStats(this.placesRepo.manager, place.id);
+          if (!hasActivity(stats)) continue;
 
           await this.mailService.sendWeeklyReport(
             place.claimedBy.email,
             place.claimedBy.fullName || 'Chef',
-            stats
+            place.name,
+            stats,
           );
           
           this.logger.log(`Reporte enviado a ${place.claimedBy.email} para ${place.name}`);
@@ -65,7 +64,8 @@ export class WeeklyReportService {
       await this.mailService.sendWeeklyReport(
         place.claimedBy.email,
         place.claimedBy.fullName || 'Chef',
-        { reviews: 5, visibilityChange: 12 }
+        place.name,
+        await computeWeeklyStats(this.placesRepo.manager, place.id),
       );
       return { message: 'Reporte enviado manualmente' };
     }
