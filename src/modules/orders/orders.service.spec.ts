@@ -2,13 +2,21 @@ import { BadRequestException, NotFoundException } from '@nestjs/common';
 import { OrdersService } from './orders.service';
 import { PinAttemptsService } from './pin-attempts.service';
 
-// Redis en memoria para los contadores de PIN (set NX / incr / decr).
+// Redis en memoria que emula los scripts de conteo (INCR + TTL) y descuento (DECR sin bajar de 0).
 const fakeRedisStore = () => {
     const values = new Map<string, number>();
+    const ttl = new Map<string, number>();
     return {
-        set: async (key: string, value: string) => { if (values.has(key)) return null; values.set(key, Number(value)); return 'OK' as const; },
-        incr: async (key: string) => { values.set(key, (values.get(key) ?? 0) + 1); return values.get(key)!; },
-        decr: async (key: string) => { values.set(key, (values.get(key) ?? 0) - 1); return values.get(key)!; },
+        values, ttl,
+        eval: async (script: string, _n: number, key: string, seconds?: number) => {
+            if (script.includes('INCR')) {
+                values.set(key, (values.get(key) ?? 0) + 1);
+                if (!ttl.has(key)) ttl.set(key, Number(seconds));
+                return values.get(key)!;
+            }
+            if (values.has(key) && values.get(key)! > 0) { values.set(key, values.get(key)! - 1); return values.get(key)!; }
+            return 0;
+        },
         disconnect: () => undefined,
     };
 };
