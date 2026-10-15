@@ -27,6 +27,14 @@ describe('OrderSettingsService', () => {
         await expect(svc.update('p1', { paymentDestination: 'WUARIKES' })).rejects.toBeInstanceOf(BadRequestException);
     });
 
+    it('sin pago desde el celular no se puede usar prepago (en ninguno de los dos órdenes)', async () => {
+        const svc = new OrderSettingsService(repo() as any, repo() as any, config);
+        await expect(svc.update('p1', { tableOnlinePaymentEnabled: false })).resolves.toMatchObject({ tableOnlinePaymentEnabled: false });
+        await expect(svc.update('p1', { tablePaymentMode: 'PREPAGO' })).rejects.toBeInstanceOf(BadRequestException);
+        const svc2 = new OrderSettingsService(repo([{ placeId: 'p1', tablePaymentMode: 'PREPAGO', tableOnlinePaymentEnabled: true }]) as any, repo() as any, config);
+        await expect(svc2.update('p1', { tableOnlinePaymentEnabled: false })).rejects.toBeInstanceOf(BadRequestException);
+    });
+
     it('secret vacía no borra la guardada', async () => {
         const settings = repo([{ placeId: 'p1', culqiPublicKey: 'pk_test_1', culqiSecretKey: 'sk_test_1' }]);
         const svc = new OrderSettingsService(settings as any, repo() as any, config);

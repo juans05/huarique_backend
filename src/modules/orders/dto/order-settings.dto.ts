@@ -25,6 +25,7 @@ export class UpdateOrderSettingsDto {
     @IsOptional() @IsBoolean() pricesIncludeIgv?: boolean;
     @IsOptional() @IsBoolean() cashPaymentEnabled?: boolean;
     @IsOptional() @ValidateNested() @Type(() => ReceiptSeriesDto) receiptSeries?: ReceiptSeriesDto;
+    @IsOptional() @IsBoolean() tableOnlinePaymentEnabled?: boolean;
 }
 
 export class AdminCommissionDto {

@@ -10,7 +10,7 @@ import { newPublicToken, newTablePin } from './order-rules';
 const DEFAULTS: Omit<PlaceOrderSettings, 'placeId' | 'updatedAt'> = {
     ordersEnabled: false, tablePaymentMode: 'CUENTA_ABIERTA', paymentDestination: 'LOCAL', culqiPublicKey: null, culqiSecretKey: null,
     pickupEnabled: true, deliveryEnabled: false, deliveryFee: 0, deliveryNote: null, prepTimeMin: 20, pricesIncludeIgv: true,
-    cashPaymentEnabled: true, wuarikesCommissionPct: 0.05, receiptSeries: DEFAULT_RECEIPT_SERIES,
+    cashPaymentEnabled: true, tableOnlinePaymentEnabled: true, wuarikesCommissionPct: 0.05, receiptSeries: DEFAULT_RECEIPT_SERIES,
 };
 
 @Injectable()
@@ -35,6 +35,8 @@ export class OrderSettingsService {
         if (dto.receiptSeries && new Set(Object.values(dto.receiptSeries)).size < 4) {
             throw new BadRequestException('No se pueden repetir las series');
         }
+        // Prepago = el comensal paga online antes de que el pedido vaya a cocina: no existe sin pago desde el celular.
+        if (next.tablePaymentMode === 'PREPAGO' && !next.tableOnlinePaymentEnabled) throw new BadRequestException('El modo prepago necesita que los clientes puedan pagar desde su celular');
         // Sin llaves se puede guardar igual (por ejemplo, para cobrar solo en efectivo/POS); la pantalla avisa con
         // culqiConfigured=false y PaymentsService rechaza el cobro online hasta que se registren.
         return this.toView(await this.settingsRepo.save(next));

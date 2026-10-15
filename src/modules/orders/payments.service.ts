@@ -33,6 +33,7 @@ export class PaymentsService {
         const { placeId, orderId, tabId, amount, title } = await this.resolveTarget(target);
         if (amount <= 0) throw new BadRequestException('No hay saldo pendiente por pagar');
         const settings = await this.orders.getSettings(placeId);
+        if (tabId && settings.tableOnlinePaymentEnabled === false) throw new BadRequestException('Este local cobra la cuenta en la mesa. Pídela al mozo.');
         const keys = this.keysFor(settings);
 
         const payment = await this.paymentsRepo.save(this.paymentsRepo.create({
