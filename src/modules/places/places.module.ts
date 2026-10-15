@@ -35,6 +35,8 @@ import { GoogleBusinessService } from './services/google-business.service';
 import { WeeklyReportService } from './services/weekly-report.service';
 import { ReviewAutoService } from './services/review-auto.service';
 import { ReputationService } from './services/reputation.service';
+import { SeoService } from './services/seo.service';
+import { ReputationController } from './reputation.controller';
 import { GoogleCallbackController } from './google-callback.controller';
 import { User } from '../users/entities/user.entity';
 import { TeamModule } from '../team/team.module';
@@ -70,8 +72,8 @@ import { UsersModule } from '../users/users.module';
         UsersModule,
     ],
 
-    controllers: [PlacesController, BusinessPlacesController, GoogleCallbackController],
-    providers: [PlacesService, MenuService, MenuAssistantService, MenuImportService, MenuFormatterService, PromotionsService, TikTokSearchService, GeolocationService, RarityCalculatorService, GoogleMapsService, GoogleBusinessService, WeeklyReportService, ReviewAutoService, ReputationService],
+    controllers: [PlacesController, BusinessPlacesController, GoogleCallbackController, ReputationController],
+    providers: [PlacesService, MenuService, MenuAssistantService, MenuImportService, MenuFormatterService, PromotionsService, TikTokSearchService, GeolocationService, RarityCalculatorService, GoogleMapsService, GoogleBusinessService, WeeklyReportService, ReviewAutoService, ReputationService, SeoService],
     exports: [PlacesService, MenuService, MenuFormatterService, GeolocationService, GoogleMapsService],
 })
 export class PlacesModule { }
