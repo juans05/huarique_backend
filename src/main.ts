@@ -1,3 +1,4 @@
+import { NestExpressApplication } from '@nestjs/platform-express';
 import './instrument';
 import { NestFactory } from '@nestjs/core';
 import { ValidationPipe } from '@nestjs/common';
@@ -9,7 +10,10 @@ import { AppModule } from './app.module';
 async function bootstrap() {
     // rawBody: true — necesario para verificar la firma HMAC del webhook de Zernio
     // (necesita los bytes exactos del body, no el JSON re-serializado).
-    const app = await NestFactory.create(AppModule, { rawBody: true });
+    const app = await NestFactory.create<NestExpressApplication>(AppModule, { rawBody: true });
+    // Railway pone un proxy delante: confiar en 1 salto hace que req.ip sea la IP real del cliente
+    // (la usan el rate limit global y el bloqueo de PIN de mesa). Más saltos permitirían falsificarla.
+    app.set('trust proxy', 1);
 
     // Validate critical secrets at startup
     const requiredSecrets = ['JWT_SECRET', 'JWT_REFRESH_SECRET'];

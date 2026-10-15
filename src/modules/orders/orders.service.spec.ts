@@ -269,11 +269,21 @@ describe('OrdersService: bloqueo por intentos de PIN', () => {
         await expect(svc.createTableOrder('qr-1', { pin: '1234', items: [{ dishId: 'd1', quantity: 1 }] }, 'ip-comensal')).resolves.toBeDefined();
     });
 
-    it('30 fallos repartidos entre muchas IPs bloquean la mesa', async () => {
+    it('15 fallos repartidos entre muchas IPs bloquean la mesa', async () => {
         const { svc } = build();
-        for (let i = 0; i < 30; i++) {
+        for (let i = 0; i < 15; i++) {
             await expect(svc.createTableOrder('qr-1', { pin: '0000', items: [{ dishId: 'd1', quantity: 1 }] }, `ip-${i}`)).rejects.toThrow('PIN incorrecto');
         }
         await expect(svc.createTableOrder('qr-1', { pin: '1234', items: [{ dishId: 'd1', quantity: 1 }] }, 'ip-nueva')).rejects.toThrow('Demasiados intentos');
+    });
+});
+
+describe('OrdersService: registro de intentos de PIN acotado', () => {
+    it('miles de IPs distintas no hacen crecer el registro sin límite', async () => {
+        const { svc } = build();
+        for (let i = 0; i < 10_050; i++) {
+            try { svc.assertTablePin({ id: `t-${i}`, pin: '1234' } as any, '0000', `ip-${i}`); } catch { /* esperado */ }
+        }
+        expect((svc as any).pinFailures.size).toBeLessThanOrEqual(10_000);
     });
 });
