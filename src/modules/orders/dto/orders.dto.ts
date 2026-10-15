@@ -1,5 +1,5 @@
 import { Type } from 'class-transformer';
-import { ArrayMaxSize, ArrayMinSize, IsEmail, IsIn, IsInt, IsOptional, IsString, IsUUID, Max, MaxLength, Min, ValidateNested } from 'class-validator';
+import { ArrayMaxSize, ArrayMinSize, IsEmail, IsIn, IsInt, IsOptional, IsString, IsUUID, Max, MaxLength, Matches, Min, ValidateNested } from 'class-validator';
 
 export class CartLineDto {
     @IsUUID() dishId: string;
@@ -9,6 +9,7 @@ export class CartLineDto {
 
 export class CreateTableOrderDto {
     @IsString() @MaxLength(64) qrToken: string;
+    @IsString() @Matches(/^\d{4}$/, { message: 'El PIN tiene 4 dígitos' }) pin: string;
     @ValidateNested({ each: true }) @Type(() => CartLineDto) @ArrayMinSize(1) @ArrayMaxSize(40) items: CartLineDto[];
     @IsOptional() @IsString() @MaxLength(120) customerName?: string;
     @IsOptional() @IsString() @MaxLength(30) customerPhone?: string;
@@ -36,4 +37,8 @@ export class PaymentIntentDto {
 
 export class PaymentTokenDto {
     @IsString() @MaxLength(120) token: string;
+}
+
+export class VerifyTablePinDto {
+    @IsString() @Matches(/^\d{4}$/, { message: 'El PIN tiene 4 dígitos' }) pin: string;
 }

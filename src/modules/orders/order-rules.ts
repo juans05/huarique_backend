@@ -1,5 +1,5 @@
 import { BadRequestException, ForbiddenException } from '@nestjs/common';
-import { randomBytes } from 'crypto';
+import { randomBytes, randomInt } from 'crypto';
 import { OrderStatus } from './entities/order.entity';
 import { PlaceTeamRole } from '../team/entities/place-team-member.entity';
 
@@ -36,6 +36,10 @@ export function assertCanCancel(status: OrderStatus, role: PlaceTeamRole): void 
     if (!canTransition(status, 'CANCELADO')) throw new BadRequestException('No puedes cancelar un pedido ya listo o entregado');
     if (role === 'cocina') throw new ForbiddenException('Cocina no puede cancelar pedidos');
     if (status === 'EN_PREPARACION' && role === 'agente') throw new ForbiddenException('Solo un gerente puede cancelar un pedido en preparación');
+}
+
+export function newTablePin(): string {
+    return String(randomInt(0, 10000)).padStart(4, '0');
 }
 
 export function newPublicToken(): string {
