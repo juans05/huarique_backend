@@ -12,6 +12,8 @@ import { OrderPayment } from './entities/order-payment.entity';
 import { Dish } from '../places/entities/dish.entity';
 import { PlaceTeamRole } from '../team/entities/place-team-member.entity';
 import { PinAttemptsService } from './pin-attempts.service';
+import { PlaceTeamService } from '../team/place-team.service';
+import { SubscriptionTier } from '../subscriptions/subscriptions.service';
 import { OrderEventsService } from './order-events.service';
 import { ContactsService } from '../contacts/contacts.service';
 import { assertCanCancel, calculateTotals, canTransition, newPublicToken, newTablePin, normalizePhone, toCents } from './order-rules';
@@ -53,7 +55,13 @@ export class OrdersService {
         private emitter: EventEmitter2,
         private pinAttempts: PinAttemptsService,
         private contacts: ContactsService,
+        private team: PlaceTeamService,
     ) { }
+
+    /** Plan activo de la sede: pedidos en mesa desde Fidelización+, por WhatsApp solo con IA Total. */
+    hasPlan(placeId: string, tier: SubscriptionTier): Promise<boolean> {
+        return this.team.assertPlaceTier(placeId, tier).then(() => true, () => false);
+    }
 
     async getSettings(placeId: string): Promise<PlaceOrderSettings> {
         const found = await this.settingsRepo.findOne({ where: { placeId } });
@@ -65,7 +73,7 @@ export class OrdersService {
         if (!table) throw new NotFoundException('Mesa no encontrada');
         await this.assertTablePin(table, input.pin, clientKey);
         const settings = await this.getSettings(table.placeId);
-        if (!settings.ordersEnabled) throw new BadRequestException('Este local no está recibiendo pedidos por ahora');
+        if (!settings.ordersEnabled || !(await this.hasPlan(table.placeId, 'fidelizacion'))) throw new BadRequestException('Este local no está recibiendo pedidos por ahora');
 
         const items = await this.buildItems(table.placeId, input.items);
         const totals = calculateTotals(items, 0, settings.pricesIncludeIgv);
