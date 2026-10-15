@@ -24,6 +24,7 @@ import { PlaceVideo } from './entities/place-video.entity';
 import { PlacePhoto } from './entities/place-photo.entity';
 import { GoogleReview } from './entities/google-review.entity';
 import { Promotion } from './entities/promotion.entity';
+import { ReviewReply } from './entities/review-reply.entity';
 
 import { UploadModule } from '../upload/upload.module';
 import { PlaceReport } from './entities/place-report.entity';
@@ -60,6 +61,7 @@ import { UsersModule } from '../users/users.module';
             GoogleReview,
             Promotion,
             User,
+            ReviewReply,
         ]),
         UploadModule,
         TeamModule,
