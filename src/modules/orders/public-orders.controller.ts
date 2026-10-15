@@ -1,4 +1,4 @@
-import { BadRequestException, Body, Controller, Get, HttpCode, NotFoundException, Param, Post, Query, Sse } from '@nestjs/common';
+import { BadRequestException, Body, Controller, Get, HttpCode, NotFoundException, Param, Post, Query, Req, Sse } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Throttle } from '@nestjs/throttler';
 import { In, Repository } from 'typeorm';
@@ -12,6 +12,13 @@ import { OrderEventsService, StreamMessage } from './order-events.service';
 import { CreateTableOrderDto, PaymentIntentDto, PaymentTokenDto, VerifyTablePinDto } from './dto/orders.dto';
 
 const WEBHOOK_COOLDOWN_MS = 30_000;
+
+// IP del cliente detrás del proxy de Railway: se toma la ÚLTIMA entrada de X-Forwarded-For (la agrega el proxy);
+// las primeras las puede inventar el propio cliente.
+function clientIp(req: any): string {
+    const forwarded = String(req?.headers?.['x-forwarded-for'] ?? '').split(',').map((part) => part.trim()).filter(Boolean);
+    return forwarded[forwarded.length - 1] || req?.ip || 'desconocido';
+}
 
 @Controller('public')
 export class PublicOrdersController {
@@ -46,18 +53,18 @@ export class PublicOrdersController {
     @Post('tables/:qrToken/verify-pin')
     @HttpCode(200)
     @Throttle({ default: { ttl: 60000, limit: 10 } })
-    async verifyPin(@Param('qrToken') qrToken: string, @Body() dto: VerifyTablePinDto) {
+    async verifyPin(@Param('qrToken') qrToken: string, @Body() dto: VerifyTablePinDto, @Req() req: any) {
         const table = await this.tablesRepo.findOne({ where: { qrToken, active: true } });
         if (!table) throw new NotFoundException('Mesa no encontrada');
-        this.orders.assertTablePin(table, dto.pin);
+        this.orders.assertTablePin(table, dto.pin, clientIp(req));
         const liveTab = await this.tabsRepo.findOne({ where: { tableId: table.id, status: In(['ABIERTA', 'CUENTA_PEDIDA']) } });
         return { ok: true, liveTabToken: liveTab?.publicToken ?? null };
     }
 
     @Post('orders')
     @Throttle({ default: { ttl: 60000, limit: 10 } })
-    async createOrder(@Body() dto: CreateTableOrderDto) {
-        const { order, tab, requiresPayment } = await this.orders.createTableOrder(dto.qrToken, dto);
+    async createOrder(@Body() dto: CreateTableOrderDto, @Req() req: any) {
+        const { order, tab, requiresPayment } = await this.orders.createTableOrder(dto.qrToken, dto, clientIp(req));
         return { orderToken: order.publicToken, tabToken: tab?.publicToken ?? null, requiresPayment, total: order.total };
     }
 
