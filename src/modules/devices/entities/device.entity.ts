@@ -45,6 +45,14 @@ export class Device {
   @Column({ name: 'last_sync_at', type: 'timestamp', nullable: true })
   lastSyncAt?: Date;
 
+  // Empleado que usa este dispositivo (opcional: si no hay, el nombre del dispositivo es la etiqueta).
+  @Column({ name: 'team_member_id', type: 'uuid', nullable: true })
+  teamMemberId: string | null;
+
+  // Meta semanal de opiniones recibidas (cualquier calificación), nunca de reseñas de Google.
+  @Column({ name: 'weekly_goal', type: 'int', nullable: true })
+  weeklyGoal: number | null;
+
   @CreateDateColumn({ name: 'created_at' })
   createdAt: Date;
 
