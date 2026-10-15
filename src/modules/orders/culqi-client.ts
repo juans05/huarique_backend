@@ -11,7 +11,8 @@ export async function culqiRequest(secretKey: string, method: 'GET' | 'POST', pa
     const data = (await res.json().catch(() => ({}))) as any;
     if (!res.ok) {
         const message = data?.user_message || data?.merchant_message || 'Error procesando el pago';
-        logger.error(`Culqi ${method} ${path}: ${message}`, JSON.stringify(data));
+        // Sin query (lleva el email del cliente) ni el cuerpo de Culqi: solo ruta, tipo y código.
+        logger.error(`Culqi ${method} ${path.split('?')[0]} ${res.status}: ${data?.type ?? '-'} ${data?.code ?? ''} ${message}`);
         throw new BadRequestException(message);
     }
     return data;
