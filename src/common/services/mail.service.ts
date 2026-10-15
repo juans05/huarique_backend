@@ -1,6 +1,7 @@
 import { Injectable, InternalServerErrorException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Resend } from 'resend';
+import type { WeeklyStats } from '../../modules/places/services/weekly-stats';
 
 @Injectable()
 export class MailService {
@@ -13,40 +14,44 @@ export class MailService {
         this.frontendUrl = this.configService.get<string>('FRONTEND_URL') || 'http://localhost:3000';
     }
 
-    async sendWeeklyReport(email: string, chefName: string, stats: { reviews: number, visibilityChange: number }) {
+    async sendWeeklyReport(email: string, chefName: string, placeName: string, stats: WeeklyStats) {
+        const esc = (s: string) => s.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]!));
+        // Variación real frente a la semana anterior; sin semana anterior no se inventa un porcentaje.
+        const trend = (count: { current: number; previous: number }) => {
+            if (count.previous === 0) return count.current > 0 ? 'nuevo esta semana' : 'sin cambios';
+            const pct = Math.round(((count.current - count.previous) / count.previous) * 100);
+            return pct === 0 ? 'igual que la semana pasada' : `${pct > 0 ? '+' : ''}${pct}% vs. semana pasada`;
+        };
+        const card = (value: string, label: string, note: string) => `
+                                <td style="width: 33%; background: #f9fafb; padding: 18px; border-radius: 15px; text-align: center; border: 1px solid #f0f2f5;">
+                                    <div style="font-size: 28px; font-weight: 900; color: #111827;">${value}</div>
+                                    <div style="font-size: 10px; font-weight: 800; color: #9ca3af; text-transform: uppercase;">${label}</div>
+                                    <div style="font-size: 11px; color: #6b7280; margin-top: 4px;">${note}</div>
+                                </td>`;
         try {
             const { data, error } = await this.resend.emails.send({
                 from: 'Wuarike <reports@wuarikes.com>',
                 to: [email],
-                subject: '📊 ¡Tu Reporte Semanal de Wuarike!',
+                subject: `📊 Tu semana en Wuarike: ${placeName}`,
                 html: `
                     <div style="font-family: 'Inter', sans-serif; max-width: 600px; margin: 0 auto; background-color: #ffffff; border-radius: 20px; overflow: hidden; border: 1px solid #eee;">
-                        <div style="background: linear-gradient(135deg, #ff4d4d, #ff9966); padding: 40px; text-align: center; color: white;">
-                            <h1 style="margin: 0; font-size: 28px; font-weight: 900; letter-spacing: -1px;">¡Felicidades ${chefName}!</h1>
-                            <p style="margin-top: 10px; opacity: 0.9; font-weight: bold; text-transform: uppercase; font-size: 12px; tracking: 2px;">Tu restaurante está brillando esta semana</p>
+                        <div style="background: linear-gradient(135deg, #ff4d4d, #ff9966); padding: 36px; text-align: center; color: white;">
+                            <h1 style="margin: 0; font-size: 26px; font-weight: 900;">Hola ${esc(chefName)}</h1>
+                            <p style="margin-top: 8px; opacity: 0.9; font-weight: bold; font-size: 13px;">Así le fue a ${esc(placeName)} en los últimos 7 días</p>
                         </div>
-                        
-                        <div style="padding: 40px;">
-                            <div style="display: flex; gap: 20px; margin-bottom: 30px;">
-                                <div style="flex: 1; background: #f9fafb; padding: 20px; border-radius: 15px; text-align: center; border: 1px solid #f0f2f5;">
-                                    <div style="font-size: 32px; font-weight: 900; color: #ff4d4d;">${stats.reviews}</div>
-                                    <div style="font-size: 10px; font-weight: 800; color: #9ca3af; text-transform: uppercase;">Nuevas Reseñas ⭐</div>
-                                </div>
-                                <div style="flex: 1; background: #f9fafb; padding: 20px; border-radius: 15px; text-align: center; border: 1px solid #f0f2f5;">
-                                    <div style="font-size: 32px; font-weight: 900; color: #10b981;">+${stats.visibilityChange}%</div>
-                                    <div style="font-size: 10px; font-weight: 800; color: #9ca3af; text-transform: uppercase;">Visibilidad en Maps 🗺️</div>
-                                </div>
-                            </div>
-
+                        <div style="padding: 32px;">
+                            <table role="presentation" style="width: 100%; border-spacing: 10px;"><tr>
+                                ${card(String(stats.scans.current), 'Escaneos NFC/QR', trend(stats.scans))}
+                                ${card(String(stats.opinions.current), 'Opiniones recibidas', stats.averageRating !== null ? `Promedio ${stats.averageRating.toFixed(1)} ★ · ${trend(stats.opinions)}` : trend(stats.opinions))}
+                                ${card(String(stats.checkins.current), 'Check-ins', trend(stats.checkins))}
+                            </tr></table>
                             <p style="color: #4b5563; line-height: 1.6; font-size: 14px;">
-                                Tu visibilidad en <strong>Google Maps</strong> ha subido notablemente gracias a las nuevas interacciones. Los clientes están amando tu comida y el sistema de Wuarike está filtrando las mejores experiencias para que luzcan en tu perfil oficial.
+                                Revisa las opiniones de tus clientes y responde las que lo necesiten desde tu panel.
                             </p>
-
-                            <a href="${this.frontendUrl}/reputacion" style="display: block; width: 100%; text-align: center; background: #111827; color: white; padding: 18px; border-radius: 12px; text-decoration: none; font-weight: 900; font-size: 12px; text-transform: uppercase; margin-top: 30px; letter-spacing: 1px;">Ver Dashboard Completo</a>
+                            <a href="${this.frontendUrl}/reputacion" style="display: block; text-align: center; background: #111827; color: white; padding: 18px; border-radius: 12px; text-decoration: none; font-weight: 900; font-size: 12px; text-transform: uppercase; margin-top: 24px; letter-spacing: 1px;">Ver mi panel</a>
                         </div>
-
                         <div style="background: #f9fafb; padding: 20px; text-align: center; color: #9ca3af; font-size: 10px; font-weight: bold;">
-                            &copy; ${new Date().getFullYear()} WUARIKE - SMART RESTAURANT ENGINE
+                            &copy; ${new Date().getFullYear()} WUARIKE
                         </div>
                     </div>
                 `,
