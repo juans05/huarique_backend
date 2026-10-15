@@ -46,7 +46,7 @@ const memRepo = <T extends { id?: string }>(rows: T[] = []) => ({
     }),
 });
 
-const build = (opts: { mode?: 'CUENTA_ABIERTA' | 'PREPAGO'; dishAvailable?: boolean; dishPrice?: string | null } = {}) => {
+const build = (opts: { mode?: 'CUENTA_ABIERTA' | 'PREPAGO'; dishAvailable?: boolean; dishPrice?: string | null; noPlan?: boolean } = {}) => {
     const settings = memRepo([{ placeId: 'p1', ordersEnabled: true, tablePaymentMode: opts.mode ?? 'CUENTA_ABIERTA', pricesIncludeIgv: true, deliveryFee: 500, deliveryEnabled: true, pickupEnabled: true } as any]);
     const tables = memRepo([{ id: 't1', placeId: 'p1', name: 'Mesa 4', qrToken: 'qr-1', pin: '1234', active: true } as any]);
     const tabs = memRepo<any>([]);
@@ -63,7 +63,8 @@ const build = (opts: { mode?: 'CUENTA_ABIERTA' | 'PREPAGO'; dishAvailable?: bool
     const pinAttempts = new PinAttemptsService({ get: () => undefined } as any, () => fakeRedisStore());
     pinAttempts.onModuleInit();
     const contacts = { upsertByPhone: jest.fn().mockResolvedValue(null) };
-    const svc = new OrdersService(settings as any, tables as any, tabs as any, orders as any, payments as any, dishes as any, dataSource as any, events as any, emitter as any, pinAttempts, contacts as any);
+    const team = { assertPlaceTier: jest.fn(async () => { if (opts.noPlan) throw new Error('sin plan'); }) };
+    const svc = new OrdersService(settings as any, tables as any, tabs as any, orders as any, payments as any, dishes as any, dataSource as any, events as any, emitter as any, pinAttempts, contacts as any, team as any);
     return { svc, tabs, tables, orders, payments, events, emitter, contacts };
 };
 
@@ -343,5 +344,12 @@ describe('OrdersService.staffTableView (mozo escanea el QR)', () => {
     it('QR de una mesa de otra sede: 404 (no se filtra la cuenta ajena)', async () => {
         const { svc } = build();
         await expect(svc.staffTableView('p2', 'qr-1')).rejects.toBeInstanceOf(NotFoundException);
+    });
+});
+
+describe('OrdersService: plan de la sede', () => {
+    it('sin Fidelización+ activo la mesa no puede pedir', async () => {
+        const { svc } = build({ noPlan: true });
+        await expect(svc.createTableOrder('qr-1', { pin: '1234', items: [{ dishId: 'd1', quantity: 1 }] })).rejects.toThrow('no está recibiendo pedidos');
     });
 });

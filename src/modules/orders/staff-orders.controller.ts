@@ -1,4 +1,4 @@
-import { Body, Controller, ForbiddenException, Get, Param, Patch, Post, Query, Req, UseGuards } from '@nestjs/common';
+import { BadRequestException, Body, Controller, ForbiddenException, Get, Param, Patch, Post, Query, Req, UseGuards } from '@nestjs/common';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { PlaceRoleGuard } from '../../common/guards/place-role.guard';
 import { RequiresPlaceRole } from '../../common/decorators/requires-place-role.decorator';
@@ -9,7 +9,7 @@ import { PaymentsService } from './payments.service';
 import { CashService } from './cash.service';
 import { ChargeDto, CloseCashDto, OpenCashDto, PrecuentaDto } from './dto/cash.dto';
 import { ChangeStatusDto, ManualPaymentDto } from './dto/orders.dto';
-import { TableDto, UpdateOrderSettingsDto, UpdateTableDto } from './dto/order-settings.dto';
+import { BulkTablesDto, TableDto, UpdateOrderSettingsDto, UpdateTableDto } from './dto/order-settings.dto';
 import { OrderChannel, OrderStatus } from './entities/order.entity';
 
 @UseGuards(JwtAuthGuard, PlaceRoleGuard)
@@ -128,6 +128,14 @@ export class StaffOrdersController {
     async createTable(@Param('placeId') placeId: string, @Body() dto: TableDto) {
         const table = await this.settings.createTable(placeId, dto);
         return { ...table, qrUrl: this.settings.tableQrUrl(table) };
+    }
+
+    @Post('tables/bulk')
+    @RequiresPlaceRole('supervisor')
+    async createTables(@Param('placeId') placeId: string, @Body() dto: BulkTablesDto) {
+        if (dto.to - dto.from >= 100) throw new BadRequestException('Crea como máximo 100 mesas por vez');
+        const tables = await this.settings.createTables(placeId, dto);
+        return tables.map((t) => ({ ...t, qrUrl: this.settings.tableQrUrl(t) }));
     }
 
     @Patch('tables/:tableId')

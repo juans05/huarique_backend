@@ -35,15 +35,16 @@ export class PublicOrdersController {
     async table(@Param('qrToken') qrToken: string) {
         const table = await this.tablesRepo.findOne({ where: { qrToken, active: true } });
         if (!table) throw new NotFoundException('Mesa no encontrada');
-        const [place, settings] = await Promise.all([
+        const [place, settings, tablePlan] = await Promise.all([
             this.placesRepo.findOne({ where: { id: table.placeId } }),
             this.orders.getSettings(table.placeId),
+            this.orders.hasPlan(table.placeId, 'fidelizacion'),
         ]);
         // La cuenta de la mesa solo se entrega tras validar el PIN (POST tables/:qrToken/verify-pin).
         return {
             place: { id: table.placeId, name: place?.name ?? '' },
             table: { name: table.name },
-            ordering: { enabled: settings.ordersEnabled, tablePaymentMode: settings.tablePaymentMode, cashPaymentEnabled: settings.cashPaymentEnabled, tableOnlinePaymentEnabled: settings.tableOnlinePaymentEnabled },
+            ordering: { enabled: settings.ordersEnabled && tablePlan, tablePaymentMode: settings.tablePaymentMode, cashPaymentEnabled: settings.cashPaymentEnabled, tableOnlinePaymentEnabled: settings.tableOnlinePaymentEnabled },
             pinRequired: true,
         };
     }

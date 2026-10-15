@@ -37,6 +37,14 @@ export class TableDto {
     @IsOptional() @IsInt() @Min(1) @Max(40) capacity?: number;
 }
 
+export class BulkTablesDto {
+    @IsOptional() @IsString() @MaxLength(30) prefix?: string;
+    @IsInt() @Min(1) @Max(500) from: number;
+    // Hasta 100 por vez: un error de tipeo (1 a 1000) no llena el local de mesas.
+    @IsInt() @Min(1) @Max(599) to: number;
+    @IsOptional() @IsInt() @Min(1) @Max(40) capacity?: number;
+}
+
 export class UpdateTableDto {
     @IsOptional() @IsString() @MaxLength(40) name?: string;
     @IsOptional() @IsInt() @Min(1) @Max(40) capacity?: number;

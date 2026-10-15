@@ -1,10 +1,12 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { DEFAULT_RECEIPT_SERIES, PlaceOrderSettings } from './entities/place-order-settings.entity';
 import { PlaceTable } from './entities/place-table.entity';
-import { TableDto, UpdateOrderSettingsDto, UpdateTableDto } from './dto/order-settings.dto';
+import { BulkTablesDto, TableDto, UpdateOrderSettingsDto, UpdateTableDto } from './dto/order-settings.dto';
+import { PlaceTeamService } from '../team/place-team.service';
+import { SubscriptionTier } from '../subscriptions/subscriptions.service';
 import { newPublicToken, newTablePin } from './order-rules';
 
 const DEFAULTS: Omit<PlaceOrderSettings, 'placeId' | 'updatedAt'> = {
@@ -19,10 +21,18 @@ export class OrderSettingsService {
         @InjectRepository(PlaceOrderSettings) private settingsRepo: Repository<PlaceOrderSettings>,
         @InjectRepository(PlaceTable) private tablesRepo: Repository<PlaceTable>,
         private config: ConfigService,
+        private team: PlaceTeamService,
     ) { }
 
     async getForAdmin(placeId: string) {
-        return this.toView(await this.load(placeId));
+        return { ...this.toView(await this.load(placeId)), plan: await this.planAccess(placeId) };
+    }
+
+    /** Qué canales permite el plan de la sede (la pantalla lo usa para explicar qué falta). */
+    private async planAccess(placeId: string) {
+        const has = (tier: SubscriptionTier) => this.team.assertPlaceTier(placeId, tier).then(() => true, () => false);
+        const [table, whatsapp] = await Promise.all([has('fidelizacion'), has('ia_total')]);
+        return { table, whatsapp };
     }
 
     async update(placeId: string, dto: UpdateOrderSettingsDto) {
@@ -30,6 +40,9 @@ export class OrderSettingsService {
         const { culqiSecretKey, ...rest } = dto;
         const next: PlaceOrderSettings = { ...current, ...rest };
         if (culqiSecretKey) next.culqiSecretKey = culqiSecretKey.trim();
+        if (dto.ordersEnabled && !current.ordersEnabled && !(await this.planAccess(placeId)).table) {
+            throw new ForbiddenException('Recibir pedidos está disponible desde el plan Wuarike Fidelización+');
+        }
         // El modo WUARIKES queda bloqueado hasta su validación legal y de Culqi (ver spec, "Riesgo regulatorio").
         if (dto.paymentDestination === 'WUARIKES') throw new BadRequestException('El cobro a través de Wuarikes todavía no está disponible');
         if (dto.receiptSeries && new Set(Object.values(dto.receiptSeries)).size < 4) {
@@ -56,6 +69,24 @@ export class OrderSettingsService {
     async createTable(placeId: string, dto: TableDto) {
         const existing = await this.tablesRepo.find({ where: { placeId } });
         return this.tablesRepo.save(this.tablesRepo.create({ placeId, name: dto.name.trim(), capacity: dto.capacity ?? 4, displayOrder: existing.length, qrToken: newPublicToken(), pin: newTablePin(), active: true }));
+    }
+
+    /** Crea "Mesa 1" a "Mesa N" de una vez; salta los nombres que ya existen. */
+    async createTables(placeId: string, dto: BulkTablesDto) {
+        if (dto.to < dto.from) throw new BadRequestException('El número final debe ser mayor o igual al inicial');
+        const prefix = (dto.prefix ?? 'Mesa').trim() || 'Mesa';
+        const existing = await this.tablesRepo.find({ where: { placeId } });
+        const taken = new Set(existing.map((t) => t.name.trim().toLowerCase()));
+        const created: PlaceTable[] = [];
+        for (let n = dto.from; n <= dto.to; n++) {
+            const name = `${prefix} ${n}`;
+            if (taken.has(name.toLowerCase())) continue;
+            created.push(await this.tablesRepo.save(this.tablesRepo.create({
+                placeId, name, capacity: dto.capacity ?? 4, displayOrder: existing.length + created.length,
+                qrToken: newPublicToken(), pin: newTablePin(), active: true,
+            })));
+        }
+        return created;
     }
 
     async updateTable(placeId: string, tableId: string, dto: UpdateTableDto) {
