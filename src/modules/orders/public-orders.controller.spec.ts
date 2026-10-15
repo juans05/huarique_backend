@@ -12,7 +12,7 @@ const build = () => {
 describe('PublicOrdersController', () => {
     it('POST /public/orders devuelve el total calculado en el backend (céntimos)', async () => {
         const { ctrl } = build();
-        await expect(ctrl.createOrder({ qrToken: 'qr', items: [] } as any)).resolves.toEqual({ orderToken: 'otok', tabToken: 'ttok', requiresPayment: true, total: 7850 });
+        await expect(ctrl.createOrder({ qrToken: 'qr', items: [] } as any, { headers: { 'x-forwarded-for': '1.1.1.1, 200.48.1.10' } })).resolves.toEqual({ orderToken: 'otok', tabToken: 'ttok', requiresPayment: true, total: 7850 });
     });
 
     it('POST /public/orders y el webhook tienen rate limit propio', () => {

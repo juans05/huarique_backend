@@ -260,11 +260,20 @@ describe('OrdersService: PIN de mesa', () => {
 });
 
 describe('OrdersService: bloqueo por intentos de PIN', () => {
-    it('10 PIN incorrectos bloquean la mesa aunque luego se use el correcto', async () => {
+    it('5 PIN incorrectos bloquean a esa IP, pero no a los comensales de otra IP', async () => {
         const { svc } = build();
-        for (let i = 0; i < 10; i++) {
-            await expect(svc.createTableOrder('qr-1', { pin: '0000', items: [{ dishId: 'd1', quantity: 1 }] })).rejects.toThrow('PIN incorrecto');
+        for (let i = 0; i < 5; i++) {
+            await expect(svc.createTableOrder('qr-1', { pin: '0000', items: [{ dishId: 'd1', quantity: 1 }] }, 'ip-atacante')).rejects.toThrow('PIN incorrecto');
         }
-        await expect(svc.createTableOrder('qr-1', { pin: '1234', items: [{ dishId: 'd1', quantity: 1 }] })).rejects.toThrow('Demasiados intentos');
+        await expect(svc.createTableOrder('qr-1', { pin: '1234', items: [{ dishId: 'd1', quantity: 1 }] }, 'ip-atacante')).rejects.toThrow('Demasiados intentos');
+        await expect(svc.createTableOrder('qr-1', { pin: '1234', items: [{ dishId: 'd1', quantity: 1 }] }, 'ip-comensal')).resolves.toBeDefined();
+    });
+
+    it('30 fallos repartidos entre muchas IPs bloquean la mesa', async () => {
+        const { svc } = build();
+        for (let i = 0; i < 30; i++) {
+            await expect(svc.createTableOrder('qr-1', { pin: '0000', items: [{ dishId: 'd1', quantity: 1 }] }, `ip-${i}`)).rejects.toThrow('PIN incorrecto');
+        }
+        await expect(svc.createTableOrder('qr-1', { pin: '1234', items: [{ dishId: 'd1', quantity: 1 }] }, 'ip-nueva')).rejects.toThrow('Demasiados intentos');
     });
 });
