@@ -26,6 +26,7 @@ import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { PaginatedResponse } from '../../common/dto/pagination.dto';
 import { AiService } from '../ai/ai.service';
 import { MailService } from '../../common/services/mail.service';
+import { shouldAlert } from '../places/reputation.util';
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
@@ -94,7 +95,7 @@ export class PublicFeedbackController {
             });
             const saved = await this.feedbackRepository.save(feedback);
             this.logger.log(`[feedback] Guardado id=${saved.id} placeId=${dto.placeId} rating=${dto.rating}`);
-            if (dto.rating <= 3) void this.alertOwner(saved);
+            void this.alertOwner(saved);
             return saved;
         } catch (err) {
             this.logger.error(`[feedback] Error al guardar para placeId=${dto.placeId}: ${err?.message}`, err?.stack);
@@ -102,17 +103,21 @@ export class PublicFeedbackController {
         }
     }
 
-    // Aviso por correo al dueño; nunca debe romper el guardado de la opinión.
+    // Aviso por correo al dueño (calificación baja o palabra clave); nunca debe romper el guardado de la opinión.
     private async alertOwner(feedback: PublicFeedback) {
         try {
             const place = await this.placesRepo.findOne({ where: { id: feedback.placeId }, relations: ['claimedBy'] });
-            if (!place?.claimedBy?.email || place.metadata?.reviewAuto?.alerts === false) return;
+            const settings = place?.metadata?.reviewAuto ?? {};
+            const { alert, matched } = shouldAlert(feedback.rating, feedback.comment, settings);
+            if (!place?.claimedBy?.email || !alert) return;
             await this.mailService.sendLowRatingAlert(place.claimedBy.email, place.name, {
                 source: 'qr',
                 stars: feedback.rating,
                 author: feedback.customerName,
                 comment: feedback.comment,
                 contact: feedback.customerContact,
+                keywords: matched,
+                cc: settings.alertEmail,
             });
         } catch (err) {
             this.logger.warn(`[feedback] No se pudo avisar al dueño: ${err?.message}`);
