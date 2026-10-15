@@ -28,7 +28,7 @@ const memRepo = <T extends { id?: string }>(rows: T[] = []) => ({
 
 const build = (opts: { mode?: 'CUENTA_ABIERTA' | 'PREPAGO'; dishAvailable?: boolean; dishPrice?: string | null } = {}) => {
     const settings = memRepo([{ placeId: 'p1', ordersEnabled: true, tablePaymentMode: opts.mode ?? 'CUENTA_ABIERTA', pricesIncludeIgv: true, deliveryFee: 500, deliveryEnabled: true, pickupEnabled: true } as any]);
-    const tables = memRepo([{ id: 't1', placeId: 'p1', name: 'Mesa 4', qrToken: 'qr-1', active: true } as any]);
+    const tables = memRepo([{ id: 't1', placeId: 'p1', name: 'Mesa 4', qrToken: 'qr-1', pin: '1234', active: true } as any]);
     const tabs = memRepo<any>([]);
     const orders = memRepo<any>([]);
     const payments = memRepo<any>([]);
@@ -41,13 +41,13 @@ const build = (opts: { mode?: 'CUENTA_ABIERTA' | 'PREPAGO'; dishAvailable?: bool
     const events = { publish: jest.fn(async () => undefined) };
     const emitter = { emit: jest.fn() };
     const svc = new OrdersService(settings as any, tables as any, tabs as any, orders as any, payments as any, dishes as any, dataSource as any, events as any, emitter as any);
-    return { svc, tabs, orders, payments, events, emitter };
+    return { svc, tabs, tables, orders, payments, events, emitter };
 };
 
 describe('OrdersService', () => {
     it('cuenta abierta: el pedido nace NUEVO dentro de la cuenta de la mesa y avisa a cocina', async () => {
         const { svc, events } = build();
-        const { order, tab, requiresPayment } = await svc.createTableOrder('qr-1', { items: [{ dishId: 'd1', quantity: 2 }, { dishId: 'd2', quantity: 1 }], customerName: 'Ana' });
+        const { order, tab, requiresPayment } = await svc.createTableOrder('qr-1', { pin: '1234', items: [{ dishId: 'd1', quantity: 2 }, { dishId: 'd2', quantity: 1 }], customerName: 'Ana' });
         expect(requiresPayment).toBe(false);
         expect(order).toMatchObject({ status: 'NUEVO', channel: 'MESA', fulfillment: 'SALA', subtotal: 7850, total: 7850, number: 1, tabId: tab!.id });
         expect(order.items.map((i: any) => i.dishNameSnapshot)).toEqual(['Lomo saltado', 'Chicha']);
@@ -56,8 +56,8 @@ describe('OrdersService', () => {
 
     it('segundo pedido de la misma mesa reutiliza la cuenta abierta', async () => {
         const { svc, tabs } = build();
-        await svc.createTableOrder('qr-1', { items: [{ dishId: 'd1', quantity: 1 }] });
-        await svc.createTableOrder('qr-1', { items: [{ dishId: 'd2', quantity: 1 }] });
+        await svc.createTableOrder('qr-1', { pin: '1234', items: [{ dishId: 'd1', quantity: 1 }] });
+        await svc.createTableOrder('qr-1', { pin: '1234', items: [{ dishId: 'd2', quantity: 1 }] });
         expect(tabs.rows).toHaveLength(1);
     });
 
@@ -65,14 +65,14 @@ describe('OrdersService', () => {
         const { svc, tabs } = build();
         const winner = { id: 'tab-win', placeId: 'p1', tableId: 't1', status: 'ABIERTA', publicToken: 'x' };
         tabs.save.mockImplementationOnce(async () => { tabs.rows.push(winner); throw Object.assign(new Error('dup'), { code: '23505' }); });
-        const { tab } = await svc.createTableOrder('qr-1', { items: [{ dishId: 'd1', quantity: 1 }] });
+        const { tab } = await svc.createTableOrder('qr-1', { pin: '1234', items: [{ dishId: 'd1', quantity: 1 }] });
         expect(tab!.id).toBe('tab-win');
     });
 
     it('prepago: el pedido nace PENDIENTE_PAGO, igual activa y se une a la mesa, y no avisa a cocina hasta pagar', async () => {
         const { svc, events, tabs } = build({ mode: 'PREPAGO' });
-        const first = await svc.createTableOrder('qr-1', { items: [{ dishId: 'd1', quantity: 1 }] });
-        const second = await svc.createTableOrder('qr-1', { items: [{ dishId: 'd2', quantity: 1 }] });
+        const first = await svc.createTableOrder('qr-1', { pin: '1234', items: [{ dishId: 'd1', quantity: 1 }] });
+        const second = await svc.createTableOrder('qr-1', { pin: '1234', items: [{ dishId: 'd2', quantity: 1 }] });
         expect(first.requiresPayment).toBe(true);
         expect(first.order.status).toBe('PENDIENTE_PAGO');
         expect(tabs.rows).toHaveLength(1);
@@ -83,8 +83,8 @@ describe('OrdersService', () => {
 
     it('total de la mesa: suma pedidos de todos los comensales, sin cancelados ni impagos de prepago', async () => {
         const { svc, orders } = build();
-        const a = await svc.createTableOrder('qr-1', { items: [{ dishId: 'd1', quantity: 1 }], customerName: 'Ana' });
-        await svc.createTableOrder('qr-1', { items: [{ dishId: 'd2', quantity: 2 }], customerName: 'Beto' });
+        const a = await svc.createTableOrder('qr-1', { pin: '1234', items: [{ dishId: 'd1', quantity: 1 }], customerName: 'Ana' });
+        await svc.createTableOrder('qr-1', { pin: '1234', items: [{ dishId: 'd2', quantity: 2 }], customerName: 'Beto' });
         orders.rows.push({ id: 'x', tabId: a.tab!.id, status: 'PENDIENTE_PAGO', total: 9999 });
         orders.rows.push({ id: 'y', tabId: a.tab!.id, status: 'CANCELADO', total: 9999 });
         await expect(svc.tabTotal(a.tab!.id)).resolves.toEqual({ total: 3500 + 1700, paid: 0, due: 5200 });
@@ -92,14 +92,14 @@ describe('OrdersService', () => {
 
     it('plato desactivado: 400 con el nombre y no se crea nada', async () => {
         const { svc, orders } = build({ dishAvailable: false });
-        await expect(svc.createTableOrder('qr-1', { items: [{ dishId: 'd1', quantity: 1 }] })).rejects.toThrow('Este plato ya no está disponible: Lomo saltado');
+        await expect(svc.createTableOrder('qr-1', { pin: '1234', items: [{ dishId: 'd1', quantity: 1 }] })).rejects.toThrow('Este plato ya no está disponible: Lomo saltado');
         expect(orders.rows).toHaveLength(0);
     });
 
     it('QR inexistente o carrito vacío', async () => {
         const { svc } = build();
-        await expect(svc.createTableOrder('qr-x', { items: [{ dishId: 'd1', quantity: 1 }] })).rejects.toBeInstanceOf(NotFoundException);
-        await expect(svc.createTableOrder('qr-1', { items: [] })).rejects.toBeInstanceOf(BadRequestException);
+        await expect(svc.createTableOrder('qr-x', { pin: '1234', items: [{ dishId: 'd1', quantity: 1 }] })).rejects.toBeInstanceOf(NotFoundException);
+        await expect(svc.createTableOrder('qr-1', { pin: '1234', items: [] })).rejects.toBeInstanceOf(BadRequestException);
     });
 
     it('WhatsApp delivery suma la tarifa y nace PENDIENTE_PAGO', async () => {
@@ -110,14 +110,14 @@ describe('OrdersService', () => {
 
     it('markOrderPaid solo actúa una vez', async () => {
         const { svc } = build({ mode: 'PREPAGO' });
-        const { order } = await svc.createTableOrder('qr-1', { items: [{ dishId: 'd1', quantity: 1 }] });
+        const { order } = await svc.createTableOrder('qr-1', { pin: '1234', items: [{ dishId: 'd1', quantity: 1 }] });
         expect(await svc.markOrderPaid(order.id)).toMatchObject({ status: 'NUEVO' });
         expect(await svc.markOrderPaid(order.id)).toBeNull();
     });
 
     it('changeStatus rechaza saltos inválidos', async () => {
         const { svc, emitter } = build();
-        const { order } = await svc.createTableOrder('qr-1', { items: [{ dishId: 'd1', quantity: 1 }] });
+        const { order } = await svc.createTableOrder('qr-1', { pin: '1234', items: [{ dishId: 'd1', quantity: 1 }] });
         await expect(svc.changeStatus('p1', order.id, 'ENTREGADO', 'admin')).rejects.toBeInstanceOf(BadRequestException);
         await expect(svc.changeStatus('p1', order.id, 'EN_PREPARACION', 'cocina')).resolves.toMatchObject({ status: 'EN_PREPARACION' });
         expect(emitter.emit).toHaveBeenCalledWith('orders.status.changed', { orderId: order.id, status: 'EN_PREPARACION' });
@@ -125,7 +125,7 @@ describe('OrdersService', () => {
 
     it('cancelar un pedido con checkout abierto expira sus pagos pendientes', async () => {
         const { svc, payments } = build({ mode: 'PREPAGO' });
-        const { order } = await svc.createTableOrder('qr-1', { items: [{ dishId: 'd1', quantity: 1 }] });
+        const { order } = await svc.createTableOrder('qr-1', { pin: '1234', items: [{ dishId: 'd1', quantity: 1 }] });
         payments.rows.push({ id: 'pay-1', orderId: order.id, status: 'PENDIENTE' }, { id: 'pay-2', orderId: order.id, status: 'PAGADO' });
         await svc.changeStatus('p1', order.id, 'CANCELADO', 'admin', 'cliente se fue');
         expect(payments.rows.map((p: any) => p.status)).toEqual(['EXPIRADO', 'PAGADO']);
@@ -133,7 +133,7 @@ describe('OrdersService', () => {
 
     it('cancelUnpaid también expira los pagos pendientes del pedido', async () => {
         const { svc, payments, orders } = build({ mode: 'PREPAGO' });
-        const { order } = await svc.createTableOrder('qr-1', { items: [{ dishId: 'd1', quantity: 1 }] });
+        const { order } = await svc.createTableOrder('qr-1', { pin: '1234', items: [{ dishId: 'd1', quantity: 1 }] });
         payments.rows.push({ id: 'pay-1', orderId: order.id, status: 'PENDIENTE' });
         await svc.cancelUnpaid(order.id, 'El código de pago venció');
         expect(orders.rows[0].status).toBe('CANCELADO');
@@ -142,14 +142,14 @@ describe('OrdersService', () => {
 
     it('cancelar un pedido de una cuenta con pagos hechos marca devolución pendiente (sobrepago)', async () => {
         const { svc, payments } = build();
-        const { order, tab } = await svc.createTableOrder('qr-1', { items: [{ dishId: 'd1', quantity: 1 }] });
+        const { order, tab } = await svc.createTableOrder('qr-1', { pin: '1234', items: [{ dishId: 'd1', quantity: 1 }] });
         payments.rows.push({ id: 'pay-1', tabId: tab!.id, orderId: null, status: 'PAGADO', amount: 3500 });
         await expect(svc.changeStatus('p1', order.id, 'CANCELADO', 'admin')).resolves.toMatchObject({ status: 'CANCELADO', refundPending: true });
     });
 
     it('cancelar sin pagos no marca devolución', async () => {
         const { svc } = build();
-        const { order } = await svc.createTableOrder('qr-1', { items: [{ dishId: 'd1', quantity: 1 }] });
+        const { order } = await svc.createTableOrder('qr-1', { pin: '1234', items: [{ dishId: 'd1', quantity: 1 }] });
         await expect(svc.changeStatus('p1', order.id, 'CANCELADO', 'admin')).resolves.toMatchObject({ refundPending: false });
     });
 
@@ -162,7 +162,7 @@ describe('OrdersService', () => {
             if (tabs.rows.some((r: any) => r.tableId === x.tableId && ['ABIERTA', 'CUENTA_PEDIDA', 'PAGADA'].includes(r.status))) throw Object.assign(new Error('dup'), { code: '23505' });
             return save(x);
         });
-        const { tab } = await svc.createTableOrder('qr-1', { items: [{ dishId: 'd1', quantity: 1 }] });
+        const { tab } = await svc.createTableOrder('qr-1', { pin: '1234', items: [{ dishId: 'd1', quantity: 1 }] });
         expect(tab!.id).not.toBe('tab-old');
         expect(tab!.status).toBe('ABIERTA');
         expect(tabs.rows[0]).toMatchObject({ status: 'CERRADA', closedAt: expect.any(Date) });
@@ -191,17 +191,17 @@ describe('OrdersService', () => {
 
     it.each([null, '0.00'])('plato sin precio (%p): 400 con el nombre', async (price) => {
         const { svc, orders } = build({ dishPrice: price });
-        await expect(svc.createTableOrder('qr-1', { items: [{ dishId: 'd1', quantity: 1 }] })).rejects.toThrow('Este plato ya no está disponible: Lomo saltado');
+        await expect(svc.createTableOrder('qr-1', { pin: '1234', items: [{ dishId: 'd1', quantity: 1 }] })).rejects.toThrow('Este plato ya no está disponible: Lomo saltado');
         expect(orders.rows).toHaveLength(0);
     });
 
     it('normaliza el teléfono del cliente a dígitos con prefijo 51', async () => {
         const { svc } = build();
-        const { order } = await svc.createTableOrder('qr-1', { items: [{ dishId: 'd1', quantity: 1 }], customerPhone: '987 654 321' });
+        const { order } = await svc.createTableOrder('qr-1', { pin: '1234', items: [{ dishId: 'd1', quantity: 1 }], customerPhone: '987 654 321' });
         expect(order.customerPhone).toBe('51987654321');
         const wa = await svc.createWhatsappOrder('p1', { items: [{ dishId: 'd2', quantity: 1 }], customerName: 'Luis', customerPhone: '+51 987-654-321', whatsappNumberId: null, fulfillment: 'RECOJO' });
         expect(wa.customerPhone).toBe('51987654321');
-        const blank = await svc.createTableOrder('qr-1', { items: [{ dishId: 'd1', quantity: 1 }], customerPhone: '  ' });
+        const blank = await svc.createTableOrder('qr-1', { pin: '1234', items: [{ dishId: 'd1', quantity: 1 }], customerPhone: '  ' });
         expect(blank.order.customerPhone).toBeNull();
     });
 
@@ -216,9 +216,55 @@ describe('OrdersService', () => {
 describe('OrdersService.publicTokenExists', () => {
     it('rechaza textos que no son tokens y acepta los de pedidos existentes', async () => {
         const { svc } = build();
-        const { order } = await svc.createTableOrder('qr-1', { items: [{ dishId: 'd1', quantity: 1 }] });
+        const { order } = await svc.createTableOrder('qr-1', { pin: '1234', items: [{ dishId: 'd1', quantity: 1 }] });
         await expect(svc.publicTokenExists('no-es-un-token')).resolves.toBe(false);
         await expect(svc.publicTokenExists('0'.repeat(32))).resolves.toBe(false);
         await expect(svc.publicTokenExists(order.publicToken)).resolves.toBe(true);
+    });
+});
+
+describe('OrdersService: PIN de mesa', () => {
+    it('sin PIN o con PIN incorrecto no se puede pedir; con el PIN vigente sí', async () => {
+        const { svc, orders } = build();
+        await expect(svc.createTableOrder('qr-1', { pin: '9999', items: [{ dishId: 'd1', quantity: 1 }] })).rejects.toThrow('PIN incorrecto');
+        await expect(svc.createTableOrder('qr-1', { items: [{ dishId: 'd1', quantity: 1 }] } as any)).rejects.toThrow('PIN incorrecto');
+        expect(orders.rows).toHaveLength(0);
+        await expect(svc.createTableOrder('qr-1', { pin: '1234', items: [{ dishId: 'd1', quantity: 1 }] })).resolves.toBeDefined();
+    });
+
+    it('cuando la cuenta queda pagada por completo, el PIN de la mesa cambia solo', async () => {
+        const { svc, tables, payments } = build();
+        const { tab, order } = await svc.createTableOrder('qr-1', { pin: '1234', items: [{ dishId: 'd1', quantity: 1 }] });
+        payments.rows.push({ id: 'pay1', tabId: tab!.id, orderId: null, status: 'PAGADO', amount: order.total });
+        await svc.refreshTabAfterPayment(tab!.id);
+        expect(tables.rows[0].pin).toMatch(/^\d{4}$/);
+        expect(tables.rows[0].pin).not.toBe('1234');
+    });
+
+    it('un pago parcial no cambia el PIN', async () => {
+        const { svc, tables, payments } = build();
+        const { tab } = await svc.createTableOrder('qr-1', { pin: '1234', items: [{ dishId: 'd1', quantity: 2 }] });
+        payments.rows.push({ id: 'pay1', tabId: tab!.id, orderId: null, status: 'PAGADO', amount: 100 });
+        await svc.refreshTabAfterPayment(tab!.id);
+        expect(tables.rows[0].pin).toBe('1234');
+    });
+
+    it('cerrar la mesa (pago en efectivo) genera un PIN nuevo', async () => {
+        const { svc, tables, payments } = build();
+        const { tab, order } = await svc.createTableOrder('qr-1', { pin: '1234', items: [{ dishId: 'd1', quantity: 1 }] });
+        payments.rows.push({ id: 'pay1', tabId: tab!.id, orderId: null, status: 'PAGADO', amount: order.total });
+        await svc.closeTab('p1', tab!.id);
+        expect(tables.rows[0].pin).toMatch(/^\d{4}$/);
+        expect(tables.rows[0].pin).not.toBe('1234');
+    });
+});
+
+describe('OrdersService: bloqueo por intentos de PIN', () => {
+    it('10 PIN incorrectos bloquean la mesa aunque luego se use el correcto', async () => {
+        const { svc } = build();
+        for (let i = 0; i < 10; i++) {
+            await expect(svc.createTableOrder('qr-1', { pin: '0000', items: [{ dishId: 'd1', quantity: 1 }] })).rejects.toThrow('PIN incorrecto');
+        }
+        await expect(svc.createTableOrder('qr-1', { pin: '1234', items: [{ dishId: 'd1', quantity: 1 }] })).rejects.toThrow('Demasiados intentos');
     });
 });

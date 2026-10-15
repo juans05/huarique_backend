@@ -9,7 +9,7 @@ import { Place } from '../places/entities/place.entity';
 import { OrdersService } from './orders.service';
 import { PaymentsService } from './payments.service';
 import { OrderEventsService, StreamMessage } from './order-events.service';
-import { CreateTableOrderDto, PaymentIntentDto, PaymentTokenDto } from './dto/orders.dto';
+import { CreateTableOrderDto, PaymentIntentDto, PaymentTokenDto, VerifyTablePinDto } from './dto/orders.dto';
 
 const WEBHOOK_COOLDOWN_MS = 30_000;
 
@@ -30,17 +30,28 @@ export class PublicOrdersController {
     async table(@Param('qrToken') qrToken: string) {
         const table = await this.tablesRepo.findOne({ where: { qrToken, active: true } });
         if (!table) throw new NotFoundException('Mesa no encontrada');
-        const [place, settings, liveTab] = await Promise.all([
+        const [place, settings] = await Promise.all([
             this.placesRepo.findOne({ where: { id: table.placeId } }),
             this.orders.getSettings(table.placeId),
-            this.tabsRepo.findOne({ where: { tableId: table.id, status: In(['ABIERTA', 'CUENTA_PEDIDA', 'PAGADA']) } }),
         ]);
+        // La cuenta de la mesa solo se entrega tras validar el PIN (POST tables/:qrToken/verify-pin).
         return {
             place: { id: table.placeId, name: place?.name ?? '' },
             table: { name: table.name },
             ordering: { enabled: settings.ordersEnabled, tablePaymentMode: settings.tablePaymentMode, cashPaymentEnabled: settings.cashPaymentEnabled },
-            liveTabToken: liveTab?.publicToken ?? null,
+            pinRequired: true,
         };
+    }
+
+    @Post('tables/:qrToken/verify-pin')
+    @HttpCode(200)
+    @Throttle({ default: { ttl: 60000, limit: 10 } })
+    async verifyPin(@Param('qrToken') qrToken: string, @Body() dto: VerifyTablePinDto) {
+        const table = await this.tablesRepo.findOne({ where: { qrToken, active: true } });
+        if (!table) throw new NotFoundException('Mesa no encontrada');
+        this.orders.assertTablePin(table, dto.pin);
+        const liveTab = await this.tabsRepo.findOne({ where: { tableId: table.id, status: In(['ABIERTA', 'CUENTA_PEDIDA']) } });
+        return { ok: true, liveTabToken: liveTab?.publicToken ?? null };
     }
 
     @Post('orders')

@@ -5,7 +5,7 @@ import { Repository } from 'typeorm';
 import { PlaceOrderSettings } from './entities/place-order-settings.entity';
 import { PlaceTable } from './entities/place-table.entity';
 import { TableDto, UpdateOrderSettingsDto, UpdateTableDto } from './dto/order-settings.dto';
-import { newPublicToken } from './order-rules';
+import { newPublicToken, newTablePin } from './order-rules';
 
 const DEFAULTS: Omit<PlaceOrderSettings, 'placeId' | 'updatedAt'> = {
     ordersEnabled: false, tablePaymentMode: 'CUENTA_ABIERTA', paymentDestination: 'LOCAL', culqiPublicKey: null, culqiSecretKey: null,
@@ -50,7 +50,7 @@ export class OrderSettingsService {
 
     async createTable(placeId: string, dto: TableDto) {
         const existing = await this.tablesRepo.find({ where: { placeId } });
-        return this.tablesRepo.save(this.tablesRepo.create({ placeId, name: dto.name.trim(), capacity: dto.capacity ?? 4, displayOrder: existing.length, qrToken: newPublicToken(), active: true }));
+        return this.tablesRepo.save(this.tablesRepo.create({ placeId, name: dto.name.trim(), capacity: dto.capacity ?? 4, displayOrder: existing.length, qrToken: newPublicToken(), pin: newTablePin(), active: true }));
     }
 
     async updateTable(placeId: string, tableId: string, dto: UpdateTableDto) {

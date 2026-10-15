@@ -1,4 +1,5 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { timingSafeEqual } from 'crypto';
+import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { InjectDataSource, InjectRepository } from '@nestjs/typeorm';
 import { DataSource, In, MoreThanOrEqual, Repository } from 'typeorm';
@@ -11,7 +12,7 @@ import { OrderPayment } from './entities/order-payment.entity';
 import { Dish } from '../places/entities/dish.entity';
 import { PlaceTeamRole } from '../team/entities/place-team-member.entity';
 import { OrderEventsService } from './order-events.service';
-import { assertCanCancel, calculateTotals, canTransition, newPublicToken, normalizePhone, toCents } from './order-rules';
+import { assertCanCancel, calculateTotals, canTransition, newPublicToken, newTablePin, normalizePhone, toCents } from './order-rules';
 
 export interface CartLine { dishId: string; quantity: number; note?: string }
 
@@ -27,9 +28,14 @@ export interface TableBoardRow {
 
 const LIVE_TAB: Tab['status'][] = ['ABIERTA', 'CUENTA_PEDIDA', 'PAGADA'];
 const PAGE_SIZE = 25;
+// 10 PIN incorrectos en 10 min bloquean la mesa 10 min: adivinar 4 dígitos deja de ser práctico.
+const PIN_MAX_FAILURES = 10;
+const PIN_WINDOW_MS = 10 * 60_000;
 
 @Injectable()
 export class OrdersService {
+    private readonly pinFailures = new Map<string, { count: number; firstAt: number; lockedUntil: number }>();
+
     constructor(
         @InjectRepository(PlaceOrderSettings) private settingsRepo: Repository<PlaceOrderSettings>,
         @InjectRepository(PlaceTable) private tablesRepo: Repository<PlaceTable>,
@@ -47,9 +53,10 @@ export class OrdersService {
         return found ?? this.settingsRepo.create({ placeId, ordersEnabled: false, tablePaymentMode: 'CUENTA_ABIERTA', paymentDestination: 'LOCAL', pickupEnabled: true, deliveryEnabled: false, deliveryFee: 0, prepTimeMin: 20, pricesIncludeIgv: true, cashPaymentEnabled: true, wuarikesCommissionPct: 0.05, culqiPublicKey: null, culqiSecretKey: null, deliveryNote: null });
     }
 
-    async createTableOrder(qrToken: string, input: { items: CartLine[]; customerName?: string; customerPhone?: string; notes?: string }) {
+    async createTableOrder(qrToken: string, input: { pin: string; items: CartLine[]; customerName?: string; customerPhone?: string; notes?: string }) {
         const table = await this.tablesRepo.findOne({ where: { qrToken, active: true } });
         if (!table) throw new NotFoundException('Mesa no encontrada');
+        this.assertTablePin(table, input.pin);
         const settings = await this.getSettings(table.placeId);
         if (!settings.ordersEnabled) throw new BadRequestException('Este local no está recibiendo pedidos por ahora');
 
@@ -136,6 +143,7 @@ export class OrdersService {
         const { due } = await this.tabTotal(tabId);
         if (due > 0) throw new BadRequestException('La cuenta todavía tiene saldo pendiente');
         await this.tabsRepo.update({ id: tabId }, { status: 'CERRADA', closedAt: new Date() });
+        await this.rotateTablePin(tab.tableId);
         await this.events.publish({ type: 'tab.closed', placeId, tabId, tableId: tab.tableId, status: 'CERRADA', publicTokens: [tab.publicToken] });
         return { ...tab, status: 'CERRADA' };
     }
@@ -165,7 +173,11 @@ export class OrdersService {
         const tab = await this.tabsRepo.findOne({ where: { id: tabId } });
         if (!tab) return;
         const { due } = await this.tabTotal(tabId);
-        if (due === 0 && tab.status !== 'PAGADA' && tab.status !== 'CERRADA') await this.tabsRepo.update({ id: tabId }, { status: 'PAGADA' });
+        if (due === 0 && tab.status !== 'PAGADA' && tab.status !== 'CERRADA') {
+            const result = await this.tabsRepo.update({ id: tabId, status: tab.status }, { status: 'PAGADA' });
+            // Cuenta pagada completa: PIN nuevo para que una foto del QR o del PIN no sirva al siguiente grupo.
+            if (result.affected) await this.rotateTablePin(tab.tableId);
+        }
         await this.events.publish({ type: 'tab.updated', placeId: tab.placeId, tabId, tableId: tab.tableId, status: due === 0 ? 'PAGADA' : tab.status, publicTokens: [tab.publicToken] });
     }
 
@@ -259,6 +271,30 @@ export class OrdersService {
             [placeId],
         );
         return rows[0].last_number;
+    }
+
+    /** Valida el PIN vigente de la mesa (comparación en tiempo constante). */
+    assertTablePin(table: PlaceTable, pin: string | undefined): void {
+        const now = Date.now();
+        const failures = this.pinFailures.get(table.id);
+        if (failures && failures.lockedUntil > now) {
+            throw new ForbiddenException('Demasiados intentos con PIN incorrecto. Pídelo al personal del local e intenta en unos minutos.');
+        }
+        const expected = Buffer.from(table.pin ?? '');
+        const given = Buffer.from(String(pin ?? ''));
+        if (!table.pin || expected.length !== given.length || !timingSafeEqual(expected, given)) {
+            // ponytail: contador en memoria por instancia; pasar a Redis si hay varias réplicas y se ven abusos.
+            const recent = failures && now - failures.firstAt < PIN_WINDOW_MS ? failures : { count: 0, firstAt: now, lockedUntil: 0 };
+            recent.count += 1;
+            if (recent.count >= PIN_MAX_FAILURES) recent.lockedUntil = now + PIN_WINDOW_MS;
+            this.pinFailures.set(table.id, recent);
+            throw new ForbiddenException('PIN incorrecto. Pídelo al personal del local.');
+        }
+        this.pinFailures.delete(table.id);
+    }
+
+    async rotateTablePin(tableId: string): Promise<void> {
+        await this.tablesRepo.update({ id: tableId }, { pin: newTablePin() });
     }
 
     private async findOrOpenTab(table: PlaceTable): Promise<Tab> {
