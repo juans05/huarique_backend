@@ -1,5 +1,18 @@
 import { BadRequestException, NotFoundException } from '@nestjs/common';
 import { OrdersService } from './orders.service';
+import { PinAttemptsService } from './pin-attempts.service';
+
+// Redis en memoria para los contadores de PIN (incr/expire/get/del).
+const fakeRedisStore = () => {
+    const values = new Map<string, number>();
+    return {
+        get: async (key: string) => (values.has(key) ? String(values.get(key)) : null),
+        incr: async (key: string) => { values.set(key, (values.get(key) ?? 0) + 1); return values.get(key)!; },
+        expire: async () => 1,
+        del: async (key: string) => Number(values.delete(key)),
+        disconnect: () => undefined,
+    };
+};
 
 // Compara una fila con un `where` de TypeORM, incluido `In([...])` (FindOperator con `_value`).
 const matches = (row: any, where: any = {}) => Object.entries(where).every(([k, v]: [string, any]) =>
@@ -40,7 +53,9 @@ const build = (opts: { mode?: 'CUENTA_ABIERTA' | 'PREPAGO'; dishAvailable?: bool
     const dataSource = { query: jest.fn(async () => [{ last_number: ++counter }]) };
     const events = { publish: jest.fn(async () => undefined) };
     const emitter = { emit: jest.fn() };
-    const svc = new OrdersService(settings as any, tables as any, tabs as any, orders as any, payments as any, dishes as any, dataSource as any, events as any, emitter as any);
+    const pinAttempts = new PinAttemptsService({ get: () => undefined } as any, () => fakeRedisStore());
+    pinAttempts.onModuleInit();
+    const svc = new OrdersService(settings as any, tables as any, tabs as any, orders as any, payments as any, dishes as any, dataSource as any, events as any, emitter as any, pinAttempts);
     return { svc, tabs, tables, orders, payments, events, emitter };
 };
 
@@ -278,22 +293,3 @@ describe('OrdersService: bloqueo por intentos de PIN', () => {
     });
 });
 
-describe('OrdersService: registro de intentos de PIN acotado', () => {
-    it('miles de IPs distintas no hacen crecer el registro sin límite', async () => {
-        const { svc } = build();
-        for (let i = 0; i < 10_050; i++) {
-            try { svc.assertTablePin({ id: `t-${i}`, pin: '1234' } as any, '0000', `ip-${i}`); } catch { /* esperado */ }
-        }
-        expect((svc as any).pinFailures.size).toBeLessThanOrEqual(10_000);
-    });
-});
-
-describe('OrdersService: un bloqueo de PIN no se puede borrar inundando el registro', () => {
-    it('la IP bloqueada sigue bloqueada después de miles de intentos desde otras IPs', async () => {
-        const { svc } = build();
-        const table = { id: 't1', pin: '1234' } as any;
-        for (let i = 0; i < 5; i++) { try { svc.assertTablePin(table, '0000', 'ip-atacante'); } catch { /* esperado */ } }
-        for (let i = 0; i < 10_050; i++) { try { svc.assertTablePin({ id: `otra-${i}`, pin: '1234' } as any, '0000', `ip-${i}`); } catch { /* esperado */ } }
-        expect(() => svc.assertTablePin(table, '1234', 'ip-atacante')).toThrow('Demasiados intentos');
-    });
-});
