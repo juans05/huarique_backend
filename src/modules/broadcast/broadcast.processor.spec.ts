@@ -31,7 +31,7 @@ describe('BroadcastProcessor', () => {
     });
 
     it('SIN el flag del local, aunque el número sea de Meta y haya plantilla → flujo anterior (texto), sin Meta', async () => {
-        const { p, cloud, whatsapp } = build({ ...base, messagesSent: 0, place: { metadata: {} }, whatsappNumber: { provider: 'meta', phoneNumberId: 'PN1', whatsappApiToken: 'T' } });
+        const { p, cloud, whatsapp } = build({ ...base, messagesSent: 0, place: { metadata: { whatsappMetaEnabled: false } }, whatsappNumber: { provider: 'meta', phoneNumberId: 'PN1', whatsappApiToken: 'T' } });
         await p.process(job);
         expect(cloud.sendTemplate).not.toHaveBeenCalled();
         expect(whatsapp.sendWhatsAppMessage).toHaveBeenCalledTimes(1);
@@ -78,7 +78,7 @@ describe('BroadcastProcessor', () => {
         await p.onFailed({ data: { broadcastId: 'b1' }, attemptsMade: 3, opts: { attempts: 3 } } as any);
         expect(service.recordResult).toHaveBeenCalledWith('b1', false);
 
-        const old = build({ id: 'b2', totalRecipients: 0, place: { metadata: {} }, whatsappNumber: { provider: 'plazbot' } });
+        const old = build({ id: 'b2', totalRecipients: 0, place: { metadata: { whatsappMetaEnabled: false } }, whatsappNumber: { provider: 'plazbot' } });
         await old.p.onFailed({ data: { broadcastId: 'b2' }, attemptsMade: 3, opts: { attempts: 3 } } as any);
         expect(old.service.recordResult).not.toHaveBeenCalled();
     });

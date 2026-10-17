@@ -9,6 +9,7 @@ import { Message } from './entities/message.entity';
 import { Dish } from '../places/entities/dish.entity';
 import { PlaceBotConfig } from '../plazbot-config/entities/place-bot-config.entity';
 import { KnowledgeBase } from '../ai/entities/knowledge-base.entity';
+import { isMetaEnabled } from '../messaging/meta-flag';
 
 export interface CompleteSignupDto {
     placeId: string;
@@ -86,7 +87,7 @@ export class MetaConnectService {
      */
     async getStatus(userId: string, placeId: string) {
         const place = await this.ownedPlace(userId, placeId);
-        const metaEnabled = place.metadata?.whatsappMetaEnabled === true;
+        const metaEnabled = isMetaEnabled(place);
 
         const number = await this.numbers.findOne({ where: { placeId, provider: 'meta' }, order: { createdAt: 'DESC' } });
 
@@ -118,10 +119,10 @@ export class MetaConnectService {
         };
     }
 
-    /** ¿Este local activó la conexión directa con Facebook? (checkbox en el panel; por defecto, no: sigue PlazBot) */
+    /** ¿Este local activó la conexión directa con Facebook? (checkbox en el panel; por defecto, sí) */
     async getChannel(userId: string, placeId: string) {
         const place = await this.ownedPlace(userId, placeId);
-        return { metaEnabled: place.metadata?.whatsappMetaEnabled === true };
+        return { metaEnabled: isMetaEnabled(place) };
     }
 
     /**
@@ -184,7 +185,7 @@ export class MetaConnectService {
         if (!appId || !appSecret) throw new ServiceUnavailableException('La conexión con Facebook no está configurada en el servidor.');
 
         const place = await this.ownedPlace(userId, dto.placeId);
-        if (place.metadata?.whatsappMetaEnabled !== true) {
+        if (!isMetaEnabled(place)) {
             throw new BadRequestException('Activa primero la conexión con Facebook para este local.');
         }
 

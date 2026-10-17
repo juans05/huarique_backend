@@ -77,8 +77,8 @@ describe('MetaConnectService', () => {
         expect(request).not.toHaveBeenCalled();
     });
 
-    it('no conecta nada si el local no activó el checkbox de Facebook (sigue PlazBot)', async () => {
-        const off = build({ place: { id: 'p1', claimedByUserId: 'u1', metadata: {} } });
+    it('no conecta nada si el local apagó el checkbox de Facebook (vuelve a PlazBot)', async () => {
+        const off = build({ place: { id: 'p1', claimedByUserId: 'u1', metadata: { whatsappMetaEnabled: false } } });
         await expect(off.svc.complete('u1', dto)).rejects.toThrow(BadRequestException);
         expect(request).not.toHaveBeenCalled();
         expect(await off.svc.getChannel('u1', 'p1')).toEqual({ metaEnabled: false });
@@ -121,7 +121,7 @@ describe('MetaConnectService', () => {
     it('estado del asistente: sin número, todo pendiente', async () => {
         const { svc } = build({ place: { id: 'p1', claimedByUserId: 'u1', metadata: {} } });
         expect(await svc.getStatus('u1', 'p1')).toMatchObject({
-            metaEnabled: false, number: null, testReceived: false, botReplied: false, botConfigured: false, hasMenuOrKnowledge: false,
+            metaEnabled: true, number: null, testReceived: false, botReplied: false, botConfigured: false, hasMenuOrKnowledge: false,
         });
     });
 

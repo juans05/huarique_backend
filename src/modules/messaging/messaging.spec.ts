@@ -30,7 +30,7 @@ describe('payloads de la API de WhatsApp Cloud', () => {
 describe('WhatsAppSenderService: proveedor por número', () => {
     const build = (number: any, flag = true) => {
         const numbers = { findOne: jest.fn().mockResolvedValue(number) };
-        const places = { findOne: jest.fn().mockResolvedValue({ id: 'p1', metadata: flag ? { whatsappMetaEnabled: true } : {} }) };
+        const places = { findOne: jest.fn().mockResolvedValue({ id: 'p1', metadata: flag ? {} : { whatsappMetaEnabled: false } }) };
         const plazbot = { sendMessage: jest.fn().mockResolvedValue(undefined) };
         const cloud = { sendText: jest.fn().mockResolvedValue('wamid.1') };
         return { svc: new WhatsAppSenderService(numbers as any, places as any, plazbot as any, cloud as any), plazbot, cloud, numbers };
