@@ -1,5 +1,5 @@
 /**
- * El canal de Facebook (Meta) vive detrás de un flag por local: place.metadata.whatsappMetaEnabled.
- * Sin el flag, todo sigue exactamente por el flujo anterior (PlazBot).
+ * Facebook (Meta) es el canal por defecto. Un local solo vuelve a PlazBot (legado) si alguien
+ * apagó explícitamente el canal: place.metadata.whatsappMetaEnabled === false.
  */
-export const isMetaEnabled = (place?: { metadata?: any } | null): boolean => place?.metadata?.whatsappMetaEnabled === true;
+export const isMetaEnabled = (place?: { metadata?: any } | null): boolean => place?.metadata?.whatsappMetaEnabled !== false;

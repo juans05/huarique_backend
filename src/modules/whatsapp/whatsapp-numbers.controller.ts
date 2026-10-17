@@ -50,6 +50,7 @@ export class WhatsAppNumbersController {
             phoneNumber: normalizePhone(data.phoneNumber),
             phoneNumberId: data.phoneNumberId,
             whatsappApiToken: data.whatsappApiToken,
+            provider: 'meta',
             isActive: true,
             verificationStatus: 'UNVERIFIED',
         });
@@ -59,7 +60,7 @@ export class WhatsAppNumbersController {
         return {
             id: saved.id,
             phoneNumber: saved.phoneNumber,
-            status: 'Número registrado. Configura el webhook manualmente en el dashboard de PlazBot.',
+            status: 'Número registrado.',
         };
     }
 
@@ -127,7 +128,7 @@ export class AdminWhatsAppNumbersController {
             phoneNumber: normalizePhone(data.phoneNumber),
             phoneNumberId: data.phoneNumberId,
             whatsappApiToken: data.whatsappApiToken,
-            provider: data.provider === 'meta' ? 'meta' : 'plazbot',
+            provider: data.provider === 'plazbot' ? 'plazbot' : 'meta',
             wabaId: data.wabaId ?? null,
             isActive: true,
             verificationStatus: 'UNVERIFIED',
@@ -139,7 +140,7 @@ export class AdminWhatsAppNumbersController {
             id: saved.id,
             phoneNumber: saved.phoneNumber,
             webhookUrl: plazbotWebhookUrl(),
-            status: 'Número registrado. Configura el webhook manualmente en el dashboard de PlazBot.',
+            status: 'Número registrado.',
         };
     }
 

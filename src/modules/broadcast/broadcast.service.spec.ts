@@ -49,7 +49,7 @@ describe('BroadcastService.triggerBroadcast', () => {
 
     it('SIN el flag del local usa el flujo anterior: sin plantilla igual envía, no deduplica ni lleva total', async () => {
         const convs = [{ customer_phone: '51987654321', customer_name: 'Ana' }, { customer_phone: '51987654321', customer_name: 'Ana' }];
-        const { svc, queue, broadcastRepo } = build({ id: 'b1', placeId: 'p1', status: 'DRAFT', templateName: null, templateBody: 'Hola', whatsappNumber: { provider: 'plazbot', isActive: false }, place: { metadata: {} }, useCsvMerge: false }, convs);
+        const { svc, queue, broadcastRepo } = build({ id: 'b1', placeId: 'p1', status: 'DRAFT', templateName: null, templateBody: 'Hola', whatsappNumber: { provider: 'plazbot', isActive: false }, place: { metadata: { whatsappMetaEnabled: false } }, useCsvMerge: false }, convs);
         const res = await svc.triggerBroadcast('b1');
         expect(res.totalQueued).toBe(2); // igual que antes: no quita repetidos
         expect(queue.add).toHaveBeenCalledTimes(2);
