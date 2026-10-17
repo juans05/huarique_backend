@@ -4,7 +4,8 @@ import { Repository } from 'typeorm';
 import { WhatsAppNumber } from './entities/whatsapp-number.entity';
 import { ChatProcessorService } from '../chat/chat-processor.service';
 import { WhatsAppCloudService } from '../messaging/whatsapp-cloud.service';
-import { parseMetaWebhook } from './meta-webhook.util';
+import { parseMetaWebhook, parseTemplateAlerts } from './meta-webhook.util';
+import { MailService } from '../../common/services/mail.service';
 import { isMetaEnabled } from '../messaging/meta-flag';
 
 @Injectable()
@@ -16,6 +17,7 @@ export class WhatsappService {
         private whatsappNumberRepo: Repository<WhatsAppNumber>,
         private chatProcessor: ChatProcessorService,
         private cloud: WhatsAppCloudService,
+        private mail: MailService,
     ) {}
 
     /**
@@ -23,6 +25,7 @@ export class WhatsappService {
      * agente que usaba PlazBot (carta, base de conocimiento, menú de botones, modo humano).
      */
     async processWebhookPayload(payload: any) {
+        await this.notifyTemplateAlerts(payload);
         for (const msg of parseMetaWebhook(payload)) {
             const number = await this.whatsappNumberRepo.findOne({
                 where: { phoneNumberId: msg.phoneNumberId, isActive: true },
@@ -56,6 +59,23 @@ export class WhatsappService {
                 msg.body,
                 msg.messageId,
             );
+        }
+    }
+
+    /** Correo al dueño del local cuando Meta aprueba, rechaza o baja de calidad una de sus plantillas. */
+    private async notifyTemplateAlerts(payload: any) {
+        for (const alert of parseTemplateAlerts(payload)) {
+            // Una cuenta de WhatsApp (WABA) puede tener varios números del mismo local: un correo por local.
+            const numbers = await this.whatsappNumberRepo.find({
+                where: { wabaId: alert.wabaId, provider: 'meta' },
+                relations: ['place', 'place.claimedBy'],
+            });
+            const places = new Map(numbers.filter(n => n.place?.claimedBy?.email).map(n => [n.placeId, n.place]));
+            for (const place of places.values()) {
+                await this.mail
+                    .sendTemplateAlert(place.claimedBy.email, place.name ?? 'tu local', alert.templateName, alert.title, alert.detail)
+                    .catch(err => this.logger.warn(`No se pudo avisar la plantilla ${alert.templateName} a ${place.name}: ${err?.message}`));
+            }
         }
     }
 

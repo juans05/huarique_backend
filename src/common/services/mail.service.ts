@@ -383,4 +383,23 @@ export class MailService {
             throw new InternalServerErrorException('Error al enviar el correo de credenciales');
         }
     }
+
+    /** Aviso al dueño cuando Meta aprueba, rechaza o baja de calidad una plantilla de WhatsApp. */
+    async sendTemplateAlert(email: string, placeName: string, templateName: string, title: string, detail: string) {
+        const esc = (s: string) => s.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]!));
+        const { error } = await this.resend.emails.send({
+            from: 'Wuarike <reports@wuarikes.com>',
+            to: [email],
+            subject: `Tu plantilla de WhatsApp "${templateName}" ${title}`,
+            html: `
+                <div style="font-family: Arial, sans-serif; max-width: 560px; margin: 0 auto; color: #111827;">
+                    <h2 style="margin-bottom: 4px;">Plantilla "${esc(templateName)}" ${esc(title)}</h2>
+                    <p style="color: #6b7280; margin-top: 0;">${esc(placeName)}</p>
+                    <p style="line-height: 1.6;">${esc(detail)}</p>
+                    <a href="${this.frontendUrl}/broadcasts" style="display: inline-block; background: #111827; color: white; padding: 12px 20px; border-radius: 10px; text-decoration: none; font-weight: bold;">Ver mis plantillas</a>
+                </div>
+            `,
+        });
+        if (error) throw error;
+    }
 }
