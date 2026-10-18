@@ -29,6 +29,7 @@ import { PlacesService } from './places.service';
 import { MenuService } from './menu.service';
 import { MenuAssistantService, AssistantTurn } from './menu-assistant.service';
 import { sanitizeMenuTheme } from './menu-theme.util';
+import { publicBusinessTypes } from './business-types';
 import { Throttle } from '@nestjs/throttler';
 import { PromotionsService } from './promotions.service';
 import { TikTokSearchService } from './tiktok-search.service';
@@ -58,6 +59,13 @@ export class PlacesController {
     @ApiResponse({ status: 200, type: PlaceResponseDto, isArray: true })
     async findAll(@Query() query: GetPlacesDto) {
         return this.placesService.findAll(query);
+    }
+
+    @Get('business-types')
+    @ApiOperation({ summary: 'Rubros y tipos de negocio disponibles (público)' })
+    @ApiResponse({ status: 200, description: '{ verticals: [{ key, label, catalogLabel, types: [{ key, label }] }] }' })
+    getBusinessTypes() {
+        return publicBusinessTypes();
     }
 
     @Get('categories')
