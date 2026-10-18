@@ -1,6 +1,6 @@
 import {
     Controller, Get, Post, Patch, Delete, Param, Body, Query,
-    UseGuards, HttpCode, HttpStatus, ForbiddenException, NotFoundException,
+    UseGuards, HttpCode, HttpStatus, BadRequestException, ForbiddenException, NotFoundException,
     UseInterceptors, UploadedFile, ParseFilePipe, MaxFileSizeValidator, FileTypeValidator,
     Res,
 } from '@nestjs/common';
@@ -42,6 +42,16 @@ export class ContactsController {
             await this.assertOwner(query.placeId, user.id);
         }
         return this.contactsService.findAll(query);
+    }
+
+    @Get(':id/profile')
+    @ApiOperation({ summary: 'Ficha del cliente: datos, tarjeta de fidelización y línea de tiempo de pedidos y conversaciones' })
+    @ApiParam({ name: 'id', description: 'Contact UUID' })
+    @ApiQuery({ name: 'placeId', required: true })
+    async getProfile(@Param('id') id: string, @Query('placeId') placeId: string, @CurrentUser() user: any) {
+        if (!placeId) throw new BadRequestException('Falta placeId');
+        await this.assertOwner(placeId, user.id);
+        return this.contactsService.getProfile(placeId, id);
     }
 
     @Get(':id')

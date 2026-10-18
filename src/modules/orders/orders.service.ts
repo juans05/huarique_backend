@@ -1,5 +1,5 @@
 import { timingSafeEqual } from 'crypto';
-import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ForbiddenException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { InjectDataSource, InjectRepository } from '@nestjs/typeorm';
 import { DataSource, In, MoreThanOrEqual, Repository } from 'typeorm';
@@ -13,6 +13,7 @@ import { Dish } from '../places/entities/dish.entity';
 import { PlaceTeamRole } from '../team/entities/place-team-member.entity';
 import { PinAttemptsService } from './pin-attempts.service';
 import { OrderEventsService } from './order-events.service';
+import { ContactsService } from '../contacts/contacts.service';
 import { assertCanCancel, calculateTotals, canTransition, newPublicToken, newTablePin, normalizePhone, toCents } from './order-rules';
 
 export interface CartLine { dishId: string; quantity: number; note?: string }
@@ -38,6 +39,7 @@ const PIN_ON_REDIS_ERROR: 'allow' | 'deny' = 'allow';
 
 @Injectable()
 export class OrdersService {
+    private readonly logger = new Logger(OrdersService.name);
 
     constructor(
         @InjectRepository(PlaceOrderSettings) private settingsRepo: Repository<PlaceOrderSettings>,
@@ -50,6 +52,7 @@ export class OrdersService {
         private events: OrderEventsService,
         private emitter: EventEmitter2,
         private pinAttempts: PinAttemptsService,
+        private contacts: ContactsService,
     ) { }
 
     async getSettings(placeId: string): Promise<PlaceOrderSettings> {
@@ -76,6 +79,7 @@ export class OrdersService {
             status: prepaid ? 'PENDIENTE_PAGO' : 'NUEVO', customerName: input.customerName ?? null, customerPhone: normalizePhone(input.customerPhone),
             notes: input.notes ?? null, subtotal: totals.subtotal, deliveryFee: 0, total: totals.total, items,
         });
+        this.captureContact(order);
         if (!prepaid) await this.publish('order.created', order, tab);
         return { order, tab, requiresPayment: prepaid };
     }
@@ -89,11 +93,21 @@ export class OrdersService {
         const items = await this.buildItems(placeId, input.items);
         const fee = input.fulfillment === 'DELIVERY' ? settings.deliveryFee : 0;
         const totals = calculateTotals(items, fee, settings.pricesIncludeIgv);
-        return this.saveOrder({
+        const order = await this.saveOrder({
             placeId, tabId: null, tableId: null, channel: 'WHATSAPP', fulfillment: input.fulfillment, status: 'PENDIENTE_PAGO',
             customerName: input.customerName, customerPhone: normalizePhone(input.customerPhone), whatsappNumberId: input.whatsappNumberId,
             deliveryAddress: input.deliveryAddress ?? null, notes: null, subtotal: totals.subtotal, deliveryFee: fee, total: totals.total, items,
         });
+        this.captureContact(order);
+        return order;
+    }
+
+    /** Cliente único: el pedido deja al cliente en la ficha de contactos (sin consentimiento de marketing). No bloquea el pedido. */
+    private captureContact(order: Order): void {
+        if (!order.customerPhone) return;
+        this.contacts
+            .upsertByPhone(order.placeId, order.customerPhone, { name: order.customerName ?? undefined, source: 'order' })
+            .catch((err) => this.logger.warn(`No se pudo actualizar el contacto del pedido ${order.id}: ${err?.message}`));
     }
 
     /** PENDIENTE_PAGO → NUEVO una sola vez (webhook y revisión periódica pueden llegar a la vez). */

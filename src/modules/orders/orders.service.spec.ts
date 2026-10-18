@@ -62,8 +62,9 @@ const build = (opts: { mode?: 'CUENTA_ABIERTA' | 'PREPAGO'; dishAvailable?: bool
     const emitter = { emit: jest.fn() };
     const pinAttempts = new PinAttemptsService({ get: () => undefined } as any, () => fakeRedisStore());
     pinAttempts.onModuleInit();
-    const svc = new OrdersService(settings as any, tables as any, tabs as any, orders as any, payments as any, dishes as any, dataSource as any, events as any, emitter as any, pinAttempts);
-    return { svc, tabs, tables, orders, payments, events, emitter };
+    const contacts = { upsertByPhone: jest.fn().mockResolvedValue(null) };
+    const svc = new OrdersService(settings as any, tables as any, tabs as any, orders as any, payments as any, dishes as any, dataSource as any, events as any, emitter as any, pinAttempts, contacts as any);
+    return { svc, tabs, tables, orders, payments, events, emitter, contacts };
 };
 
 describe('OrdersService', () => {
@@ -225,6 +226,25 @@ describe('OrdersService', () => {
         expect(wa.customerPhone).toBe('51987654321');
         const blank = await svc.createTableOrder('qr-1', { pin: '1234', items: [{ dishId: 'd1', quantity: 1 }], customerPhone: '  ' });
         expect(blank.order.customerPhone).toBeNull();
+    });
+
+    it('cliente único: cada pedido con teléfono hace upsert del contacto (source order, sin consentimiento) y sin teléfono no', async () => {
+        const { svc, contacts } = build();
+        await svc.createTableOrder('qr-1', { pin: '1234', items: [{ dishId: 'd1', quantity: 1 }], customerName: 'Ana', customerPhone: '987 654 321' });
+        expect(contacts.upsertByPhone).toHaveBeenLastCalledWith('p1', '51987654321', { name: 'Ana', source: 'order' });
+        await svc.createWhatsappOrder('p1', { items: [{ dishId: 'd2', quantity: 1 }], customerName: 'Luis', customerPhone: '+51 912-345-678', whatsappNumberId: null, fulfillment: 'RECOJO' });
+        expect(contacts.upsertByPhone).toHaveBeenLastCalledWith('p1', '51912345678', { name: 'Luis', source: 'order' });
+        contacts.upsertByPhone.mockClear();
+        await svc.createTableOrder('qr-1', { pin: '1234', items: [{ dishId: 'd1', quantity: 1 }] });
+        expect(contacts.upsertByPhone).not.toHaveBeenCalled();
+    });
+
+    it('cliente único: si el upsert falla el pedido se crea igual', async () => {
+        const { svc, contacts, orders } = build();
+        contacts.upsertByPhone.mockRejectedValue(new Error('db caída'));
+        const { order } = await svc.createTableOrder('qr-1', { pin: '1234', items: [{ dishId: 'd1', quantity: 1 }], customerPhone: '987654321' });
+        expect(order.id).toBeDefined();
+        expect(orders.rows).toHaveLength(1);
     });
 
     it('pedir la cuenta devuelve solo el estado', async () => {

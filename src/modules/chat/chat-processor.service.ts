@@ -16,6 +16,7 @@ import { Conversation } from '../whatsapp/entities/conversation.entity';
 import { Message } from '../whatsapp/entities/message.entity';
 import { isOptOutMessage, revokeMarketingConsent } from './marketing-opt-out.util';
 import { OrderAgentService } from '../orders/order-agent.service';
+import { ContactsService } from '../contacts/contacts.service';
 
 const TONE_INSTRUCTIONS: Record<string, string> = {
   professional: 'Tono profesional: lenguaje formal y correcto, sin emojis ni jerga, oraciones completas y precisas.',
@@ -60,6 +61,7 @@ export class ChatProcessorService {
     @InjectRepository(Message)
     private messageRepo: Repository<Message>,
     private orderAgent: OrderAgentService,
+    private contactsService: ContactsService,
   ) {}
 
   // Prueba los proveedores en orden y pasa al siguiente si uno falla (key inválida, caído, etc.)
@@ -220,6 +222,11 @@ ${channel === 'instagram' ? INSTAGRAM_FORMAT : WHATSAPP_FORMAT}${channelRules.le
         status: 'abierto',
       });
       await this.conversationRepo.save(conversation);
+      // Cliente único: quien escribe por primera vez queda en la ficha de contactos (sin consentimiento de marketing).
+      // No bloquea la atención: si falla, solo se registra.
+      this.contactsService
+        .upsertByPhone(placeId, contact.phone, { name: contact.name, source: 'whatsapp' })
+        .catch((err) => this.logger.warn(`No se pudo actualizar el contacto de ${placeId}: ${err?.message}`));
     }
 
     // 2. Registrar mensaje entrante
