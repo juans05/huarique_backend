@@ -115,6 +115,14 @@ describe('LoyaltyService.getMyCards', () => {
       expect(contacts.upsertByPhone).not.toHaveBeenCalled();
     });
 
+    it('una visita con consentimiento sobre una tarjeta existente que no lo tenía lo lleva al contacto (marketingConsent true)', async () => {
+      prep();
+      cardRepo.findOne.mockResolvedValue({ placeId: 'p1', customerPhone: '999999999', stamps: 1, points: 0, totalVisits: 1, marketingConsent: false, marketingConsentAt: null, lastVisitAt: null });
+      await service.scan('p1', '999999999', 'Ana', true);
+      expect(contacts.upsertByPhone).toHaveBeenCalledTimes(1);
+      expect(contacts.upsertByPhone).toHaveBeenCalledWith('p1', '999999999', { name: 'Ana', source: 'loyalty', marketingConsent: true });
+    });
+
     it('si el contacto falla, la visita se registra igual', async () => {
       prep();
       cardRepo.findOne.mockResolvedValue(null);

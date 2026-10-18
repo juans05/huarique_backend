@@ -79,9 +79,12 @@ export class ContactsService {
         source: ContactSource,
         consent: boolean,
         fields: Partial<Pick<Contact, 'name' | 'email' | 'dni' | 'tags' | 'customFields' | 'importBatchId'>> = {},
+        // false: `consent` solo vale para el contacto que se crea; en uno existente nunca se toca (lo usa la importación).
+        raiseConsentOnExisting = true,
     ): Promise<{ contact: Contact; created: boolean }> {
+        const existingConsent = raiseConsentOnExisting && consent;
         const existing = await this.contactRepo.findOne({ where: { placeId, phone } });
-        if (existing) return { contact: await this.fillMissing(existing, consent, fields), created: false };
+        if (existing) return { contact: await this.fillMissing(existing, existingConsent, fields), created: false };
         try {
             const contact = await this.contactRepo.save(this.contactRepo.create({ ...fields, placeId, phone, source, marketingConsent: consent }));
             return { contact, created: true };
@@ -90,23 +93,24 @@ export class ContactsService {
             if (!isUniqueViolation(err)) throw err;
             const winner = await this.contactRepo.findOne({ where: { placeId, phone } });
             if (!winner) throw err;
-            return { contact: await this.fillMissing(winner, consent, fields), created: false };
+            return { contact: await this.fillMissing(winner, existingConsent, fields), created: false };
         }
     }
 
+    /**
+     * Completa un contacto existente escribiendo SOLO las columnas que cambian (nunca la entidad entera):
+     * así una lectura vieja no puede revivir un consentimiento que otro proceso retiró (BAJA) en el medio.
+     * El consentimiento es de un solo sentido: aquí solo se puede poner en true.
+     */
     private async fillMissing(existing: Contact, consent: boolean, fields: Record<string, any>): Promise<Contact> {
-        let dirty = false;
+        const patch: Partial<Contact> = {};
         for (const key of FILL_KEYS) {
-            if (!isEmpty(fields[key]) && isEmpty(existing[key])) {
-                (existing as any)[key] = fields[key];
-                dirty = true;
-            }
+            if (!isEmpty(fields[key]) && isEmpty(existing[key])) (patch as any)[key] = fields[key];
         }
-        if (consent && !existing.marketingConsent) {
-            existing.marketingConsent = true;
-            dirty = true;
-        }
-        return dirty ? this.contactRepo.save(existing) : existing;
+        if (consent && !existing.marketingConsent) patch.marketingConsent = true;
+        if (Object.keys(patch).length === 0) return existing;
+        await this.contactRepo.update({ id: existing.id }, patch);
+        return Object.assign(existing, patch);
     }
 
     /** Teléfono de un alta o edición manual: null si viene vacío; 400 si trae algo sin dígitos. */
@@ -254,7 +258,8 @@ export class ContactsService {
                 const mapped = this.mapColumns(raw, columnMapping);
                 const phone = normalizePhone(mapped.phone === null || mapped.phone === undefined ? null : String(mapped.phone));
                 if (!phone) throw new Error('Teléfono vacío o inválido');
-                // Un cliente repetido en el archivo, o que ya existe, solo completa campos vacíos; el consentimiento solo sube.
+                // Un cliente repetido en el archivo, o que ya existe, solo completa campos vacíos. Una importación no es un
+                // opt-in de esa persona (y podría deshacer una BAJA): el consentimiento del archivo vale solo para contactos nuevos.
                 await this.upsert(
                     placeId,
                     phone,
@@ -268,6 +273,7 @@ export class ContactsService {
                         importBatchId: importRecord.id,
                         tags: mapped.tags ? (typeof mapped.tags === 'string' ? mapped.tags.split(',').map((t: string) => t.trim()) : mapped.tags) : null,
                     },
+                    false,
                 );
                 imported++;
             } catch (err: any) {
