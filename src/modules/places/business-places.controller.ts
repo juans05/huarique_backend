@@ -29,6 +29,7 @@ import { sanitizeMenuTheme } from './menu-theme.util';
 import { buildReplyMessages } from './review-reply.util';
 import { MenuService } from './menu.service';
 import { PromotionsService } from './promotions.service';
+import { TodayService } from './today.service';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Place } from './entities/place.entity';
 import { Category } from './entities/category.entity';
@@ -65,6 +66,7 @@ export class BusinessPlacesController {
         private readonly menuImport: MenuImportService,
         private readonly menuService: MenuService,
         private readonly promotionsService: PromotionsService,
+        private readonly todayService: TodayService,
         @InjectRepository(Place)
         private placesRepo: Repository<Place>,
         @InjectRepository(Amenity)
@@ -260,6 +262,24 @@ export class BusinessPlacesController {
         await this.placeTeamService.assertAccess(user.id, id);
         const subscription = await this.subscriptionsService.getSubscriptionForPlace(id);
         return { tier: subscription?.status === 'active' ? subscription.tier : null };
+    }
+
+    // "Tu día" (inicio del panel): dueño o equipo de la sede (mismo chequeo que subscription-tier). El Google va
+    // en una ruta aparte para que Inicio cargue rápido aunque Google tarde o falle.
+    @Get('places/:id/today')
+    @ApiOperation({ summary: 'Pending items and weekly stats for the panel home (database only)' })
+    @ApiParam({ name: 'id', description: 'Place UUID' })
+    async getToday(@Param('id') id: string, @CurrentUser() user: any) {
+        await this.placeTeamService.assertAccess(user.id, id);
+        return this.todayService.getToday(id);
+    }
+
+    @Get('places/:id/today/reviews')
+    @ApiOperation({ summary: 'Unanswered Google reviews count (cached 10 min, never fails)' })
+    @ApiParam({ name: 'id', description: 'Place UUID' })
+    async getTodayReviews(@Param('id') id: string, @CurrentUser() user: any) {
+        await this.placeTeamService.assertAccess(user.id, id);
+        return this.todayService.getReviewsToday(id);
     }
 
     // Gestión de la suscripción — solo Admin de la sede (maneja la tarjeta/facturación
