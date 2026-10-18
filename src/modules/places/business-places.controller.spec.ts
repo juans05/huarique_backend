@@ -68,14 +68,11 @@ describe('BusinessPlacesController.claimPlace', () => {
         );
     });
 
-    it("sin businessType se reclama como 'restaurante'", async () => {
+    it('sin businessType conserva el tipo y la categoría que ya tenía el local', async () => {
         const { ctrl, placesRepo } = build();
-        placesRepo.findOne.mockResolvedValue(unclaimed());
+        placesRepo.findOne.mockResolvedValue({ ...unclaimed({ id: 'c1', vertical: 'gastronomia' }), businessType: 'barberia' });
         await ctrl.claimPlace('p1', user, undefined as any);
-        expect(placesRepo.update).toHaveBeenCalledWith(
-            expect.objectContaining({ id: 'p1' }),
-            expect.objectContaining({ businessType: 'restaurante' }),
-        );
+        expect(placesRepo.update).toHaveBeenCalledWith(expect.objectContaining({ id: 'p1' }), { claimedByUserId: 'u1', status: 'pending' });
     });
 
     it.each(['xyz', ''])('rechaza businessType %p con 400 sin tocar el local', async (bt) => {
@@ -143,6 +140,13 @@ describe('BusinessPlacesController.importPlace', () => {
             expect.objectContaining({ id: 'p9' }),
             expect.objectContaining({ businessType: 'spa' }),
         );
+    });
+
+    it('si ya existe y no llega businessType, conserva el tipo que tenía', async () => {
+        const { ctrl, placesRepo } = build();
+        placesRepo.findOne.mockResolvedValue({ id: 'p9', claimedByUserId: null, businessType: 'barberia', category: null });
+        await ctrl.importPlace('g1', undefined as any, user);
+        expect(placesRepo.update.mock.calls[0][1]).not.toHaveProperty('businessType');
     });
 });
 
