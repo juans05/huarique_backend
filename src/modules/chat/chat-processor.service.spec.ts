@@ -1,7 +1,10 @@
 import { ChatProcessorService } from './chat-processor.service';
 
 // Se usa "BAJA" porque corta el flujo justo después de registrar el mensaje, sin llamar a ningún proveedor de IA.
-const build = (existingConversation: any = null, opts: { businessType?: string | null } = {}) => {
+const build = (
+  existingConversation: any = null,
+  opts: { businessType?: string | null; placeName?: string | null; botConfig?: any; menuOptions?: any[] } = {},
+) => {
   const conversationRepo = {
     findOne: jest.fn(async () => existingConversation),
     create: jest.fn((x: any) => ({ id: 'conv1', ...x })),
@@ -20,21 +23,30 @@ const build = (existingConversation: any = null, opts: { businessType?: string |
   const vector = { searchSimilarity: jest.fn(async () => []) };
   const menuFormatter = { formatMenuToMarkdown: jest.fn(async () => '## 📋 Catálogo de prueba') };
   const botConfigService = {
-    findByPlaceId: jest.fn(async () => ({ botName: 'Wari', restaurantName: 'Local de prueba', tone: 'professional', systemPrompt: null, responseMode: 'ai' })),
+    findByPlaceId: jest.fn(async () =>
+      opts.botConfig !== undefined
+        ? opts.botConfig
+        : { botName: 'Wari', restaurantName: 'Local de prueba', tone: 'professional', systemPrompt: null, responseMode: 'ai' },
+    ),
   };
+  const menuOptionService = { findByPlaceId: jest.fn(async () => opts.menuOptions ?? []) };
   const orderAgent = { handle: jest.fn(async () => ({ handled: false, reply: '' })) };
-  // businessType: undefined = restaurante, null = el local no existe
+  // businessType: undefined = restaurante, null = el local no existe; placeName: undefined = 'Mi Local'
   const placeRepo = {
-    findOne: jest.fn(async () => (opts.businessType === null ? null : { id: 'p1', businessType: opts.businessType ?? 'restaurante' })),
+    findOne: jest.fn(async () =>
+      opts.businessType === null
+        ? null
+        : { id: 'p1', businessType: opts.businessType ?? 'restaurante', name: opts.placeName === undefined ? 'Mi Local' : opts.placeName },
+    ),
   };
   const svc = new ChatProcessorService(
-    sender as any, vector as any, menuFormatter as any, botConfigService as any, {} as any, emitter as any,
+    sender as any, vector as any, menuFormatter as any, botConfigService as any, menuOptionService as any, emitter as any,
     conversationRepo as any, messageRepo as any, orderAgent as any, contacts as any, placeRepo as any,
   );
   // Nunca se llama a un proveedor de IA real: se simula que hay uno configurado y se intercepta generateReply.
   (svc as any).anthropic = {};
   const generateReply = jest.spyOn(svc as any, 'generateReply').mockResolvedValue('respuesta de prueba');
-  return { svc, contacts, orderAgent, menuFormatter, generateReply, placeRepo };
+  return { svc, contacts, orderAgent, menuFormatter, generateReply, placeRepo, sender };
 };
 
 describe('ChatProcessorService: cliente único', () => {
@@ -95,5 +107,59 @@ describe('ChatProcessorService: bot según el rubro', () => {
     const prompt = generateReply.mock.calls[0][0] as string;
     expect(prompt).toContain('asistente de un negocio para mascotas');
     expect(prompt).toContain('CATÁLOGO Y DATOS DEL NEGOCIO');
+  });
+});
+
+describe('ChatProcessorService: nombre del local y saludo del menú según el rubro', () => {
+  const incoming = (svc: ChatProcessorService) =>
+    svc.processIncomingMessage('p1', 'wn1', { name: 'Ana', phone: '51999888777' }, 'Hola');
+
+  it('sin botConfig, fuera de gastronomía la identidad usa el nombre real del local (una sola consulta del local)', async () => {
+    const { svc, generateReply, placeRepo } = build(null, { businessType: 'barberia', placeName: 'Barbería Don Pepe', botConfig: null });
+    await incoming(svc);
+    expect(generateReply.mock.calls[0][0]).toContain('el asistente virtual de Barbería Don Pepe (recepcionista de un local de belleza)');
+    expect(placeRepo.findOne).toHaveBeenCalledTimes(1);
+  });
+
+  it('el nombre del botConfig sigue teniendo prioridad sobre el del local', async () => {
+    const { svc, generateReply } = build(null, { businessType: 'barberia', placeName: 'Barbería Don Pepe' });
+    await incoming(svc);
+    expect(generateReply.mock.calls[0][0]).toContain('el asistente virtual de Local de prueba (recepcionista');
+  });
+
+  it('sin botConfig ni nombre del local cae en "el negocio"', async () => {
+    const { svc, generateReply } = build(null, { businessType: 'spa', placeName: null, botConfig: null });
+    await incoming(svc);
+    expect(generateReply.mock.calls[0][0]).toContain('el asistente virtual de el negocio (recepcionista');
+  });
+
+  it('gastronomía sin botConfig conserva "el restaurante" aunque el local tenga nombre', async () => {
+    const { svc, generateReply } = build(null, { placeName: 'La Casona', botConfig: null });
+    await incoming(svc);
+    expect(generateReply.mock.calls[0][0]).toContain('el asistente virtual del restaurante el restaurante.');
+    expect(generateReply.mock.calls[0][0]).not.toContain('La Casona');
+  });
+
+  const menuBot = { botName: 'Wari', restaurantName: '', tone: 'professional', systemPrompt: null, responseMode: 'menu' };
+  const menuOptions = [{ label: 'Horarios', actionType: 'text', actionValue: 'Abrimos a las 9' }];
+
+  it('menú numerado sin nombre: restaurante saluda como "nuestro restaurante"', async () => {
+    const { svc, sender } = build(null, { botConfig: menuBot, menuOptions });
+    await incoming(svc);
+    expect(sender.sendText).toHaveBeenCalledWith('wn1', '51999888777', expect.stringContaining('Soy el asistente de nuestro restaurante.'));
+  });
+
+  it('menú numerado sin nombre: otro rubro saluda como "nuestro negocio"', async () => {
+    const { svc, sender } = build(null, { businessType: 'barberia', botConfig: menuBot, menuOptions });
+    await incoming(svc);
+    const text = (sender.sendText.mock.calls[0] as any[])[2] as string;
+    expect(text).toContain('Soy el asistente de nuestro negocio.');
+    expect(text.toLowerCase()).not.toContain('restaurante');
+  });
+
+  it('menú numerado con nombre configurado usa ese nombre en cualquier rubro', async () => {
+    const { svc, sender } = build(null, { businessType: 'barberia', botConfig: { ...menuBot, restaurantName: 'Barbería Don Pepe' }, menuOptions });
+    await incoming(svc);
+    expect(sender.sendText).toHaveBeenCalledWith('wn1', '51999888777', expect.stringContaining('Soy el asistente de Barbería Don Pepe.'));
   });
 });

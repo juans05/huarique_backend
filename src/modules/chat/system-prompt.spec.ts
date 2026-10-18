@@ -28,8 +28,8 @@ const INSTAGRAM_FORMAT = [
   '- Si el cliente pide hablar con una persona o tiene una queja, pídele amablemente que deje su consulta y dile que el equipo le responderá por este mismo chat.',
 ];
 
-// Texto que generaba el método privado ChatProcessorService.buildSystemPrompt ANTES del multirrubro
-// (copiado del resultado de ese método, no regenerado): gastronomía no puede cambiar ni una coma.
+// Textos escritos a mano a partir del método privado ChatProcessorService.buildSystemPrompt de ANTES del multirrubro
+// y verificados contra ese método (pasaron con el código viejo antes de refactorizar): gastronomía no puede cambiar ni una coma.
 const GASTRO_FRIENDLY_FULL = [
   'Eres Wari, el asistente virtual del restaurante La Casona. Atiendes por WhatsApp en español, como si fueras parte del equipo.',
   '',
