@@ -18,6 +18,9 @@ const memContacts = (seed: any[] = []) => {
             }
             return x;
         }),
+        update: jest.fn(async (where: any, patch: any) => {
+            rows.filter((r) => matches(r, where)).forEach((r) => Object.assign(r, patch));
+        }),
         query: jest.fn(async () => []),
     };
     return repo;
@@ -83,6 +86,37 @@ describe('ContactsService.upsertByPhone', () => {
         const { svc, contacts } = build([{ placeId: 'p1', phone: '51999888777', source: 'order' }]);
         await svc.upsertByPhone('p1', '999888777', { source: 'loyalty', marketingConsent: true });
         expect(contacts.rows[0].marketingConsent).toBe(true);
+    });
+
+    it('sobre un contacto existente escribe solo las columnas que cambian, nunca la entidad entera', async () => {
+        const { svc, contacts } = build([{ placeId: 'p1', phone: '51999888777', name: null, email: 'a@b.pe', marketingConsent: false }]);
+        await svc.upsertByPhone('p1', '999888777', { name: 'Ana', source: 'order' });
+        expect(contacts.update).toHaveBeenCalledTimes(1);
+        expect(contacts.update).toHaveBeenCalledWith({ id: 'c1' }, { name: 'Ana' });
+        expect(contacts.save).not.toHaveBeenCalled();
+    });
+
+    it('el consentimiento solo se pone en true: el update lleva únicamente marketingConsent', async () => {
+        const { svc, contacts } = build([{ placeId: 'p1', phone: '51999888777', name: 'Ana', marketingConsent: false }]);
+        await svc.upsertByPhone('p1', '999888777', { name: 'Otra', source: 'loyalty', marketingConsent: true });
+        expect(contacts.update).toHaveBeenCalledTimes(1);
+        expect(contacts.update).toHaveBeenCalledWith({ id: 'c1' }, { marketingConsent: true });
+    });
+
+    it('una lectura vieja con consentimiento true no se escribe de vuelta: si solo se completa el nombre, el update no incluye marketingConsent', async () => {
+        const { svc, contacts } = build([{ placeId: 'p1', phone: '51999888777', name: null, marketingConsent: false }]);
+        // La lectura trae consentimiento true, pero otro proceso (BAJA) lo dejó en false antes de nuestra escritura.
+        contacts.findOne.mockImplementationOnce(async () => ({ ...contacts.rows[0], marketingConsent: true }));
+        await svc.upsertByPhone('p1', '999888777', { name: 'Ana', source: 'whatsapp' });
+        expect(contacts.update).toHaveBeenCalledWith({ id: 'c1' }, { name: 'Ana' });
+        expect(contacts.rows[0].marketingConsent).toBe(false);
+    });
+
+    it('sin nada que completar no escribe', async () => {
+        const { svc, contacts } = build([{ placeId: 'p1', phone: '51999888777', name: 'Ana', marketingConsent: true }]);
+        await svc.upsertByPhone('p1', '999888777', { name: 'Otra', source: 'order', marketingConsent: false });
+        expect(contacts.update).not.toHaveBeenCalled();
+        expect(contacts.save).not.toHaveBeenCalled();
     });
 
     it('completa el nombre solo si estaba vacío', async () => {
@@ -181,6 +215,14 @@ describe('ContactsService import', () => {
         await svc.importCsv('p1', csv(['name,phone,email,consent', 'Otra,999888777,ana@x.pe,false']));
         expect(contacts.rows).toHaveLength(1);
         expect(contacts.rows[0]).toMatchObject({ name: 'Ana', email: 'ana@x.pe', marketingConsent: true, source: 'loyalty' });
+        expect(contacts.update).toHaveBeenCalledWith({ id: 'c1' }, { email: 'ana@x.pe' });
+    });
+
+    it('una importación nunca sube el consentimiento de un contacto existente (no es un opt-in y podría deshacer una BAJA)', async () => {
+        const { svc, contacts } = build([{ placeId: 'p1', phone: '51999888777', name: 'Ana', email: null, marketingConsent: false, source: 'loyalty' }]);
+        await svc.importCsv('p1', csv(['name,phone,email,consent', 'Ana,999888777,ana@x.pe,true']));
+        expect(contacts.rows[0]).toMatchObject({ email: 'ana@x.pe', marketingConsent: false });
+        for (const [, patch] of contacts.update.mock.calls) expect(patch).not.toHaveProperty('marketingConsent');
     });
 
     it('en contactos nuevos mantiene el consentimiento que traiga el archivo', async () => {
