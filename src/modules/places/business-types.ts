@@ -1,3 +1,4 @@
+import { BadRequestException } from '@nestjs/common';
 import type { PlaceTeamRole } from '../team/entities/place-team-member.entity';
 
 /**
@@ -161,6 +162,26 @@ export function verticalOf(businessType: string): Vertical {
 export function getVerticalConfig(businessType: string): VerticalConfig & { vertical: Vertical } {
     const vertical = verticalOf(businessType);
     return { vertical, ...VERTICALS[vertical] };
+}
+
+/** Tipo que se asume cuando un cliente anterior al multirrubro no envía `businessType`. */
+export const DEFAULT_BUSINESS_TYPE = 'restaurante';
+
+/** Valida un tipo de negocio recibido del cliente: 400 si no existe en BUSINESS_TYPES. */
+export function requireBusinessType(v: unknown): string {
+    if (!isBusinessType(v)) throw new BadRequestException('Tipo de negocio no válido');
+    return v;
+}
+
+/** Una categoría sin rubro (o ninguna) no restringe; con rubro debe ser el del tipo de negocio. */
+export function categoryMatchesVertical(category: { vertical?: string | null } | null | undefined, businessType: string): boolean {
+    return !category?.vertical || category.vertical === verticalOf(businessType);
+}
+
+export function assertCategoryMatchesVertical(category: { vertical?: string | null } | null | undefined, businessType: string): void {
+    if (!categoryMatchesVertical(category, businessType)) {
+        throw new BadRequestException('La categoría no corresponde al rubro del negocio');
+    }
 }
 
 export function typesOfVertical(v: Vertical): string[] {

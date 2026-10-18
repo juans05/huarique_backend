@@ -1,6 +1,11 @@
+import { BadRequestException } from '@nestjs/common';
 import {
     BUSINESS_TYPES,
+    DEFAULT_BUSINESS_TYPE,
     VERTICALS,
+    assertCategoryMatchesVertical,
+    categoryMatchesVertical,
+    requireBusinessType,
     getVerticalConfig,
     isBusinessType,
     publicBusinessTypes,
@@ -53,5 +58,27 @@ describe('business-types', () => {
             expect(v.catalogLabel).toBe(VERTICALS[v.key].labels.catalog);
             expect(v.types.length).toBeGreaterThan(0);
         }
+    });
+
+    it('requireBusinessType devuelve el tipo válido y lanza 400 con cualquier otro valor', () => {
+        expect(DEFAULT_BUSINESS_TYPE).toBe('restaurante');
+        expect(requireBusinessType('barberia')).toBe('barberia');
+        for (const bad of ['xyz', '', undefined, null, 5]) {
+            expect(() => requireBusinessType(bad)).toThrow(new BadRequestException('Tipo de negocio no válido'));
+        }
+    });
+
+    it('categoryMatchesVertical: sin categoría o sin rubro no restringe; con rubro debe coincidir', () => {
+        expect(categoryMatchesVertical(null, 'barberia')).toBe(true);
+        expect(categoryMatchesVertical({ vertical: null }, 'barberia')).toBe(true);
+        expect(categoryMatchesVertical({ vertical: 'belleza' }, 'barberia')).toBe(true);
+        expect(categoryMatchesVertical({ vertical: 'gastronomia' }, 'barberia')).toBe(false);
+    });
+
+    it('assertCategoryMatchesVertical lanza 400 con el mensaje del contrato solo si no coincide', () => {
+        expect(() => assertCategoryMatchesVertical({ vertical: 'belleza' }, 'barberia')).not.toThrow();
+        expect(() => assertCategoryMatchesVertical({ vertical: 'gastronomia' }, 'barberia')).toThrow(
+            new BadRequestException('La categoría no corresponde al rubro del negocio'),
+        );
     });
 });

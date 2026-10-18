@@ -1,8 +1,8 @@
 import 'reflect-metadata';
-import { BadRequestException } from '@nestjs/common';
+import { BadRequestException, NotFoundException } from '@nestjs/common';
 import { plainToInstance } from 'class-transformer';
 import { validate } from 'class-validator';
-import { BusinessPlacesController, assertCategoryMatchesVertical } from './business-places.controller';
+import { BusinessPlacesController } from './business-places.controller';
 import { CreateOnboardingPlaceDto } from './dto/create-onboarding-place.dto';
 
 const user = { id: 'u1', email: 'dueno@x.pe' };
@@ -27,45 +27,40 @@ const build = (overrides: Record<string, any> = {}) => {
 };
 
 describe('CreateOnboardingPlaceDto', () => {
-    const errorsFor = (businessType: unknown) =>
-        validate(plainToInstance(CreateOnboardingPlaceDto, { name: 'Barber Kings', businessType }));
+    const errorsFor = (extra: Record<string, unknown>) =>
+        validate(plainToInstance(CreateOnboardingPlaceDto, { name: 'Barber Kings', ...extra }));
 
-    it("rechaza un tipo desconocido ('xyz') y la ausencia del tipo", async () => {
-        expect((await errorsFor('xyz')).map((e) => e.property)).toContain('businessType');
-        expect((await errorsFor(undefined)).map((e) => e.property)).toContain('businessType');
+    it("rechaza un tipo desconocido enviado explícitamente ('xyz', '')", async () => {
+        expect((await errorsFor({ businessType: 'xyz' })).map((e) => e.property)).toContain('businessType');
+        expect((await errorsFor({ businessType: '' })).map((e) => e.property)).toContain('businessType');
     });
 
-    it('acepta un tipo válido', async () => {
-        expect(await errorsFor('barberia')).toHaveLength(0);
-    });
-});
-
-describe('assertCategoryMatchesVertical', () => {
-    it('sin categoría o con categoría sin rubro no restringe', () => {
-        expect(() => assertCategoryMatchesVertical(null, 'barberia')).not.toThrow();
-        expect(() => assertCategoryMatchesVertical({ vertical: null } as any, 'barberia')).not.toThrow();
-    });
-
-    it('rubro igual pasa, distinto lanza 400 con el mensaje del contrato', () => {
-        expect(() => assertCategoryMatchesVertical({ vertical: 'belleza' } as any, 'barberia')).not.toThrow();
-        expect(() => assertCategoryMatchesVertical({ vertical: 'gastronomia' } as any, 'barberia')).toThrow(
-            new BadRequestException('La categoría no corresponde al rubro del negocio'),
-        );
+    it('acepta un tipo válido o su ausencia (compatibilidad durante el despliegue)', async () => {
+        expect(await errorsFor({ businessType: 'barberia' })).toHaveLength(0);
+        expect(await errorsFor({})).toHaveLength(0);
     });
 });
 
 describe('BusinessPlacesController.createPlace', () => {
     it('guarda el businessType elegido', async () => {
         const { ctrl, placesRepo } = build();
-        const dto = { name: 'Barber Kings', address: 'Av. 1', businessType: 'barberia' };
-        await ctrl.createPlace(dto as any, user);
+        await ctrl.createPlace({ name: 'Barber Kings', address: 'Av. 1', businessType: 'barberia' }, user);
         expect(placesRepo.create).toHaveBeenCalledWith(expect.objectContaining({ businessType: 'barberia', claimedByUserId: 'u1' }));
+    });
+
+    it("sin businessType se guarda como 'restaurante'", async () => {
+        const { ctrl, placesRepo } = build();
+        await ctrl.createPlace({ name: 'La Lucha', address: 'Av. 1' } as any, user);
+        expect(placesRepo.create).toHaveBeenCalledWith(expect.objectContaining({ businessType: 'restaurante' }));
     });
 });
 
 describe('BusinessPlacesController.claimPlace', () => {
+    const unclaimed = (category: any = null) => ({ id: 'p1', claimedByUserId: null, businessType: 'restaurante', category });
+
     it('el tipo elegido por el dueño reemplaza al existente', async () => {
         const { ctrl, placesRepo } = build();
+        placesRepo.findOne.mockResolvedValue(unclaimed());
         await ctrl.claimPlace('p1', user, 'barberia');
         expect(placesRepo.update).toHaveBeenCalledWith(
             expect.objectContaining({ id: 'p1' }),
@@ -73,10 +68,50 @@ describe('BusinessPlacesController.claimPlace', () => {
         );
     });
 
-    it.each(['xyz', undefined, ''])('rechaza businessType %p con 400 sin tocar el local', async (bt) => {
+    it("sin businessType se reclama como 'restaurante'", async () => {
         const { ctrl, placesRepo } = build();
-        await expect(ctrl.claimPlace('p1', user, bt as any)).rejects.toBeInstanceOf(BadRequestException);
+        placesRepo.findOne.mockResolvedValue(unclaimed());
+        await ctrl.claimPlace('p1', user, undefined as any);
+        expect(placesRepo.update).toHaveBeenCalledWith(
+            expect.objectContaining({ id: 'p1' }),
+            expect.objectContaining({ businessType: 'restaurante' }),
+        );
+    });
+
+    it.each(['xyz', ''])('rechaza businessType %p con 400 sin tocar el local', async (bt) => {
+        const { ctrl, placesRepo } = build();
+        placesRepo.findOne.mockResolvedValue(unclaimed());
+        await expect(ctrl.claimPlace('p1', user, bt)).rejects.toBeInstanceOf(BadRequestException);
         expect(placesRepo.update).not.toHaveBeenCalled();
+    });
+
+    it('si cambia de rubro, quita la categoría que ya no corresponde', async () => {
+        const { ctrl, placesRepo } = build();
+        placesRepo.findOne.mockResolvedValue(unclaimed({ id: 'c1', vertical: 'gastronomia' }));
+        await ctrl.claimPlace('p1', user, 'barberia');
+        expect(placesRepo.update).toHaveBeenCalledWith(
+            expect.objectContaining({ id: 'p1' }),
+            expect.objectContaining({ businessType: 'barberia', categoryId: null }),
+        );
+    });
+
+    it('conserva la categoría del mismo rubro o sin rubro', async () => {
+        for (const vertical of ['gastronomia', null]) {
+            const { ctrl, placesRepo } = build();
+            placesRepo.findOne.mockResolvedValue(unclaimed({ id: 'c1', vertical }));
+            await ctrl.claimPlace('p1', user, 'cafeteria');
+            expect(placesRepo.update.mock.calls[0][1]).not.toHaveProperty('categoryId');
+        }
+    });
+
+    it('local inexistente → 404; ya reclamado (o carrera perdida) → 400', async () => {
+        const { ctrl, placesRepo } = build();
+        await expect(ctrl.claimPlace('p1', user, 'spa')).rejects.toBeInstanceOf(NotFoundException);
+        placesRepo.findOne.mockResolvedValue({ ...unclaimed(), claimedByUserId: 'otro' });
+        await expect(ctrl.claimPlace('p1', user, 'spa')).rejects.toBeInstanceOf(BadRequestException);
+        placesRepo.findOne.mockResolvedValue(unclaimed());
+        placesRepo.update.mockResolvedValue({ affected: 0 });
+        await expect(ctrl.claimPlace('p1', user, 'spa')).rejects.toBeInstanceOf(BadRequestException);
     });
 });
 
@@ -93,9 +128,16 @@ describe('BusinessPlacesController.importPlace', () => {
         expect(placesRepo.create).toHaveBeenCalledWith(expect.objectContaining({ businessType: 'peluqueria', claimedByUserId: 'u1' }));
     });
 
+    it("sin businessType un local nuevo se guarda como 'restaurante'", async () => {
+        const { ctrl, placesRepo } = build();
+        await ctrl.importPlace('g1', undefined as any, user);
+        expect(placesRepo.create).toHaveBeenCalledWith(expect.objectContaining({ businessType: 'restaurante' }));
+    });
+
     it('si ya existe en Wuarikes, lo reclama con el tipo elegido', async () => {
         const { ctrl, placesRepo } = build();
-        placesRepo.findOne.mockResolvedValueOnce({ id: 'p9' });
+        const existing = { id: 'p9', claimedByUserId: null, category: null };
+        placesRepo.findOne.mockResolvedValue(existing);
         await ctrl.importPlace('g1', 'spa', user);
         expect(placesRepo.update).toHaveBeenCalledWith(
             expect.objectContaining({ id: 'p9' }),
@@ -133,10 +175,12 @@ describe('BusinessPlacesController.updateProfile (rubro y categoría)', () => {
         b.categoryRepo.findOne.mockResolvedValue(category);
         return b;
     };
-    const barberia = () => ({ id: 'p1', claimedByUserId: 'u1', businessType: 'barberia', categoryId: null });
+    const barberia = (categoryId: string | null = null) => ({ id: 'p1', claimedByUserId: 'u1', businessType: 'barberia', categoryId });
+    const restaurante = () => ({ id: 'p1', claimedByUserId: 'u1', businessType: 'restaurante', categoryId: 'c1' });
+    const gastro = { id: 'c1', vertical: 'gastronomia' };
 
     it('asignar una categoría de gastronomía a una barbería → 400 y no guarda', async () => {
-        const { ctrl, placesRepo } = setup(barberia(), { id: 'c1', vertical: 'gastronomia' });
+        const { ctrl, placesRepo } = setup(barberia(), gastro);
         await expect(ctrl.updateProfile('p1', { categoryId: 'c1' }, user)).rejects.toBeInstanceOf(BadRequestException);
         expect(placesRepo.save).not.toHaveBeenCalled();
     });
@@ -149,29 +193,63 @@ describe('BusinessPlacesController.updateProfile (rubro y categoría)', () => {
         }
     });
 
+    it('una categoría que no existe → 400 "Categoría no encontrada"', async () => {
+        const { ctrl, placesRepo } = setup(barberia(), null);
+        await expect(ctrl.updateProfile('p1', { categoryId: 'nope' }, user)).rejects.toThrow(
+            new BadRequestException('Categoría no encontrada'),
+        );
+        expect(placesRepo.save).not.toHaveBeenCalled();
+    });
+
     it('businessType inválido → 400', async () => {
         const { ctrl, placesRepo } = setup(barberia());
         await expect(ctrl.updateProfile('p1', { businessType: 'xyz' }, user)).rejects.toBeInstanceOf(BadRequestException);
         expect(placesRepo.save).not.toHaveBeenCalled();
     });
 
-    it('cambiar de rubro con la categoría actual de otro rubro → 400', async () => {
-        const place = { id: 'p1', claimedByUserId: 'u1', businessType: 'restaurante', categoryId: 'c1' };
-        const { ctrl, placesRepo, categoryRepo } = setup(place, { id: 'c1', vertical: 'gastronomia' });
-        await expect(ctrl.updateProfile('p1', { businessType: 'barberia' }, user)).rejects.toBeInstanceOf(BadRequestException);
+    it('cambiar de rubro sin enviar categoryId quita la categoría que ya no corresponde (sin 400)', async () => {
+        const { ctrl, placesRepo, categoryRepo } = setup(restaurante(), gastro);
+        await ctrl.updateProfile('p1', { businessType: 'barberia' }, user);
         expect(categoryRepo.findOne).toHaveBeenCalledWith({ where: { id: 'c1' } });
-        expect(placesRepo.save).not.toHaveBeenCalled();
+        expect(placesRepo.save).toHaveBeenCalledWith(expect.objectContaining({ businessType: 'barberia', categoryId: null }));
+    });
+
+    it('cambiar de tipo dentro del mismo rubro conserva la categoría', async () => {
+        const { ctrl, placesRepo } = setup(restaurante(), gastro);
+        await ctrl.updateProfile('p1', { businessType: 'cafeteria' }, user);
+        expect(placesRepo.save).toHaveBeenCalledWith(expect.objectContaining({ businessType: 'cafeteria', categoryId: 'c1' }));
+    });
+
+    it('cambiar de rubro con una categoría sin rubro la conserva', async () => {
+        const { ctrl, placesRepo } = setup(restaurante(), { id: 'c1', vertical: null });
+        await ctrl.updateProfile('p1', { businessType: 'barberia' }, user);
+        expect(placesRepo.save).toHaveBeenCalledWith(expect.objectContaining({ businessType: 'barberia', categoryId: 'c1' }));
+    });
+
+    it('cambiar de rubro enviando explícitamente una categoría que no corresponde → 400 (también si es la misma que ya tenía)', async () => {
+        for (const categoryId of ['c1', 'c2']) {
+            const { ctrl, placesRepo } = setup(restaurante(), { id: categoryId, vertical: 'gastronomia' });
+            await expect(ctrl.updateProfile('p1', { businessType: 'barberia', categoryId }, user)).rejects.toBeInstanceOf(BadRequestException);
+            expect(placesRepo.save).not.toHaveBeenCalled();
+        }
     });
 
     it('cambiar de rubro quitando la categoría en la misma petición se guarda', async () => {
-        const place = { id: 'p1', claimedByUserId: 'u1', businessType: 'restaurante', categoryId: 'c1' };
-        const { ctrl, placesRepo } = setup(place, { id: 'c1', vertical: 'gastronomia' });
+        const { ctrl, placesRepo } = setup(restaurante(), gastro);
         await ctrl.updateProfile('p1', { businessType: 'barberia', categoryId: null }, user);
         expect(placesRepo.save).toHaveBeenCalledWith(expect.objectContaining({ businessType: 'barberia', categoryId: null }));
     });
 
+    it('reenviar la misma categoría y el mismo tipo no valida ni consulta categorías', async () => {
+        // local heredado con categoría de otro rubro: reenviar sin cambios no debe dar 400
+        const { ctrl, placesRepo, categoryRepo } = setup(barberia('c1'), gastro);
+        await ctrl.updateProfile('p1', { categoryId: 'c1', businessType: 'barberia', name: 'Nuevo' }, user);
+        expect(categoryRepo.findOne).not.toHaveBeenCalled();
+        expect(placesRepo.save).toHaveBeenCalledWith(expect.objectContaining({ categoryId: 'c1', name: 'Nuevo' }));
+    });
+
     it('un cambio de perfil sin rubro ni categoría no consulta categorías', async () => {
-        const { ctrl, categoryRepo } = setup(barberia());
+        const { ctrl, categoryRepo } = setup(barberia('c1'));
         await ctrl.updateProfile('p1', { name: 'Nuevo' }, user);
         expect(categoryRepo.findOne).not.toHaveBeenCalled();
     });
