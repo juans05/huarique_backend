@@ -133,8 +133,8 @@ export class BusinessPlacesController {
     @Post('onboarding/claim/:id')
     @ApiOperation({ summary: 'Claim an existing Wuarike place' })
     async claimPlace(@Param('id') id: string, @CurrentUser() user: any, @Body('businessType') businessType?: string) {
-        // El tipo elegido por el dueño reemplaza al que tuviera el local. Sin tipo (cliente anterior al multirrubro) → restaurante.
-        const type = requireBusinessType(businessType ?? DEFAULT_BUSINESS_TYPE);
+        // El tipo elegido por el dueño reemplaza al que tuviera el local; sin tipo (cliente anterior al multirrubro) se conserva el existente.
+        const type = businessType == null ? undefined : requireBusinessType(businessType);
         const place = await this.placesRepo.findOne({ where: { id }, relations: ['category'] });
         if (!place) throw new NotFoundException('Lugar no encontrado');
         if (place.claimedByUserId) throw new BadRequestException('Este lugar ya ha sido reclamado');
@@ -144,9 +144,13 @@ export class BusinessPlacesController {
             {
                 claimedByUserId: user.id,
                 status: 'pending',
-                businessType: type,
-                // Una categoría de otro rubro ya no corresponde: se quita (no se borra nada más).
-                ...(categoryMatchesVertical(place.category, type) ? {} : { categoryId: null }),
+                ...(type
+                    ? {
+                        businessType: type,
+                        // Una categoría de otro rubro ya no corresponde: se quita (no se borra nada más).
+                        ...(categoryMatchesVertical(place.category, type) ? {} : { categoryId: null }),
+                    }
+                    : {}),
             }
         );
         if (result.affected === 0) throw new BadRequestException('Este lugar ya ha sido reclamado');
@@ -161,11 +165,11 @@ export class BusinessPlacesController {
         @Body('businessType') businessType: string | undefined,
         @CurrentUser() user: any,
     ) {
-        const type = requireBusinessType(businessType ?? DEFAULT_BUSINESS_TYPE);
+        if (businessType != null) requireBusinessType(businessType);
         // Check if already in Wuarike
         const existing = await this.placesRepo.findOne({ where: { googlePlaceId } });
         if (existing) {
-            return this.claimPlace(existing.id, user, type);
+            return this.claimPlace(existing.id, user, businessType);
         }
 
         // Get details from Google
@@ -175,7 +179,7 @@ export class BusinessPlacesController {
         // Create in Wuarike and assign to user
         const newPlace = this.placesRepo.create({
             ...details,
-            businessType: type,
+            businessType: businessType ?? DEFAULT_BUSINESS_TYPE,
             claimedByUserId: user.id,
             status: 'pending'
         });
