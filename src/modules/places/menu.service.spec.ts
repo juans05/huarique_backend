@@ -1,6 +1,6 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
-import { NotFoundException } from '@nestjs/common';
+import { BadRequestException, NotFoundException } from '@nestjs/common';
 import { MenuService } from './menu.service';
 import { MenuCategory } from './entities/menu-category.entity';
 import { Dish } from './entities/dish.entity';
@@ -203,6 +203,38 @@ describe('MenuService', () => {
                 expect.objectContaining({ categoryId: undefined }),
             );
         });
+
+        it('guarda kind y durationMin de un servicio', async () => {
+            dishRepo.create.mockReturnValue({});
+            dishRepo.save.mockResolvedValue({ id: 'dish-3' });
+
+            await service.createDish('place-1', { name: 'Corte clásico', price: 25, kind: 'servicio', durationMin: 30 });
+
+            expect(dishRepo.create).toHaveBeenCalledWith(
+                expect.objectContaining({ kind: 'servicio', durationMin: 30 }),
+            );
+        });
+
+        it('sin kind ni durationMin queda como producto sin duración (comportamiento de restaurante)', async () => {
+            dishRepo.create.mockReturnValue({});
+            dishRepo.save.mockResolvedValue({ id: 'dish-4' });
+
+            await service.createDish('place-1', { name: 'Ceviche' });
+
+            expect(dishRepo.create).toHaveBeenCalledWith(
+                expect.objectContaining({ kind: 'producto', durationMin: null }),
+            );
+        });
+
+        it('rechaza un kind distinto de producto/servicio', async () => {
+            await expect(service.createDish('place-1', { name: 'X', kind: 'otro' as any })).rejects.toThrow(BadRequestException);
+            expect(dishRepo.save).not.toHaveBeenCalled();
+        });
+
+        it.each([-1, 1.5, Number.NaN, '30' as any])('rechaza durationMin inválido (%p)', async (durationMin) => {
+            await expect(service.createDish('place-1', { name: 'X', kind: 'servicio', durationMin })).rejects.toThrow(BadRequestException);
+            expect(dishRepo.save).not.toHaveBeenCalled();
+        });
     });
 
     // ── updateDish ───────────────────────────────────────────────────────────
@@ -220,6 +252,24 @@ describe('MenuService', () => {
 
             expect(dishRepo.save).toHaveBeenCalledWith({ ...existing, ...dto });
             expect(result.price).toBe(35);
+        });
+
+        it('actualiza kind y durationMin, y permite borrar la duración con null', async () => {
+            const existing = { id: 'dish-1', name: 'Corte', placeId: 'p1', kind: 'producto', durationMin: 30 };
+            dishRepo.findOne.mockResolvedValue(existing);
+            dishRepo.save.mockImplementation(async (d) => d);
+
+            const a = await service.updateDish('p1', 'dish-1', { kind: 'servicio', durationMin: 45 });
+            expect(a).toMatchObject({ kind: 'servicio', durationMin: 45 });
+
+            const b = await service.updateDish('p1', 'dish-1', { durationMin: null });
+            expect(b.durationMin).toBeNull();
+        });
+
+        it('rechaza kind inválido al actualizar', async () => {
+            dishRepo.findOne.mockResolvedValue({ id: 'dish-1', placeId: 'p1' });
+            await expect(service.updateDish('p1', 'dish-1', { kind: 'otro' as any })).rejects.toThrow(BadRequestException);
+            expect(dishRepo.save).not.toHaveBeenCalled();
         });
 
         it('throws NotFoundException when dish does not exist', async () => {
