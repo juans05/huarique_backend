@@ -17,24 +17,9 @@ import { Message } from '../whatsapp/entities/message.entity';
 import { isOptOutMessage, revokeMarketingConsent } from './marketing-opt-out.util';
 import { OrderAgentService } from '../orders/order-agent.service';
 import { ContactsService } from '../contacts/contacts.service';
-
-const TONE_INSTRUCTIONS: Record<string, string> = {
-  professional: 'Tono profesional: lenguaje formal y correcto, sin emojis ni jerga, oraciones completas y precisas.',
-  casual: 'Tono casual: lenguaje relajado y coloquial, como hablando con un amigo — contracciones y expresiones informales están bien.',
-  friendly: 'Tono amistoso: cálido y cercano, usa emojis con moderación, transmite buena onda sin perder claridad.',
-};
-
-const WHATSAPP_FORMAT = `FORMATO OBLIGATORIO PARA WHATSAPP:
-- NUNCA uses ## ni ### — WhatsApp no los renderiza.
-- NUNCA uses ** para negrita — usa *texto* en su lugar.
-- Para listas usa guiones (–), no asteriscos ni markdown.
-- Prefiere texto corrido y natural sobre listas cuando sea posible.`;
-
-const INSTAGRAM_FORMAT = `FORMATO OBLIGATORIO PARA INSTAGRAM:
-- Texto plano: NUNCA uses markdown (#, **, *, listas con viñetas) — Instagram no lo renderiza.
-- Mensajes breves y directos (máximo ~600 caracteres), como en un chat.
-- Si el cliente quiere reservar o pedir, indícale que escriba por WhatsApp o visite el local si no puedes resolverlo aquí.
-- Si el cliente pide hablar con una persona o tiene una queja, pídele amablemente que deje su consulta y dile que el equipo le responderá por este mismo chat.`;
+import { Place } from '../places/entities/place.entity';
+import { DEFAULT_BUSINESS_TYPE, verticalOf } from '../places/business-types';
+import { buildSystemPrompt } from './system-prompt';
 
 @Injectable()
 export class ChatProcessorService {
@@ -62,7 +47,15 @@ export class ChatProcessorService {
     private messageRepo: Repository<Message>,
     private orderAgent: OrderAgentService,
     private contactsService: ContactsService,
+    @InjectRepository(Place)
+    private placeRepo: Repository<Place>,
   ) {}
+
+  // Rubro del local; un local que no se encuentra se trata como restaurante (como todo local anterior al multirrubro).
+  private async businessTypeOf(placeId: string): Promise<string> {
+    const place = await this.placeRepo.findOne({ where: { id: placeId }, select: { id: true, businessType: true } });
+    return place?.businessType ?? DEFAULT_BUSINESS_TYPE;
+  }
 
   // Prueba los proveedores en orden y pasa al siguiente si uno falla (key inválida, caído, etc.)
   // en vez de tirar toda la respuesta abajo apenas el proveedor preferido (Claude) tiene un problema.
@@ -116,41 +109,6 @@ export class ChatProcessorService {
     throw new Error('Ningún proveedor de IA (Claude, Grok, Gemini) pudo responder — revisa las API keys.');
   }
 
-  private buildSystemPrompt(
-    botConfig: PlaceBotConfig | null,
-    ragContext: string,
-    channel: 'whatsapp' | 'instagram' = 'whatsapp',
-    restaurantNameFallback?: string,
-    channelRules: string[] = [],
-  ): string {
-    const botName = botConfig?.botName || 'el asistente virtual';
-    const restaurantName = botConfig?.restaurantName || restaurantNameFallback || 'el restaurante';
-    const channelLabel = channel === 'instagram' ? 'mensajes directos de Instagram' : 'WhatsApp';
-    const identity = `Eres ${botName}, el asistente virtual del restaurante ${restaurantName}. Atiendes por ${channelLabel} en español, como si fueras parte del equipo.`;
-
-    const toneInstruction = TONE_INSTRUCTIONS[botConfig?.tone || 'professional'];
-
-    const behaviorRules = `REGLAS BASE (siempre aplica estas reglas):
-- ${toneInstruction}
-- Habla como una persona real, no como un robot.
-- Varía cómo empiezas cada respuesta.
-- Presenta SIEMPRE lo que sí sabes con confianza. Nunca digas "no tengo el menú completo" ni "mi información es limitada" — simplemente comparte lo que tienes.
-- Si el cliente pregunta algo puntual que no encuentras, ofrece conectarlo con el equipo solo si realmente no tienes esa info específica.
-- No inventes precios ni datos que no tengas.
-- Si el cliente quiere hacer un pedido o reserva, indícale cómo proceder de forma sencilla.
-- Respuestas cortas: máximo 3–4 oraciones salvo que el cliente pida detalle.
-
-${channel === 'instagram' ? INSTAGRAM_FORMAT : WHATSAPP_FORMAT}${channelRules.length ? `\n\nREGLAS DE ESTE CANAL:\n${channelRules.map((r) => `- ${r}`).join('\n')}` : ''}`;
-
-    const customRules = botConfig?.systemPrompt
-      ? `\nINSTRUCCIONES ADICIONALES DEL RESTAURANTE (tienen prioridad sobre las reglas base):\n${botConfig.systemPrompt}`
-      : '';
-
-    return ragContext
-      ? `${identity}\n\n${behaviorRules}${customRules}\n\nMENÚ Y DATOS DEL RESTAURANTE (esta es tu fuente de verdad — úsala COMPLETA para responder, no digas que no tienes información si está aquí):\n${ragContext}`
-      : `${identity}\n\n${behaviorRules}${customRules}`;
-  }
-
   async processDemoMessage(
     placeId: string,
     message: string,
@@ -172,6 +130,7 @@ ${channel === 'instagram' ? INSTAGRAM_FORMAT : WHATSAPP_FORMAT}${channelRules.le
     options: { restaurantName?: string; channelRules?: string[] } = {},
   ): Promise<string> {
     const botConfig = await this.botConfigService.findByPlaceId(placeId);
+    const businessType = await this.businessTypeOf(placeId);
 
     let ragContext = '';
     try {
@@ -180,11 +139,11 @@ ${channel === 'instagram' ? INSTAGRAM_FORMAT : WHATSAPP_FORMAT}${channelRules.le
     } catch { /* sin contexto */ }
 
     try {
-      const menuMarkdown = await this.menuFormatter.formatMenuToMarkdown(placeId);
+      const menuMarkdown = await this.menuFormatter.formatMenuToMarkdown(placeId, businessType);
       if (menuMarkdown) ragContext = ragContext ? `${ragContext}\n\n${menuMarkdown}` : menuMarkdown;
     } catch { /* sin menú */ }
 
-    const systemPrompt = this.buildSystemPrompt(botConfig, ragContext, channel, options.restaurantName, options.channelRules);
+    const systemPrompt = buildSystemPrompt({ botConfig, ragContext, channel, nameFallback: options.restaurantName, channelRules: options.channelRules, businessType });
 
     if (!this.anthropic && !this.grok && !this.gemini) throw new Error('No hay proveedor de IA configurado.');
     return this.generateReply(systemPrompt, history, message);
@@ -264,16 +223,20 @@ ${channel === 'instagram' ? INSTAGRAM_FORMAT : WHATSAPP_FORMAT}${channelRules.le
     }
 
     // 3b. Pedidos por WhatsApp: si el local recibe pedidos y el cliente está pidiendo, responde el agente de pedidos.
-    try {
-      const recent = await this.messageRepo.find({ where: { conversationId: conversation.id }, order: { createdAt: 'DESC' }, take: 11 });
-      const history = recent.reverse().slice(0, -1).map((m) => ({ role: m.messageType === 'INCOMING' ? ('user' as const) : ('assistant' as const), content: m.messageBody }));
-      const agent = await this.orderAgent.handle({ placeId, whatsappNumberId, customerName: contact.name, customerPhone: contact.phone, message: messageBody, history });
-      if (agent.handled) {
-        await this.sendAndLogText(conversation, agent.reply);
-        return { success: true };
+    // Solo gastronomía: fuera de ese rubro el bot informa y deriva (agendar llega en la ola 2).
+    const businessType = await this.businessTypeOf(placeId);
+    if (verticalOf(businessType) === 'gastronomia') {
+      try {
+        const recent = await this.messageRepo.find({ where: { conversationId: conversation.id }, order: { createdAt: 'DESC' }, take: 11 });
+        const history = recent.reverse().slice(0, -1).map((m) => ({ role: m.messageType === 'INCOMING' ? ('user' as const) : ('assistant' as const), content: m.messageBody }));
+        const agent = await this.orderAgent.handle({ placeId, whatsappNumberId, customerName: contact.name, customerPhone: contact.phone, message: messageBody, history });
+        if (agent.handled) {
+          await this.sendAndLogText(conversation, agent.reply);
+          return { success: true };
+        }
+      } catch (err) {
+        this.logger.error(`Agente de pedidos falló, sigue el bot normal: ${(err as Error).message}`);
       }
-    } catch (err) {
-      this.logger.error(`Agente de pedidos falló, sigue el bot normal: ${(err as Error).message}`);
     }
 
     // 4. Configuración del bot para este restaurante
@@ -303,7 +266,7 @@ ${channel === 'instagram' ? INSTAGRAM_FORMAT : WHATSAPP_FORMAT}${channelRules.le
 
     // 5b. Agregar carta digital estructurada si existe
     try {
-      const menuMarkdown = await this.menuFormatter.formatMenuToMarkdown(placeId);
+      const menuMarkdown = await this.menuFormatter.formatMenuToMarkdown(placeId, businessType);
       if (menuMarkdown) {
         this.logger.log(`Menú digital disponible: ${menuMarkdown.length} chars`);
         ragContext = ragContext
@@ -316,8 +279,8 @@ ${channel === 'instagram' ? INSTAGRAM_FORMAT : WHATSAPP_FORMAT}${channelRules.le
       this.logger.warn('Error al obtener carta digital:', err);
     }
 
-    // 6. Construir system prompt (nombre del bot + restaurante + tono + instrucciones extra)
-    const systemPrompt = this.buildSystemPrompt(botConfig, ragContext);
+    // 6. Construir system prompt (nombre del bot + negocio + rubro + tono + instrucciones extra)
+    const systemPrompt = buildSystemPrompt({ botConfig, ragContext, businessType });
 
     // 7. Historial de conversación desde wuarikes DB (últimos 20 mensajes)
     const recentMessages = await this.messageRepo.find({
