@@ -42,19 +42,13 @@ import { SubscriptionsService } from '../subscriptions/subscriptions.service';
 import { CreateSubscriptionDto } from '../subscriptions/dto/create-subscription.dto';
 
 import { GoogleReview } from './entities/google-review.entity';
-import { getVerticalConfig, isBusinessType, verticalOf } from './business-types';
-
-/** La categoría (agrupada por rubro) debe ser del mismo rubro que el tipo de negocio; sin rubro en la categoría no restringe. */
-export function assertCategoryMatchesVertical(category: Category | null, businessType: string): void {
-    if (category?.vertical && category.vertical !== verticalOf(businessType)) {
-        throw new BadRequestException('La categoría no corresponde al rubro del negocio');
-    }
-}
-
-function requireBusinessType(v: unknown): string {
-    if (!isBusinessType(v)) throw new BadRequestException('Tipo de negocio no válido');
-    return v;
-}
+import {
+    DEFAULT_BUSINESS_TYPE,
+    assertCategoryMatchesVertical,
+    categoryMatchesVertical,
+    getVerticalConfig,
+    requireBusinessType,
+} from './business-types';
 
 @ApiTags('business-places')
 @Controller('business')
@@ -138,19 +132,24 @@ export class BusinessPlacesController {
 
     @Post('onboarding/claim/:id')
     @ApiOperation({ summary: 'Claim an existing Wuarike place' })
-    async claimPlace(@Param('id') id: string, @CurrentUser() user: any, @Body('businessType') businessType: string) {
-        // El tipo elegido por el dueño reemplaza al que tuviera el local.
-        const type = requireBusinessType(businessType);
+    async claimPlace(@Param('id') id: string, @CurrentUser() user: any, @Body('businessType') businessType?: string) {
+        // El tipo elegido por el dueño reemplaza al que tuviera el local. Sin tipo (cliente anterior al multirrubro) → restaurante.
+        const type = requireBusinessType(businessType ?? DEFAULT_BUSINESS_TYPE);
+        const place = await this.placesRepo.findOne({ where: { id }, relations: ['category'] });
+        if (!place) throw new NotFoundException('Lugar no encontrado');
+        if (place.claimedByUserId) throw new BadRequestException('Este lugar ya ha sido reclamado');
+
         const result = await this.placesRepo.update(
             { id, claimedByUserId: IsNull() },
-            { claimedByUserId: user.id, status: 'pending', businessType: type }
+            {
+                claimedByUserId: user.id,
+                status: 'pending',
+                businessType: type,
+                // Una categoría de otro rubro ya no corresponde: se quita (no se borra nada más).
+                ...(categoryMatchesVertical(place.category, type) ? {} : { categoryId: null }),
+            }
         );
-
-        if (result.affected === 0) {
-            const place = await this.placesRepo.findOne({ where: { id } });
-            if (!place) throw new NotFoundException('Lugar no encontrado');
-            throw new BadRequestException('Este lugar ya ha sido reclamado');
-        }
+        if (result.affected === 0) throw new BadRequestException('Este lugar ya ha sido reclamado');
 
         return { message: 'Reclamación iniciada con éxito', placeId: id };
     }
@@ -159,10 +158,10 @@ export class BusinessPlacesController {
     @ApiOperation({ summary: 'Import a place from Google and claim it' })
     async importPlace(
         @Body('googlePlaceId') googlePlaceId: string,
-        @Body('businessType') businessType: string,
+        @Body('businessType') businessType: string | undefined,
         @CurrentUser() user: any,
     ) {
-        const type = requireBusinessType(businessType);
+        const type = requireBusinessType(businessType ?? DEFAULT_BUSINESS_TYPE);
         // Check if already in Wuarike
         const existing = await this.placesRepo.findOne({ where: { googlePlaceId } });
         if (existing) {
@@ -202,7 +201,7 @@ export class BusinessPlacesController {
         const newPlace = this.placesRepo.create({
             name,
             address: dto.address?.trim() || '',
-            businessType: dto.businessType,
+            businessType: dto.businessType ?? DEFAULT_BUSINESS_TYPE,
             claimedByUserId: user.id,
             status: 'pending'
         });
@@ -327,14 +326,23 @@ export class BusinessPlacesController {
 
         if (data.name !== undefined) place.name = data.name;
         if (data.address !== undefined) place.address = data.address;
-        if (data.businessType !== undefined) place.businessType = requireBusinessType(data.businessType);
-        if (data.categoryId !== undefined) place.categoryId = data.categoryId;
-        // La categoría que quede asignada debe ser del rubro del tipo de negocio.
         if (data.businessType !== undefined || data.categoryId !== undefined) {
-            const category = place.categoryId
-                ? await this.categoryRepo.findOne({ where: { id: place.categoryId } })
-                : null;
-            assertCategoryMatchesVertical(category, place.businessType);
+            const newType = data.businessType !== undefined ? requireBusinessType(data.businessType) : place.businessType;
+            const typeChanged = newType !== place.businessType;
+            if (data.categoryId !== undefined) {
+                // Categoría enviada: solo se valida si ella o el tipo cambian respecto de lo guardado.
+                if (data.categoryId && (typeChanged || data.categoryId !== place.categoryId)) {
+                    const category = await this.categoryRepo.findOne({ where: { id: data.categoryId } });
+                    if (!category) throw new BadRequestException('Categoría no encontrada');
+                    assertCategoryMatchesVertical(category, newType);
+                }
+                place.categoryId = data.categoryId;
+            } else if (typeChanged && place.categoryId) {
+                // Cambió de rubro y no se envió categoría: se quita la que ya no corresponde, sin error.
+                const current = await this.categoryRepo.findOne({ where: { id: place.categoryId } });
+                if (!categoryMatchesVertical(current, newType)) place.categoryId = null;
+            }
+            place.businessType = newType;
         }
         if (data.districtId !== undefined) place.districtId = data.districtId;
         if (data.openHoursText !== undefined) place.openHoursText = data.openHoursText;

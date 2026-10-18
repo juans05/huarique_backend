@@ -13,7 +13,8 @@ export class CreateOnboardingPlaceDto {
     @IsString()
     address?: string;
 
-    @ApiProperty({ example: 'barberia', enum: Object.keys(BUSINESS_TYPES) })
+    @ApiPropertyOptional({ example: 'barberia', enum: Object.keys(BUSINESS_TYPES), description: "Si se omite se asume 'restaurante'" })
+    @IsOptional()
     @IsIn(Object.keys(BUSINESS_TYPES), { message: 'Tipo de negocio no válido' })
-    businessType: string;
+    businessType?: string;
 }

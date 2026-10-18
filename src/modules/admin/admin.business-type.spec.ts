@@ -25,4 +25,18 @@ describe('AdminService.setBusinessType', () => {
         const { svc } = svcWith(null);
         await expect(svc.setBusinessType('p1', 'spa')).rejects.toBeInstanceOf(NotFoundException);
     });
+
+    it('si cambia de rubro, quita la categoría que ya no corresponde', async () => {
+        const { svc, placesRepository } = svcWith({ id: 'p1', category: { id: 'c1', vertical: 'gastronomia' } });
+        await svc.setBusinessType('p1', 'barberia');
+        expect(placesRepository.update).toHaveBeenCalledWith('p1', { businessType: 'barberia', categoryId: null });
+    });
+
+    it('conserva la categoría del mismo rubro o sin rubro', async () => {
+        for (const vertical of ['gastronomia', null]) {
+            const { svc, placesRepository } = svcWith({ id: 'p1', category: { id: 'c1', vertical } });
+            await svc.setBusinessType('p1', 'cafeteria');
+            expect(placesRepository.update).toHaveBeenCalledWith('p1', { businessType: 'cafeteria' });
+        }
+    });
 });

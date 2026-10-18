@@ -27,7 +27,7 @@ import { ComplaintBookEntry } from '../complaint-book/entities/complaint-book-en
 import { buildFolio } from '../complaint-book/complaint-book.service';
 import { FavoritePlace } from '../places/entities/favorite-place.entity';
 import { WuarikesHereRequest } from '../places/entities/wuarikes-here-request.entity';
-import { isBusinessType } from '../places/business-types';
+import { categoryMatchesVertical, requireBusinessType } from '../places/business-types';
 
 // "Lima Cercado" en el scraper corresponde al distrito "Lima" en la tabla ubigeos
 const DISTRICT_ALIASES: Record<string, string> = { 'Lima Cercado': 'Lima' };
@@ -697,10 +697,14 @@ export class AdminService {
     }
 
     async setBusinessType(placeId: string, businessType: string) {
-        if (!isBusinessType(businessType)) throw new BadRequestException('Tipo de negocio no válido');
-        const place = await this.placesRepository.findOne({ where: { id: placeId } });
+        requireBusinessType(businessType);
+        const place = await this.placesRepository.findOne({ where: { id: placeId }, relations: ['category'] });
         if (!place) throw new NotFoundException('Local no encontrado');
-        await this.placesRepository.update(placeId, { businessType });
+        // Si cambia de rubro, la categoría de otro rubro se quita (no se borra nada más).
+        await this.placesRepository.update(placeId, {
+            businessType,
+            ...(categoryMatchesVertical(place.category, businessType) ? {} : { categoryId: null }),
+        });
         return { message: 'Tipo de negocio actualizado', businessType };
     }
 
