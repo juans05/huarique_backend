@@ -15,6 +15,10 @@ export class Category {
     @Column({ nullable: true })
     icon: string;
 
+    /** Rubro al que pertenece la categoría (ver business-types.ts). */
+    @Column({ type: 'varchar', nullable: true })
+    vertical: string | null;
+
     @OneToMany(() => Place, (place) => place.category)
     places: Place[];
 }

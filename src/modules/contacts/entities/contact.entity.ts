@@ -2,6 +2,7 @@ import { Entity, PrimaryGeneratedColumn, Column, ManyToOne, JoinColumn, CreateDa
 import { Place } from '../../places/entities/place.entity';
 
 @Entity('contacts')
+@Index('uq_contacts_place_phone', ['placeId', 'phone'], { unique: true })
 export class Contact {
     @PrimaryGeneratedColumn('uuid')
     id: string;
@@ -32,11 +33,11 @@ export class Contact {
 
     @Column({
         type: 'enum',
-        enum: ['whatsapp', 'feedback', 'import'],
+        enum: ['whatsapp', 'feedback', 'import', 'order', 'loyalty'],
         default: 'import'
     })
     @Index()
-    source: 'whatsapp' | 'feedback' | 'import';
+    source: 'whatsapp' | 'feedback' | 'import' | 'order' | 'loyalty';
 
     @Column({ name: 'import_batch_id', nullable: true })
     importBatchId: string;
