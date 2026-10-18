@@ -46,7 +46,7 @@ const build = (
   // Nunca se llama a un proveedor de IA real: se simula que hay uno configurado y se intercepta generateReply.
   (svc as any).anthropic = {};
   const generateReply = jest.spyOn(svc as any, 'generateReply').mockResolvedValue('respuesta de prueba');
-  return { svc, contacts, orderAgent, menuFormatter, generateReply, placeRepo, sender };
+  return { svc, contacts, orderAgent, menuFormatter, generateReply, placeRepo, sender, messageRepo, conversationRepo };
 };
 
 describe('ChatProcessorService: cliente único', () => {
@@ -161,5 +161,42 @@ describe('ChatProcessorService: nombre del local y saludo del menú según el ru
     const { svc, sender } = build(null, { businessType: 'barberia', botConfig: { ...menuBot, restaurantName: 'Barbería Don Pepe' }, menuOptions });
     await incoming(svc);
     expect(sender.sendText).toHaveBeenCalledWith('wn1', '51999888777', expect.stringContaining('Soy el asistente de Barbería Don Pepe.'));
+  });
+});
+
+// "Tu día" cuenta como pendiente el chat humano cuyo último mensaje es del bot (isFromAi), p. ej. la derivación del menú.
+// Los mensajes del operador salen por ConversationsController con isFromAi: false, así que un bot nunca los suplanta.
+describe('ChatProcessorService: los textos automáticos del bot se guardan como del bot', () => {
+  const conv = () => ({ id: 'conv0', placeId: 'p1', whatsappNumberId: 'wn1', customerPhone: '51999888777', customerName: 'Ana', mode: 'bot', status: 'abierto' });
+  const menuBot = { botName: 'Wari', restaurantName: '', tone: 'professional', systemPrompt: null, responseMode: 'menu' };
+  const incoming = (svc: ChatProcessorService, text: string) =>
+    svc.processIncomingMessage('p1', 'wn1', { name: 'Ana', phone: '51999888777' }, text);
+  const savedBot = (messageRepo: { create: jest.Mock }, body: string) =>
+    messageRepo.create.mock.calls.map((c) => c[0]).find((m: any) => m.messageType === 'OUTGOING' && m.messageBody === body);
+
+  it('la derivación a una persona desde el menú pasa el chat a modo humano y su texto queda isFromAi: true', async () => {
+    const c = conv();
+    const { svc, messageRepo } = build(c, { botConfig: menuBot, menuOptions: [{ label: 'Hablar con alguien', actionType: 'human', actionValue: 'Te paso con el equipo' }] });
+    await incoming(svc, '1');
+    expect(c.mode).toBe('human');
+    expect(savedBot(messageRepo, 'Te paso con el equipo')).toMatchObject({ isFromAi: true });
+  });
+
+  it('el saludo y las respuestas de texto del menú también quedan isFromAi: true', async () => {
+    const { svc, messageRepo } = build(null, { botConfig: menuBot, menuOptions: [{ label: 'Horarios', actionType: 'text', actionValue: 'Abrimos a las 9' }] });
+    await incoming(svc, 'Hola'); // conversación nueva: saludo del menú
+    expect(messageRepo.create.mock.calls.map((c) => c[0]).filter((m: any) => m.messageType === 'OUTGOING')).toEqual([
+      expect.objectContaining({ isFromAi: true, messageBody: expect.stringContaining('Soy el asistente') }),
+    ]);
+    const second = build(conv(), { botConfig: menuBot, menuOptions: [{ label: 'Horarios', actionType: 'text', actionValue: 'Abrimos a las 9' }] });
+    await incoming(second.svc, '1');
+    expect(savedBot(second.messageRepo, 'Abrimos a las 9')).toMatchObject({ isFromAi: true });
+  });
+
+  it('la respuesta del agente de pedidos queda isFromAi: true', async () => {
+    const { svc, orderAgent, messageRepo } = build(conv());
+    orderAgent.handle.mockResolvedValue({ handled: true, reply: 'Tu pedido está en camino' } as any);
+    await incoming(svc, 'quiero un ceviche');
+    expect(savedBot(messageRepo, 'Tu pedido está en camino')).toMatchObject({ isFromAi: true });
   });
 });

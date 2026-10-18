@@ -19,8 +19,10 @@ const card = (over: Record<string, any> = {}) => ({
     placeId: 'p1', marketingConsent: true, totalVisits: 1, lastVisitAt: null, lastWinbackSentAt: null, ...over,
 });
 
+const msg = (messageType: 'INCOMING' | 'OUTGOING', isFromAi = false) => ({ messageType, isFromAi });
+
 interface Opts {
-    lastMessageTypes?: string[]; // tipo del último mensaje de cada chat humano abierto
+    chats?: ReturnType<typeof msg>[][]; // mensajes (en orden) de cada chat humano abierto
     counts?: { botChats: string; weekChats: string };
     cards?: any[];
     program?: any;
@@ -33,8 +35,8 @@ interface Opts {
 const build = (o: Opts = {}) => {
     const messageRepo = {
         query: jest.fn(async (sql: string) =>
-            sql.includes('DISTINCT ON')
-                ? (o.lastMessageTypes ?? []).map((messageType) => ({ messageType }))
+            sql.includes('DISTINCT ON') // el último mensaje de cada chat, como el DISTINCT ON de la consulta real
+                ? (o.chats ?? []).map((messages) => messages[messages.length - 1])
                 : [o.counts ?? { botChats: '0', weekChats: '0' }]),
     };
     const cardRepo = { count: jest.fn(async ({ where }: any) => (o.cards ?? []).filter((c) => matches(c, where)).length) };
@@ -65,11 +67,25 @@ const build = (o: Opts = {}) => {
 
 describe('TodayService.getToday', () => {
     it('cuenta el chat humano cuyo último mensaje es entrante y no el que ya respondió el equipo', async () => {
-        const { svc, messageRepo } = build({ lastMessageTypes: ['INCOMING', 'OUTGOING', 'OUTGOING'] });
+        const { svc, messageRepo } = build({
+            chats: [
+                [msg('INCOMING')], // el cliente espera
+                [msg('INCOMING'), msg('OUTGOING')], // ya respondió una persona
+                [msg('INCOMING'), msg('OUTGOING'), msg('INCOMING'), msg('OUTGOING')],
+            ],
+        });
         expect((await svc.getToday('p1')).pendingHumanChats).toBe(1);
         const sql = messageRepo.query.mock.calls.find(([s]) => s.includes('DISTINCT ON'))![0] as string;
         expect(sql).toContain("c.mode = 'human'");
         expect(sql).toContain("c.status <> 'cerrado'");
+    });
+
+    it('un chat que el menú del bot derivó a una persona cuenta como pendiente hasta que alguien del equipo responde', async () => {
+        // El cliente elige "hablar con alguien"; el bot confirma (OUTGOING del bot) y la conversación pasa a modo humano.
+        const handoff = [msg('INCOMING'), msg('OUTGOING', true), msg('INCOMING'), msg('OUTGOING', true)];
+        expect((await build({ chats: [handoff] }).svc.getToday('p1')).pendingHumanChats).toBe(1);
+        // Responde el operador (isFromAi: false): ya no está pendiente.
+        expect((await build({ chats: [[...handoff, msg('OUTGOING')]] }).svc.getToday('p1')).pendingHumanChats).toBe(0);
     });
 
     it('una tarjeta sin consentimiento, con visita reciente o sin visita no suma a inactiveLoyalCustomers', async () => {
@@ -88,7 +104,7 @@ describe('TodayService.getToday', () => {
     it('arma el resumen: bot, winback, pedidos y stats de la semana', async () => {
         const { svc, orderRepo } = build({
             counts: { botChats: '4', weekChats: '9' },
-            program: { winbackEnabled: true },
+            program: { winbackEnabled: true, isActive: true },
             newOrders: 3,
             place: { id: 'p1', googleLocationName: 'locations/1', googleRating: '4.60' },
             cards: [
@@ -108,6 +124,11 @@ describe('TodayService.getToday', () => {
             weekStats: { chats: 9, returningCustomers: 1, googleRating: 4.6 },
         });
         expect(orderRepo.count).toHaveBeenCalledWith({ where: { placeId: 'p1', status: 'NUEVO' } });
+    });
+
+    it('winbackEnabled exige programa activo: el envío diario solo corre con winbackEnabled e isActive', async () => {
+        expect((await build({ program: { winbackEnabled: true, isActive: false } }).svc.getToday('p1')).winbackEnabled).toBe(false);
+        expect((await build({ program: { winbackEnabled: false, isActive: true } }).svc.getToday('p1')).winbackEnabled).toBe(false);
     });
 
     it('sin programa de fidelización, winbackEnabled es false; sin local, la calificación es null', async () => {
@@ -135,10 +156,17 @@ describe('TodayService.getReviewsToday', () => {
         expect(await svc.getReviewsToday('p1')).toEqual({ connected: true, unanswered: 2 });
     });
 
-    it('si Google falla devuelve { connected: true, unanswered: 0 } sin lanzar ni cachear', async () => {
-        const { svc, redis } = build({ place: withLocation, googleError: new Error('Google caído') });
+    it('si Google falla devuelve { connected: true, unanswered: 0 } sin lanzar', async () => {
+        const { svc } = build({ place: withLocation, googleError: new Error('Google caído') });
         await expect(svc.getReviewsToday('p1')).resolves.toEqual({ connected: true, unanswered: 0 });
-        expect(redis.set).not.toHaveBeenCalled();
+    });
+
+    it('si Google falla, cachea el fallo 60 s y las siguientes cargas de Inicio no vuelven a llamarlo', async () => {
+        const { svc, google, redis } = build({ place: withLocation, googleError: new Error('Google caído') });
+        expect(await svc.getReviewsToday('p1')).toEqual({ connected: true, unanswered: 0 });
+        expect(await svc.getReviewsToday('p1')).toEqual({ connected: true, unanswered: 0 });
+        expect(google.getAllReviews).toHaveBeenCalledTimes(1);
+        expect(redis.set).toHaveBeenCalledWith('today:reviews:p1', '0', 'EX', 60);
     });
 
     it('la segunda llamada sale de la caché de Redis (Google se llama una sola vez, TTL 600 s)', async () => {
