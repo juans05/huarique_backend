@@ -19,12 +19,14 @@ export interface TodayCache {
 
 export const TODAY_CACHE_FACTORY = 'TODAY_CACHE_FACTORY';
 const REVIEWS_TTL_SECONDS = 600;
+const REVIEWS_FAILURE_TTL_SECONDS = 60; // si Google falla, no se le vuelve a preguntar en cada carga de Inicio
 const INACTIVITY_DAYS = 30; // mismo umbral que LoyaltyService.sendInactivityWinbacks
 const DAY_MS = 86400_000;
 
-// Último mensaje de cada chat humano abierto: solo cuenta pendiente el que cerró el cliente (INCOMING).
+// Último mensaje de cada chat humano abierto. Pendiente = lo cerró el cliente (INCOMING) o un texto automático del
+// bot (is_from_ai), p. ej. la derivación del menú: nadie del equipo ha respondido todavía.
 const LAST_MESSAGE_OF_OPEN_HUMAN_CHATS = `
-    SELECT DISTINCT ON (m.conversation_id) m.message_type AS "messageType"
+    SELECT DISTINCT ON (m.conversation_id) m.message_type AS "messageType", m.is_from_ai AS "isFromAi"
     FROM wuarike_db.messages m
     JOIN wuarike_db.conversations c ON c.id = m.conversation_id
     WHERE c.place_id = $1 AND c.mode = 'human' AND c.status <> 'cerrado'
@@ -53,7 +55,8 @@ export class TodayService implements OnModuleInit, OnModuleDestroy {
         @InjectRepository(Place) private readonly placeRepo: Repository<Place>,
         private readonly googleBusiness: GoogleBusinessService,
         @Optional() @Inject(TODAY_CACHE_FACTORY) private readonly createCache: (url: string) => TodayCache =
-            (url) => new Redis(url, { maxRetriesPerRequest: 1, enableOfflineQueue: false }) as unknown as TodayCache,
+            // family: 0 = lookup dual-stack; *.railway.internal es IPv6-only en varios entornos (ver app.module.ts).
+            (url) => new Redis(url, { maxRetriesPerRequest: 1, enableOfflineQueue: false, family: 0 }) as unknown as TodayCache,
     ) { }
 
     onModuleInit() {
@@ -70,8 +73,8 @@ export class TodayService implements OnModuleInit, OnModuleDestroy {
         const since7d = new Date(now - 7 * DAY_MS);
         const inactiveBefore = new Date(now - INACTIVITY_DAYS * DAY_MS);
 
-        const [lastTypes, [counts], inactive, winbacks, returning, program, newOrders, place] = await Promise.all([
-            this.messageRepo.query(LAST_MESSAGE_OF_OPEN_HUMAN_CHATS, [placeId]) as Promise<{ messageType: string }[]>,
+        const [lastMessages, [counts], inactive, winbacks, returning, program, newOrders, place] = await Promise.all([
+            this.messageRepo.query(LAST_MESSAGE_OF_OPEN_HUMAN_CHATS, [placeId]) as Promise<{ messageType: string; isFromAi: boolean }[]>,
             this.messageRepo.query(CHAT_COUNTS, [placeId, since24h, since7d]) as Promise<{ botChats: string; weekChats: string }[]>,
             this.cardRepo.count({ where: { placeId, marketingConsent: true, lastVisitAt: LessThan(inactiveBefore) } }),
             this.cardRepo.count({ where: { placeId, lastWinbackSentAt: MoreThanOrEqual(since7d) } }),
@@ -83,9 +86,9 @@ export class TodayService implements OnModuleInit, OnModuleDestroy {
 
         return {
             botChatsSince24h: Number(counts?.botChats ?? 0),
-            pendingHumanChats: lastTypes.filter((r) => r.messageType === 'INCOMING').length,
+            pendingHumanChats: lastMessages.filter((r) => r.messageType === 'INCOMING' || r.isFromAi).length,
             inactiveLoyalCustomers: inactive,
-            winbackEnabled: program?.winbackEnabled ?? false,
+            winbackEnabled: !!(program?.winbackEnabled && program.isActive), // el envío diario exige ambos (sendInactivityWinbacks)
             winbacksSentThisWeek: winbacks,
             newOrders,
             weekStats: {
@@ -109,17 +112,20 @@ export class TodayService implements OnModuleInit, OnModuleDestroy {
             this.logger.warn(`Caché de reseñas no disponible (lectura): ${err?.message}`);
         }
 
-        let unanswered: number;
+        // Si Google falla se cachea el 0 solo 60 s (misma clave): Inicio no insiste en cada carga mientras Google falla
+        // (p. ej. aprobación de Business Profile pendiente) y se reintenta pronto.
+        let unanswered = 0;
+        let ttl = REVIEWS_TTL_SECONDS;
         try {
             const { reviews } = await this.googleBusiness.getAllReviews(placeId);
             unanswered = reviews.filter((r) => !r.reviewReply).length;
         } catch (err: any) {
-            this.logger.error(`No se pudieron leer las reseñas de Google (place ${placeId}): ${err?.message}`);
-            return { connected: true, unanswered: 0 };
+            this.logger.warn(`No se pudieron leer las reseñas de Google (place ${placeId}): ${err?.message}`);
+            ttl = REVIEWS_FAILURE_TTL_SECONDS;
         }
 
         try {
-            await this.cache.set(key, String(unanswered), 'EX', REVIEWS_TTL_SECONDS);
+            await this.cache.set(key, String(unanswered), 'EX', ttl);
         } catch (err: any) {
             this.logger.warn(`Caché de reseñas no disponible (escritura): ${err?.message}`);
         }

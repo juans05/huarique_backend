@@ -371,12 +371,15 @@ export class ChatProcessorService {
     return 'image/jpeg';
   }
 
+  // Texto automático del bot (menú, derivación, agente de pedidos, baja): isFromAi para que "Tu día" lo distinga de
+  // lo que escribe una persona (ConversationsController guarda isFromAi: false).
   private async sendAndLogText(conversation: Conversation, text: string): Promise<void> {
     await this.messageRepo.save(
       this.messageRepo.create({
         conversationId: conversation.id,
         messageType: 'OUTGOING',
         messageBody: text,
+        isFromAi: true,
       }),
     );
     this.eventEmitter.emit('whatsapp.message.received', {
