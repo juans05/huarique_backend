@@ -17,6 +17,7 @@ import { SubscriptionsModule } from '../subscriptions/subscriptions.module';
 import { TeamModule } from '../team/team.module';
 import { WhatsAppModule } from '../whatsapp/whatsapp.module';
 import { UsersModule } from '../users/users.module';
+import { ContactsModule } from '../contacts/contacts.module';
 
 @Module({
   imports: [
@@ -26,6 +27,7 @@ import { UsersModule } from '../users/users.module';
     TeamModule,
     WhatsAppModule,
     UsersModule,
+    ContactsModule,
   ],
   controllers: [LoyaltyController, LoyaltyPublicController, LoyaltyMeController],
   providers: [LoyaltyService, WalletService, WalletCampaignProcessor],

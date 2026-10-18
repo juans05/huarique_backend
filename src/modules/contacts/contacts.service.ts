@@ -1,4 +1,4 @@
-import { Injectable, BadRequestException, NotFoundException, Logger } from '@nestjs/common';
+import { Injectable, BadRequestException, ConflictException, NotFoundException, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, Like } from 'typeorm';
 import { Contact } from './entities/contact.entity';
@@ -8,8 +8,36 @@ import { CreateContactDto } from './dto/create-contact.dto';
 import { UpdateContactDto } from './dto/update-contact.dto';
 import { PaginatedResponse } from '../../common/dto/pagination.dto';
 import { AuditLogService } from '../audit-log/audit-log.service';
+import { Order } from '../orders/entities/order.entity';
+import { normalizePhone } from '../orders/order-rules';
+import { Conversation } from '../whatsapp/entities/conversation.entity';
+import { LoyaltyCard } from '../loyalty/entities/loyalty-card.entity';
 import * as Papa from 'papaparse';
 import * as XLSX from 'xlsx';
+
+export type ContactSource = Contact['source'];
+
+export interface TimelineEntry {
+    at: string;
+    kind: 'order' | 'conversation' | 'loyalty';
+    title: string;
+    /** Solo en pedidos, en céntimos (igual que la API de pedidos). */
+    amount?: number;
+}
+
+const TIMELINE_MAX = 100;
+// Campos que un alta posterior puede completar en un contacto existente (solo si estaban vacíos).
+const FILL_KEYS = ['name', 'email', 'dni', 'tags', 'customFields'] as const;
+const ORDER_STATUS_LABEL: Record<string, string> = {
+    PENDIENTE_PAGO: 'pendiente de pago', NUEVO: 'nuevo', EN_PREPARACION: 'en preparación', LISTO: 'listo', ENTREGADO: 'entregado', CANCELADO: 'cancelado',
+};
+const CONVERSATION_STATUS_LABEL: Record<string, string> = { abierto: 'abierta', pendiente: 'pendiente', cerrado: 'cerrada' };
+
+const isEmpty = (v: unknown) => v === null || v === undefined || v === '' || (Array.isArray(v) && v.length === 0);
+const isUniqueViolation = (err: any) => (err?.code ?? err?.driverError?.code) === '23505';
+// El mismo número aparece con o sin prefijo 51 según de dónde venga, así que la ficha cruza por los últimos 9 dígitos.
+const lastNine = (phone: string | null | undefined) => (phone ?? '').replace(/\D/g, '').slice(-9);
+const samePhone = (column: string) => `right(regexp_replace(coalesce(${column}, ''), '\\D', '', 'g'), 9) = :last9`;
 
 @Injectable()
 export class ContactsService {
@@ -21,7 +49,73 @@ export class ContactsService {
         @InjectRepository(ContactImport)
         private importRepo: Repository<ContactImport>,
         private auditLogService: AuditLogService,
+        @InjectRepository(Order)
+        private ordersRepo: Repository<Order>,
+        @InjectRepository(Conversation)
+        private conversationsRepo: Repository<Conversation>,
+        @InjectRepository(LoyaltyCard)
+        private cardsRepo: Repository<LoyaltyCard>,
     ) {}
+
+    /**
+     * Cliente único: un contacto por (local, teléfono normalizado). Devuelve null si el teléfono no tiene dígitos.
+     * El consentimiento de marketing nunca se infiere: nace en false salvo que quien llama lo pase en true
+     * (solo la tarjeta de fidelización y las opiniones lo piden de forma explícita) y nunca baja de true a false.
+     */
+    async upsertByPhone(
+        placeId: string,
+        phone: string,
+        opts: { name?: string; source: ContactSource; marketingConsent?: boolean },
+    ): Promise<Contact | null> {
+        const normalized = normalizePhone(phone);
+        if (!normalized) return null;
+        const { contact } = await this.upsert(placeId, normalized, opts.source, opts.marketingConsent === true, { name: opts.name?.trim() || null });
+        return contact;
+    }
+
+    private async upsert(
+        placeId: string,
+        phone: string,
+        source: ContactSource,
+        consent: boolean,
+        fields: Partial<Pick<Contact, 'name' | 'email' | 'dni' | 'tags' | 'customFields' | 'importBatchId'>> = {},
+    ): Promise<{ contact: Contact; created: boolean }> {
+        const existing = await this.contactRepo.findOne({ where: { placeId, phone } });
+        if (existing) return { contact: await this.fillMissing(existing, consent, fields), created: false };
+        try {
+            const contact = await this.contactRepo.save(this.contactRepo.create({ ...fields, placeId, phone, source, marketingConsent: consent }));
+            return { contact, created: true };
+        } catch (err) {
+            // Dos altas del mismo cliente a la vez: gana la primera, la otra completa sobre ella.
+            if (!isUniqueViolation(err)) throw err;
+            const winner = await this.contactRepo.findOne({ where: { placeId, phone } });
+            if (!winner) throw err;
+            return { contact: await this.fillMissing(winner, consent, fields), created: false };
+        }
+    }
+
+    private async fillMissing(existing: Contact, consent: boolean, fields: Record<string, any>): Promise<Contact> {
+        let dirty = false;
+        for (const key of FILL_KEYS) {
+            if (!isEmpty(fields[key]) && isEmpty(existing[key])) {
+                (existing as any)[key] = fields[key];
+                dirty = true;
+            }
+        }
+        if (consent && !existing.marketingConsent) {
+            existing.marketingConsent = true;
+            dirty = true;
+        }
+        return dirty ? this.contactRepo.save(existing) : existing;
+    }
+
+    /** Teléfono de un alta o edición manual: null si viene vacío; 400 si trae algo sin dígitos. */
+    private cleanPhone(phone?: string | null): string | null {
+        if (phone === null || phone === undefined || String(phone).trim() === '') return null;
+        const normalized = normalizePhone(String(phone));
+        if (!normalized) throw new BadRequestException('El teléfono no es válido');
+        return normalized;
+    }
 
     async findAll(query: QueryContactDto): Promise<PaginatedResponse<Contact>> {
         const { page, search, source, tag, placeId } = query;
@@ -62,12 +156,21 @@ export class ContactsService {
     }
 
     async create(dto: CreateContactDto, placeId: string): Promise<Contact> {
+        const phone = this.cleanPhone(dto.phone);
+        const duplicate = 'Ya existe un contacto con ese teléfono en este local';
+        if (phone && (await this.contactRepo.findOne({ where: { placeId, phone } }))) throw new ConflictException(duplicate);
         const contact = this.contactRepo.create({
             ...dto,
+            phone,
             placeId,
             source: dto.source || 'import',
-        });
-        const saved = await this.contactRepo.save(contact);
+        } as Partial<Contact>);
+        let saved: Contact;
+        try {
+            saved = await this.contactRepo.save(contact);
+        } catch (err) {
+            throw isUniqueViolation(err) ? new ConflictException(duplicate) : err;
+        }
         await this.auditLogService.log({
             action: 'contact.created',
             entityType: 'contact',
@@ -81,8 +184,21 @@ export class ContactsService {
 
     async update(id: string, dto: UpdateContactDto): Promise<Contact> {
         const contact = await this.findById(id);
-        Object.assign(contact, dto);
-        return this.contactRepo.save(contact);
+        const patch: Partial<Contact> = { ...dto } as Partial<Contact>;
+        if (dto.phone !== undefined) {
+            const phone = this.cleanPhone(dto.phone);
+            if (phone && phone !== contact.phone) {
+                const other = await this.contactRepo.findOne({ where: { placeId: contact.placeId, phone } });
+                if (other && other.id !== id) throw new ConflictException('Ya existe un contacto con ese teléfono en este local');
+            }
+            patch.phone = phone as string;
+        }
+        Object.assign(contact, patch);
+        try {
+            return await this.contactRepo.save(contact);
+        } catch (err) {
+            throw isUniqueViolation(err) ? new ConflictException('Ya existe un contacto con ese teléfono en este local') : err;
+        }
     }
 
     async delete(id: string): Promise<void> {
@@ -136,19 +252,23 @@ export class ContactsService {
             try {
                 const raw = rows[i];
                 const mapped = this.mapColumns(raw, columnMapping);
-                const contact = this.contactRepo.create({
+                const phone = normalizePhone(mapped.phone === null || mapped.phone === undefined ? null : String(mapped.phone));
+                if (!phone) throw new Error('Teléfono vacío o inválido');
+                // Un cliente repetido en el archivo, o que ya existe, solo completa campos vacíos; el consentimiento solo sube.
+                await this.upsert(
                     placeId,
-                    name: mapped.name || null,
-                    phone: mapped.phone || null,
-                    email: mapped.email || null,
-                    dni: mapped.dni || null,
-                    customFields: this.extractCustomFields(raw, columnMapping),
-                    source: 'import',
-                    importBatchId: importRecord.id,
-                    tags: mapped.tags ? (typeof mapped.tags === 'string' ? mapped.tags.split(',').map((t: string) => t.trim()) : mapped.tags) : null,
-                    marketingConsent: mapped.marketingConsent === true || mapped.marketingConsent === 'true' || mapped.marketingConsent === 'yes',
-                });
-                await this.contactRepo.save(contact);
+                    phone,
+                    'import',
+                    mapped.marketingConsent === true || mapped.marketingConsent === 'true' || mapped.marketingConsent === 'yes',
+                    {
+                        name: mapped.name || null,
+                        email: mapped.email || null,
+                        dni: mapped.dni || null,
+                        customFields: this.extractCustomFields(raw, columnMapping),
+                        importBatchId: importRecord.id,
+                        tags: mapped.tags ? (typeof mapped.tags === 'string' ? mapped.tags.split(',').map((t: string) => t.trim()) : mapped.tags) : null,
+                    },
+                );
                 imported++;
             } catch (err: any) {
                 failed++;
@@ -287,19 +407,10 @@ export class ContactsService {
 
         let synced = 0;
         for (const row of result) {
-            const existing = await this.contactRepo.findOne({
-                where: { placeId, phone: row.customer_phone, source: 'whatsapp' },
-            });
-            if (!existing) {
-                const contact = this.contactRepo.create({
-                    placeId,
-                    name: row.customer_name || null,
-                    phone: row.customer_phone,
-                    source: 'whatsapp',
-                });
-                await this.contactRepo.save(contact);
-                synced++;
-            }
+            const phone = normalizePhone(row.customer_phone);
+            if (!phone) continue;
+            const { created } = await this.upsert(placeId, phone, 'whatsapp', false, { name: row.customer_name || null });
+            if (created) synced++;
         }
         return synced;
     }
@@ -318,26 +429,61 @@ export class ContactsService {
             const contactVal = row.customer_contact;
             const isEmail = typeof contactVal === 'string' && contactVal.includes('@');
 
-            const existing = await this.contactRepo.findOne({
-                where: [
-                    { placeId, phone: !isEmail ? contactVal : null, source: 'feedback' },
-                    { placeId, email: isEmail ? contactVal : null, source: 'feedback' },
-                ],
-            });
-            if (!existing) {
-                const contact = this.contactRepo.create({
-                    placeId,
-                    name: row.customer_name || null,
-                    phone: !isEmail ? contactVal : null,
-                    email: isEmail ? contactVal : null,
-                    marketingConsent: row.marketing_consent || false,
-                    source: 'feedback',
-                });
-                await this.contactRepo.save(contact);
-                synced++;
+            if (isEmail) {
+                const existing = await this.contactRepo.findOne({ where: { placeId, email: contactVal, source: 'feedback' } });
+                if (!existing) {
+                    await this.contactRepo.save(this.contactRepo.create({
+                        placeId,
+                        name: row.customer_name || null,
+                        email: contactVal,
+                        marketingConsent: row.marketing_consent || false,
+                        source: 'feedback',
+                    }));
+                    synced++;
+                }
+                continue;
             }
+
+            const phone = normalizePhone(contactVal);
+            if (!phone) continue;
+            // El consentimiento de la opinión es explícito (lo pide el formulario), por eso se copia.
+            const { created } = await this.upsert(placeId, phone, 'feedback', row.marketing_consent === true, { name: row.customer_name || null });
+            if (created) synced++;
         }
         return synced;
+    }
+
+    /** Ficha del cliente: datos, tarjeta de fidelización y, en una línea de tiempo, sus pedidos y conversaciones. */
+    async getProfile(placeId: string, contactId: string): Promise<{ contact: Contact; loyaltyCard: LoyaltyCard | null; timeline: TimelineEntry[] }> {
+        const contact = await this.contactRepo.findOne({ where: { id: contactId, placeId } });
+        if (!contact) throw new NotFoundException('Contacto no encontrado');
+        const last9 = lastNine(contact.phone);
+        if (!last9) return { contact, loyaltyCard: null, timeline: [] };
+
+        const [orders, conversations, loyaltyCard] = await Promise.all([
+            this.ordersRepo.createQueryBuilder('o')
+                .where('o.placeId = :placeId', { placeId }).andWhere(samePhone('o.customerPhone'), { last9 })
+                .orderBy('o.createdAt', 'DESC').take(TIMELINE_MAX).getMany(),
+            this.conversationsRepo.createQueryBuilder('c')
+                .where('c.placeId = :placeId', { placeId }).andWhere(samePhone('c.customerPhone'), { last9 })
+                .orderBy('c.createdAt', 'DESC').take(TIMELINE_MAX).getMany(),
+            this.cardsRepo.createQueryBuilder('l')
+                .where('l.placeId = :placeId', { placeId }).andWhere(samePhone('l.customerPhone'), { last9 })
+                .orderBy('l.updatedAt', 'DESC').getOne(),
+        ]);
+
+        const timeline: TimelineEntry[] = [
+            ...orders.map((o) => ({ at: o.createdAt.toISOString(), kind: 'order' as const, title: `Pedido #${o.number} · ${ORDER_STATUS_LABEL[o.status] ?? o.status}`, amount: o.total })),
+            ...conversations.map((c) => ({ at: c.createdAt.toISOString(), kind: 'conversation' as const, title: `Conversación por WhatsApp · ${CONVERSATION_STATUS_LABEL[c.status] ?? c.status}` })),
+        ];
+        if (loyaltyCard) {
+            timeline.push({ at: loyaltyCard.createdAt.toISOString(), kind: 'loyalty', title: 'Se unió al programa de fidelización' });
+            if (loyaltyCard.lastVisitAt && loyaltyCard.totalVisits > 1) {
+                timeline.push({ at: loyaltyCard.lastVisitAt.toISOString(), kind: 'loyalty', title: `Última visita registrada (${loyaltyCard.totalVisits} en total)` });
+            }
+        }
+        timeline.sort((a, b) => b.at.localeCompare(a.at));
+        return { contact, loyaltyCard, timeline: timeline.slice(0, TIMELINE_MAX) };
     }
 
     async getImportById(id: string): Promise<ContactImport> {

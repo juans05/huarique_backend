@@ -20,6 +20,7 @@ import { OrdersStreamController } from './orders-stream.controller';
 import { PublicOrdersController } from './public-orders.controller';
 import { AuthModule } from '../auth/auth.module';
 import { AiModule } from '../ai/ai.module';
+import { ContactsModule } from '../contacts/contacts.module';
 import { OrderAgentService } from './order-agent.service';
 import { PayoutsService } from './payouts.service';
 import { AdminPayoutsController } from './admin-payouts.controller';
@@ -28,7 +29,7 @@ import { OrderEventsService } from './order-events.service';
 export const ORDER_ENTITIES = [PlaceOrderSettings, PlaceTable, Tab, Order, OrderItem, OrderPayment, PlacePayout, WhatsappOrderDraft, Dish, Place];
 
 @Module({
-    imports: [TypeOrmModule.forFeature(ORDER_ENTITIES), TeamModule, AuthModule, AiModule],
+    imports: [TypeOrmModule.forFeature(ORDER_ENTITIES), TeamModule, AuthModule, AiModule, ContactsModule],
     controllers: [StaffOrdersController, OrdersStreamController, PublicOrdersController, AdminPayoutsController],
     providers: [OrderEventsService, PinAttemptsService, OrdersService, OrderSettingsService, PaymentsService, OrderAgentService, PayoutsService],
     exports: [OrderEventsService, OrdersService, OrderSettingsService, PaymentsService, OrderAgentService],
