@@ -1,5 +1,6 @@
-import { IsString, MinLength, IsOptional } from 'class-validator';
+import { IsString, MinLength, IsOptional, IsIn } from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+import { BUSINESS_TYPES } from '../business-types';
 
 export class CreateOnboardingPlaceDto {
     @ApiProperty({ example: 'La Lucha Sanguchería' })
@@ -11,4 +12,8 @@ export class CreateOnboardingPlaceDto {
     @IsOptional()
     @IsString()
     address?: string;
+
+    @ApiProperty({ example: 'barberia', enum: Object.keys(BUSINESS_TYPES) })
+    @IsIn(Object.keys(BUSINESS_TYPES), { message: 'Tipo de negocio no válido' })
+    businessType: string;
 }
