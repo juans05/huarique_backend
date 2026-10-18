@@ -31,6 +31,7 @@ import { MenuService } from './menu.service';
 import { PromotionsService } from './promotions.service';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Place } from './entities/place.entity';
+import { Category } from './entities/category.entity';
 import { Amenity } from './entities/amenity.entity';
 import { Repository, ILike, IsNull, In } from 'typeorm';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
@@ -41,6 +42,19 @@ import { SubscriptionsService } from '../subscriptions/subscriptions.service';
 import { CreateSubscriptionDto } from '../subscriptions/dto/create-subscription.dto';
 
 import { GoogleReview } from './entities/google-review.entity';
+import { getVerticalConfig, isBusinessType, verticalOf } from './business-types';
+
+/** La categoría (agrupada por rubro) debe ser del mismo rubro que el tipo de negocio; sin rubro en la categoría no restringe. */
+export function assertCategoryMatchesVertical(category: Category | null, businessType: string): void {
+    if (category?.vertical && category.vertical !== verticalOf(businessType)) {
+        throw new BadRequestException('La categoría no corresponde al rubro del negocio');
+    }
+}
+
+function requireBusinessType(v: unknown): string {
+    if (!isBusinessType(v)) throw new BadRequestException('Tipo de negocio no válido');
+    return v;
+}
 
 @ApiTags('business-places')
 @Controller('business')
@@ -61,6 +75,8 @@ export class BusinessPlacesController {
         private placesRepo: Repository<Place>,
         @InjectRepository(Amenity)
         private amenityRepo: Repository<Amenity>,
+        @InjectRepository(Category)
+        private categoryRepo: Repository<Category>,
         @InjectRepository(GoogleReview)
         private googleReviewsRepo: Repository<GoogleReview>,
         @InjectRepository(PlaceTeamMember)
@@ -122,10 +138,12 @@ export class BusinessPlacesController {
 
     @Post('onboarding/claim/:id')
     @ApiOperation({ summary: 'Claim an existing Wuarike place' })
-    async claimPlace(@Param('id') id: string, @CurrentUser() user: any) {
+    async claimPlace(@Param('id') id: string, @CurrentUser() user: any, @Body('businessType') businessType: string) {
+        // El tipo elegido por el dueño reemplaza al que tuviera el local.
+        const type = requireBusinessType(businessType);
         const result = await this.placesRepo.update(
             { id, claimedByUserId: IsNull() },
-            { claimedByUserId: user.id, status: 'pending' }
+            { claimedByUserId: user.id, status: 'pending', businessType: type }
         );
 
         if (result.affected === 0) {
@@ -139,11 +157,16 @@ export class BusinessPlacesController {
 
     @Post('onboarding/import')
     @ApiOperation({ summary: 'Import a place from Google and claim it' })
-    async importPlace(@Body('googlePlaceId') googlePlaceId: string, @CurrentUser() user: any) {
+    async importPlace(
+        @Body('googlePlaceId') googlePlaceId: string,
+        @Body('businessType') businessType: string,
+        @CurrentUser() user: any,
+    ) {
+        const type = requireBusinessType(businessType);
         // Check if already in Wuarike
         const existing = await this.placesRepo.findOne({ where: { googlePlaceId } });
         if (existing) {
-            return this.claimPlace(existing.id, user);
+            return this.claimPlace(existing.id, user, type);
         }
 
         // Get details from Google
@@ -153,6 +176,7 @@ export class BusinessPlacesController {
         // Create in Wuarike and assign to user
         const newPlace = this.placesRepo.create({
             ...details,
+            businessType: type,
             claimedByUserId: user.id,
             status: 'pending'
         });
@@ -178,6 +202,7 @@ export class BusinessPlacesController {
         const newPlace = this.placesRepo.create({
             name,
             address: dto.address?.trim() || '',
+            businessType: dto.businessType,
             claimedByUserId: user.id,
             status: 'pending'
         });
@@ -207,13 +232,19 @@ export class BusinessPlacesController {
             })
             : [];
 
-        return [...ownedPlaces, ...teamPlaces].map(p => ({
-            id: p.id,
-            name: p.name,
-            coverImageUrl: p.coverImageUrl,
-            category: p.category,
-            status: p.status,
-        }));
+        return [...ownedPlaces, ...teamPlaces].map(p => {
+            const verticalConfig = getVerticalConfig(p.businessType);
+            return {
+                id: p.id,
+                name: p.name,
+                coverImageUrl: p.coverImageUrl,
+                category: p.category,
+                status: p.status,
+                businessType: p.businessType,
+                vertical: verticalConfig.vertical,
+                verticalConfig,
+            };
+        });
     }
 
     // El plan pago es de la SEDE, no del usuario que consulta — así un
@@ -296,7 +327,15 @@ export class BusinessPlacesController {
 
         if (data.name !== undefined) place.name = data.name;
         if (data.address !== undefined) place.address = data.address;
+        if (data.businessType !== undefined) place.businessType = requireBusinessType(data.businessType);
         if (data.categoryId !== undefined) place.categoryId = data.categoryId;
+        // La categoría que quede asignada debe ser del rubro del tipo de negocio.
+        if (data.businessType !== undefined || data.categoryId !== undefined) {
+            const category = place.categoryId
+                ? await this.categoryRepo.findOne({ where: { id: place.categoryId } })
+                : null;
+            assertCategoryMatchesVertical(category, place.businessType);
+        }
         if (data.districtId !== undefined) place.districtId = data.districtId;
         if (data.openHoursText !== undefined) place.openHoursText = data.openHoursText;
         if (data.openingHours !== undefined) place.openingHours = data.openingHours;
