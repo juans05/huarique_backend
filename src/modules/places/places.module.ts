@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { PlacesService } from './places.service';
+import { TodayService } from './today.service';
 import { MenuService } from './menu.service';
 import { MenuAssistantService } from './menu-assistant.service';
 import { MenuImportService } from './menu-import.service';
@@ -38,6 +39,10 @@ import { User } from '../users/entities/user.entity';
 import { TeamModule } from '../team/team.module';
 import { SubscriptionsModule } from '../subscriptions/subscriptions.module';
 import { UsersModule } from '../users/users.module';
+import { Message } from '../whatsapp/entities/message.entity';
+import { LoyaltyCard } from '../loyalty/entities/loyalty-card.entity';
+import { LoyaltyProgram } from '../loyalty/entities/loyalty-program.entity';
+import { Order } from '../orders/entities/order.entity';
 
 
 @Module({
@@ -60,6 +65,11 @@ import { UsersModule } from '../users/users.module';
             GoogleReview,
             Promotion,
             User,
+            // Solo lectura para "Tu día" (TodayService); importar los módulos dueños crearía ciclos (WhatsApp ya importa Places).
+            Message,
+            LoyaltyCard,
+            LoyaltyProgram,
+            Order,
         ]),
         UploadModule,
         TeamModule,
@@ -68,7 +78,7 @@ import { UsersModule } from '../users/users.module';
     ],
 
     controllers: [PlacesController, BusinessPlacesController, GoogleCallbackController],
-    providers: [PlacesService, MenuService, MenuAssistantService, MenuImportService, MenuFormatterService, PromotionsService, TikTokSearchService, GeolocationService, RarityCalculatorService, GoogleMapsService, GoogleBusinessService, WeeklyReportService, ReviewAutoService],
+    providers: [PlacesService, MenuService, MenuAssistantService, MenuImportService, MenuFormatterService, PromotionsService, TikTokSearchService, GeolocationService, RarityCalculatorService, GoogleMapsService, GoogleBusinessService, WeeklyReportService, ReviewAutoService, TodayService],
     exports: [PlacesService, MenuService, MenuFormatterService, GeolocationService, GoogleMapsService],
 })
 export class PlacesModule { }

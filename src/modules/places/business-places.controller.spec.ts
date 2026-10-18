@@ -1,5 +1,5 @@
 import 'reflect-metadata';
-import { BadRequestException, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ForbiddenException, NotFoundException } from '@nestjs/common';
 import { plainToInstance } from 'class-transformer';
 import { validate } from 'class-validator';
 import { BusinessPlacesController } from './business-places.controller';
@@ -256,5 +256,31 @@ describe('BusinessPlacesController.updateProfile (rubro y categoría)', () => {
         const { ctrl, categoryRepo } = setup(barberia('c1'));
         await ctrl.updateProfile('p1', { name: 'Nuevo' }, user);
         expect(categoryRepo.findOne).not.toHaveBeenCalled();
+    });
+});
+
+describe('BusinessPlacesController "Tu día"', () => {
+    const setup = (assertAccess: jest.Mock) => {
+        const placeTeamService = { assertAccess };
+        const todayService = { getToday: jest.fn().mockResolvedValue({ ok: 1 }), getReviewsToday: jest.fn().mockResolvedValue({ connected: true, unanswered: 2 }) };
+        const { ctrl } = build({ placeTeamService, todayService });
+        return { ctrl, placeTeamService, todayService };
+    };
+
+    it('valida acceso (dueño o equipo) y devuelve los datos de /today y /today/reviews', async () => {
+        const { ctrl, placeTeamService, todayService } = setup(jest.fn().mockResolvedValue({ role: 'agente' }));
+        expect(await ctrl.getToday('p1', user)).toEqual({ ok: 1 });
+        expect(await ctrl.getTodayReviews('p1', user)).toEqual({ connected: true, unanswered: 2 });
+        expect(placeTeamService.assertAccess).toHaveBeenCalledWith('u1', 'p1');
+        expect(todayService.getToday).toHaveBeenCalledWith('p1');
+        expect(todayService.getReviewsToday).toHaveBeenCalledWith('p1');
+    });
+
+    it('sin acceso no lee nada', async () => {
+        const { ctrl, todayService } = setup(jest.fn().mockRejectedValue(new ForbiddenException()));
+        await expect(ctrl.getToday('p1', user)).rejects.toBeInstanceOf(ForbiddenException);
+        await expect(ctrl.getTodayReviews('p1', user)).rejects.toBeInstanceOf(ForbiddenException);
+        expect(todayService.getToday).not.toHaveBeenCalled();
+        expect(todayService.getReviewsToday).not.toHaveBeenCalled();
     });
 });
