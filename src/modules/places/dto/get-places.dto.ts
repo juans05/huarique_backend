@@ -66,6 +66,11 @@ export class GetPlacesDto extends PaginationDto {
     @IsBoolean()
     openNow?: boolean;
 
+    @ApiPropertyOptional({ description: "Rubro (gastronomia, comercio, belleza, ...) o 'all'. Sin valor: solo gastronomía" })
+    @IsOptional()
+    @IsString()
+    vertical?: string;
+
     @ApiPropertyOptional({ description: 'Only places with an active loyalty program' })
     @IsOptional()
     @Transform(({ value }) => value === 'true' || value === true)
