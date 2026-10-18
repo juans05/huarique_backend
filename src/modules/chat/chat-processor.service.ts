@@ -51,10 +51,11 @@ export class ChatProcessorService {
     private placeRepo: Repository<Place>,
   ) {}
 
-  // Rubro del local; un local que no se encuentra se trata como restaurante (como todo local anterior al multirrubro).
-  private async businessTypeOf(placeId: string): Promise<string> {
-    const place = await this.placeRepo.findOne({ where: { id: placeId }, select: { id: true, businessType: true } });
-    return place?.businessType ?? DEFAULT_BUSINESS_TYPE;
+  // Rubro y nombre del local en una sola consulta; un local que no se encuentra se trata como restaurante
+  // (como todo local anterior al multirrubro).
+  private async placeInfo(placeId: string): Promise<{ businessType: string; name: string | null }> {
+    const place = await this.placeRepo.findOne({ where: { id: placeId }, select: { id: true, businessType: true, name: true } });
+    return { businessType: place?.businessType ?? DEFAULT_BUSINESS_TYPE, name: place?.name ?? null };
   }
 
   // Prueba los proveedores en orden y pasa al siguiente si uno falla (key inválida, caído, etc.)
@@ -130,7 +131,7 @@ export class ChatProcessorService {
     options: { restaurantName?: string; channelRules?: string[] } = {},
   ): Promise<string> {
     const botConfig = await this.botConfigService.findByPlaceId(placeId);
-    const businessType = await this.businessTypeOf(placeId);
+    const { businessType } = await this.placeInfo(placeId);
 
     let ragContext = '';
     try {
@@ -224,8 +225,9 @@ export class ChatProcessorService {
 
     // 3b. Pedidos por WhatsApp: si el local recibe pedidos y el cliente está pidiendo, responde el agente de pedidos.
     // Solo gastronomía: fuera de ese rubro el bot informa y deriva (agendar llega en la ola 2).
-    const businessType = await this.businessTypeOf(placeId);
-    if (verticalOf(businessType) === 'gastronomia') {
+    const { businessType, name: placeName } = await this.placeInfo(placeId);
+    const gastronomia = verticalOf(businessType) === 'gastronomia';
+    if (gastronomia) {
       try {
         const recent = await this.messageRepo.find({ where: { conversationId: conversation.id }, order: { createdAt: 'DESC' }, take: 11 });
         const history = recent.reverse().slice(0, -1).map((m) => ({ role: m.messageType === 'INCOMING' ? ('user' as const) : ('assistant' as const), content: m.messageBody }));
@@ -249,7 +251,7 @@ export class ChatProcessorService {
     if (botConfig?.responseMode === 'menu') {
       const menuOptions = await this.menuOptionService.findByPlaceId(placeId);
       if (menuOptions.length > 0) {
-        return this.handleMenuFlow(conversation, isNewConversation, messageBody, botConfig, menuOptions);
+        return this.handleMenuFlow(conversation, isNewConversation, messageBody, botConfig, menuOptions, businessType);
       }
     }
 
@@ -280,7 +282,8 @@ export class ChatProcessorService {
     }
 
     // 6. Construir system prompt (nombre del bot + negocio + rubro + tono + instrucciones extra)
-    const systemPrompt = buildSystemPrompt({ botConfig, ragContext, businessType });
+    // Sin configuración de bot, fuera de gastronomía la identidad usa el nombre real del local (gastronomía queda como siempre).
+    const systemPrompt = buildSystemPrompt({ botConfig, ragContext, businessType, nameFallback: gastronomia ? undefined : placeName ?? undefined });
 
     // 7. Historial de conversación desde wuarikes DB (últimos 20 mensajes)
     const recentMessages = await this.messageRepo.find({
@@ -353,9 +356,9 @@ export class ChatProcessorService {
     return options.map((o, i) => `${i + 1}️⃣ ${o.label}`).join('\n');
   }
 
-  private buildMenuGreeting(botConfig: PlaceBotConfig, options: BotMenuOption[]): string {
-    const restaurantName = botConfig.restaurantName || 'nuestro restaurante';
-    return `¡Hola! Soy el asistente de ${restaurantName}. Elegí una opción escribiendo el número:\n\n${this.buildMenuOptions(options)}`;
+  private buildMenuGreeting(botConfig: PlaceBotConfig, options: BotMenuOption[], businessType: string): string {
+    const name = botConfig.restaurantName || (verticalOf(businessType) === 'gastronomia' ? 'nuestro restaurante' : 'nuestro negocio');
+    return `¡Hola! Soy el asistente de ${name}. Elegí una opción escribiendo el número:\n\n${this.buildMenuOptions(options)}`;
   }
 
   private guessMediaType(url: string): string {
@@ -421,9 +424,10 @@ export class ChatProcessorService {
     messageBody: string,
     botConfig: PlaceBotConfig,
     options: BotMenuOption[],
+    businessType: string,
   ): Promise<{ success: boolean }> {
     if (isNewConversation) {
-      await this.sendAndLogText(conversation, this.buildMenuGreeting(botConfig, options));
+      await this.sendAndLogText(conversation, this.buildMenuGreeting(botConfig, options, businessType));
       return { success: true };
     }
 
