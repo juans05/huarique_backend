@@ -63,6 +63,9 @@ export class MultirrubroCore1787560000000 implements MigrationInterface {
       ALTER TABLE wuarike_db.categories
       ADD COLUMN IF NOT EXISTS vertical varchar
     `);
+    // La entidad Contact ya mapea dni, pero los entornos creados con CreateBusinessTables no lo tienen;
+    // el paso 5 lo lee. No se borra en down(): en otros entornos ya existía con datos.
+    await queryRunner.query(`ALTER TABLE wuarike_db.contacts ADD COLUMN IF NOT EXISTS dni varchar`);
 
     // 2. Las categorías de comida existentes son gastronomía; una categoría por tipo no gastronómico.
     //    ON CONFLICT sin destino cubre tanto slug como name (ambos únicos): si ya existe, no se toca.
@@ -143,7 +146,8 @@ export class MultirrubroCore1787560000000 implements MigrationInterface {
 
     // 5. Deduplicar por (place_id, phone). Sobrevive la fila con más campos no nulos (desempate: la más
     //    antigua, luego el id para ser determinista). El sobreviviente recibe marketing_consent = bool_or del
-    //    grupo (true solo si algún registro lo tenía en true) y la unión de tags. Todo en una sola sentencia
+    //    grupo (true solo si algún registro lo tenía en true) y la unión de tags. Si su name/email/dni/custom_fields
+    //    está vacío, hereda el primer valor no vacío del grupo (por created_at): no se pierde ningún dato. Todo en una sola sentencia
     //    para que el ranking se calcule una vez, antes de tocar el sobreviviente.
     //    "Campos no nulos" se cuenta sobre to_jsonb(fila) para no depender de qué columnas tiene cada entorno.
     await queryRunner.query(`
@@ -161,7 +165,12 @@ export class MultirrubroCore1787560000000 implements MigrationInterface {
       merged AS (
         SELECT r.id AS keep_id,
                bool_or(c.marketing_consent) AS consent,
-               jsonb_agg(DISTINCT t.v) FILTER (WHERE t.v IS NOT NULL) AS tags
+               jsonb_agg(DISTINCT t.v) FILTER (WHERE t.v IS NOT NULL) AS tags,
+               (array_agg(c.name ORDER BY c.created_at ASC NULLS LAST, c.id) FILTER (WHERE nullif(btrim(c.name), '') IS NOT NULL))[1] AS name,
+               (array_agg(c.email ORDER BY c.created_at ASC NULLS LAST, c.id) FILTER (WHERE nullif(btrim(c.email), '') IS NOT NULL))[1] AS email,
+               (array_agg(c.dni ORDER BY c.created_at ASC NULLS LAST, c.id) FILTER (WHERE nullif(btrim(c.dni), '') IS NOT NULL))[1] AS dni,
+               (array_agg(c.custom_fields ORDER BY c.created_at ASC NULLS LAST, c.id)
+                 FILTER (WHERE c.custom_fields IS NOT NULL AND c.custom_fields NOT IN ('{}'::jsonb, 'null'::jsonb)))[1] AS custom_fields
         FROM ranked r
         JOIN wuarike_db.contacts c ON c.place_id = r.place_id AND c.phone = r.phone
         LEFT JOIN LATERAL jsonb_array_elements(
@@ -172,7 +181,12 @@ export class MultirrubroCore1787560000000 implements MigrationInterface {
       ),
       survivors AS (
         UPDATE wuarike_db.contacts k
-        SET marketing_consent = m.consent, tags = COALESCE(m.tags, k.tags)
+        SET marketing_consent = m.consent,
+            tags = COALESCE(m.tags, k.tags),
+            name = COALESCE(nullif(btrim(k.name), ''), m.name, k.name),
+            email = COALESCE(nullif(btrim(k.email), ''), m.email, k.email),
+            dni = COALESCE(nullif(btrim(k.dni), ''), m.dni, k.dni),
+            custom_fields = COALESCE(nullif(nullif(k.custom_fields, '{}'::jsonb), 'null'::jsonb), m.custom_fields, k.custom_fields)
         FROM merged m
         WHERE k.id = m.keep_id
         RETURNING k.id
@@ -230,7 +244,7 @@ export class MultirrubroCore1787560000000 implements MigrationInterface {
    * no se pueden reconstruir), los contactos creados desde tarjetas y pedidos, ni la ampliación de
    * contacts.source (PostgreSQL no permite quitar valores de un enum, y borrar los 'order'/'loyalty' que la
    * app haya creado después perdería datos). Lo que sí revierte: el índice único, las columnas nuevas y las
-   * categorías insertadas (salvo las que algún local ya usa, que se conservan para no romper su FK).
+   * categorías insertadas (salvo las que algún local o solicitud de local ya usa, que se conservan para no romper su FK).
    */
   public async down(queryRunner: QueryRunner): Promise<void> {
     await queryRunner.query(`DROP INDEX IF EXISTS wuarike_db.uq_contacts_place_phone`);
@@ -238,7 +252,8 @@ export class MultirrubroCore1787560000000 implements MigrationInterface {
       `DELETE FROM wuarike_db.categories c
        WHERE c.slug = ANY($1::text[])
          AND c.vertical IS DISTINCT FROM 'gastronomia'
-         AND NOT EXISTS (SELECT 1 FROM wuarike_db.places p WHERE p.category_id = c.id)`,
+         AND NOT EXISTS (SELECT 1 FROM wuarike_db.places p WHERE p.category_id = c.id)
+         AND NOT EXISTS (SELECT 1 FROM wuarike_db.place_submissions s WHERE s.category_id = c.id)`,
       [NEW_CATEGORIES.map(([slug]) => slug)],
     );
     await queryRunner.query(`ALTER TABLE wuarike_db.categories DROP COLUMN IF EXISTS vertical`);

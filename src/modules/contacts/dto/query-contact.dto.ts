@@ -1,5 +1,5 @@
 import { IsOptional, IsString, IsEnum } from 'class-validator';
-import { ApiPropertyOptional } from '@nestjs/swagger';
+import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { PaginationDto } from '../../../common/dto/pagination.dto';
 
 export class QueryContactDto extends PaginationDto {
@@ -8,17 +8,18 @@ export class QueryContactDto extends PaginationDto {
     @IsString()
     search?: string;
 
-    @ApiPropertyOptional({ enum: ['whatsapp', 'feedback', 'import'] })
+    @ApiPropertyOptional({ enum: ['whatsapp', 'feedback', 'import', 'order', 'loyalty'] })
     @IsOptional()
-    @IsEnum(['whatsapp' as any, 'feedback' as any, 'import' as any])
-    source?: 'whatsapp' | 'feedback' | 'import';
+    @IsEnum(['whatsapp', 'feedback', 'import', 'order', 'loyalty'] as any)
+    source?: 'whatsapp' | 'feedback' | 'import' | 'order' | 'loyalty';
 
     @ApiPropertyOptional()
     @IsOptional()
     @IsString()
     tag?: string;
 
-    @ApiPropertyOptional()
+    // Obligatorio: el controller responde 400 en español si falta.
+    @ApiProperty()
     @IsOptional()
     @IsString()
     placeId: string;

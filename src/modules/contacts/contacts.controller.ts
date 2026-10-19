@@ -28,7 +28,9 @@ export class ContactsController {
         private readonly placesRepository: Repository<Place>,
     ) {}
 
+    // Toda ruta pasa por aquí: sin placeId TypeORM descarta el filtro y devolvería cualquier local.
     private async assertOwner(placeId: string, userId: string) {
+        if (!placeId) throw new BadRequestException('Falta placeId');
         const place = await this.placesRepository.findOne({ where: { id: placeId } });
         if (!place) throw new NotFoundException('Local no encontrado');
         if (place.claimedByUserId !== userId) throw new ForbiddenException('No tienes permiso para gestionar este local');
@@ -38,9 +40,7 @@ export class ContactsController {
     @Get()
     @ApiOperation({ summary: 'List contacts with search, filter, and pagination' })
     async findAll(@Query() query: QueryContactDto, @CurrentUser() user: any) {
-        if (query.placeId) {
-            await this.assertOwner(query.placeId, user.id);
-        }
+        await this.assertOwner(query.placeId, user.id);
         return this.contactsService.findAll(query);
     }
 
@@ -49,7 +49,6 @@ export class ContactsController {
     @ApiParam({ name: 'id', description: 'Contact UUID' })
     @ApiQuery({ name: 'placeId', required: true })
     async getProfile(@Param('id') id: string, @Query('placeId') placeId: string, @CurrentUser() user: any) {
-        if (!placeId) throw new BadRequestException('Falta placeId');
         await this.assertOwner(placeId, user.id);
         return this.contactsService.getProfile(placeId, id);
     }
@@ -57,8 +56,10 @@ export class ContactsController {
     @Get(':id')
     @ApiOperation({ summary: 'Get a single contact by ID' })
     @ApiParam({ name: 'id', description: 'Contact UUID' })
-    async findOne(@Param('id') id: string) {
-        return this.contactsService.findById(id);
+    async findOne(@Param('id') id: string, @CurrentUser() user: any) {
+        const contact = await this.contactsService.findById(id);
+        await this.assertOwner(contact.placeId, user.id);
+        return contact;
     }
 
     @Post()
@@ -125,8 +126,10 @@ export class ContactsController {
     @Get('imports/:importId')
     @ApiOperation({ summary: 'Get import status' })
     @ApiParam({ name: 'importId', description: 'Import UUID' })
-    async getImportStatus(@Param('importId') importId: string) {
-        return this.contactsService.getImportStatus(importId);
+    async getImportStatus(@Param('importId') importId: string, @CurrentUser() user: any) {
+        const record = await this.contactsService.getImportStatus(importId);
+        await this.assertOwner(record.placeId, user.id);
+        return record;
     }
 
     @Post('export')
