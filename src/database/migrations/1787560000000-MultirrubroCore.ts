@@ -209,13 +209,14 @@ export class MultirrubroCore1787560000000 implements MigrationInterface {
       INSERT INTO wuarike_db.contacts (id, place_id, name, phone, source, marketing_consent, created_at, updated_at)
       SELECT gen_random_uuid(), x.place_id, x.name, x.phone, 'loyalty', x.consent, x.created_at, now()
       FROM (
-        SELECT lc.place_id,
+        SELECT p.id AS place_id,
                ${normalizedPhone('lc.customer_phone')} AS phone,
                (array_agg(lc.customer_name ORDER BY lc.created_at) FILTER (WHERE btrim(lc.customer_name) <> ''))[1] AS name,
                COALESCE(bool_or(lc.marketing_consent), false) AS consent,
                min(lc.created_at) AS created_at
         FROM wuarike_db.loyalty_cards lc
-        JOIN wuarike_db.places p ON p.id = lc.place_id
+        -- En producción loyalty_cards.place_id es varchar (places.id es uuid): se compara como texto.
+        JOIN wuarike_db.places p ON p.id::text = lc.place_id::text
         GROUP BY 1, 2
       ) x
       WHERE x.phone IS NOT NULL
