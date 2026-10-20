@@ -232,7 +232,7 @@ export class OrdersService {
             else qb.andWhere('(o.customer_phone ILIKE :q OR o.customer_name ILIKE :q)', { q: `%${filter.q}%` });
         }
         const page = Math.max(1, Math.floor(filter.page || 1));
-        const [items, total] = await qb.orderBy('o.created_at', 'DESC').skip((page - 1) * PAGE_SIZE).take(PAGE_SIZE).getManyAndCount();
+        const [items, total] = await qb.orderBy('o.createdAt', 'DESC').skip((page - 1) * PAGE_SIZE).take(PAGE_SIZE).getManyAndCount();
         return { items, total };
     }
 
