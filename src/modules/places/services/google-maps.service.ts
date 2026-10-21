@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 
 @Injectable()
@@ -26,6 +26,13 @@ export class GoogleMapsService {
     if (data.status !== 'OK') {
       const msg = `Google API Error: ${data.status} - ${data.error_message || 'sin detalle'}`;
       this.logger.error(msg);
+      // Error de configuración o de ID, no del servidor: se le explica al dueño en vez de un 500.
+      if (data.status === 'REQUEST_DENIED') {
+        throw new BadRequestException('Google rechazó la consulta: la clave de Google Maps no está habilitada (falta activar la facturación en Google Cloud).');
+      }
+      if (data.status === 'INVALID_REQUEST' || data.status === 'NOT_FOUND') {
+        throw new BadRequestException('Google no reconoce ese Place ID. Revisa que esté bien copiado.');
+      }
       throw new Error(msg);
     }
 
