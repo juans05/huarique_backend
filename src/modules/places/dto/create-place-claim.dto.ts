@@ -1,4 +1,4 @@
-import { IsString, IsEmail, IsOptional, IsArray } from 'class-validator';
+import { IsString, IsEmail, IsOptional, IsArray, IsUrl } from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 
 export class CreatePlaceClaimDto {
@@ -25,6 +25,7 @@ export class CreatePlaceClaimDto {
     })
     @IsOptional()
     @IsArray()
-    @IsString({ each: true })
+    // Solo https: el admin abre estos enlaces; un javascript: o http: sería XSS o contenido sin cifrar.
+    @IsUrl({ protocols: ['https'], require_protocol: true }, { each: true, message: 'Cada documento debe ser un enlace https válido' })
     documentUrls?: string[];
 }
