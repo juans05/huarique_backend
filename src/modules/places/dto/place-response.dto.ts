@@ -118,6 +118,10 @@ export class PlaceResponseDto {
     @Expose()
     slug: string | null;
 
+    @ApiProperty({ description: 'Tipo de negocio (barberia, restaurante, ...); el rubro se deriva de él' })
+    @Expose()
+    businessType: string;
+
     @ApiPropertyOptional({ description: 'Category object' })
     @Expose()
     @Type(() => CategoryDto)

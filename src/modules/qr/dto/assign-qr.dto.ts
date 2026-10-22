@@ -13,6 +13,7 @@ import {
 } from 'class-validator';
 import { ApiPropertyOptional } from '@nestjs/swagger';
 import { QrDestinationType } from '../entities/qr-assignment.entity';
+import { BUSINESS_TYPES } from '../../places/business-types';
 
 export class NewPlaceDto {
     @IsString()
@@ -21,6 +22,11 @@ export class NewPlaceDto {
 
     @IsUUID()
     categoryId: string;
+
+    // Sin tipo: restaurante (clientes anteriores al multirrubro).
+    @IsOptional()
+    @IsIn(Object.keys(BUSINESS_TYPES))
+    businessType?: string;
 
     @IsString()
     district: string;

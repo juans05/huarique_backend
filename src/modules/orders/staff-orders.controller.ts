@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Patch, Post, Query, Req, UseGuards } from '@nestjs/common';
+import { BadRequestException, Body, Controller, ForbiddenException, Get, Param, Patch, Post, Query, Req, UseGuards } from '@nestjs/common';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { PlaceRoleGuard } from '../../common/guards/place-role.guard';
 import { RequiresPlaceRole } from '../../common/decorators/requires-place-role.decorator';
@@ -6,14 +6,16 @@ import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { OrdersService } from './orders.service';
 import { OrderSettingsService } from './order-settings.service';
 import { PaymentsService } from './payments.service';
-import { ChangeStatusDto, ManualPaymentDto } from './dto/orders.dto';
-import { TableDto, UpdateOrderSettingsDto, UpdateTableDto } from './dto/order-settings.dto';
+import { CashService } from './cash.service';
+import { ChargeDto, CloseCashDto, OpenCashDto, PrecuentaDto } from './dto/cash.dto';
+import { AssignWaiterDto, ChangeStatusDto, ManualPaymentDto, StaffOrderDto } from './dto/orders.dto';
+import { BulkTablesDto, TableDto, UpdateOrderSettingsDto, UpdateTableDto } from './dto/order-settings.dto';
 import { OrderChannel, OrderStatus } from './entities/order.entity';
 
 @UseGuards(JwtAuthGuard, PlaceRoleGuard)
 @Controller('business/places/:placeId/orders')
 export class StaffOrdersController {
-    constructor(private orders: OrdersService, private settings: OrderSettingsService, private payments: PaymentsService) { }
+    constructor(private orders: OrdersService, private settings: OrderSettingsService, private payments: PaymentsService, private cash: CashService) { }
 
     @Get('me')
     @RequiresPlaceRole('cocina')
@@ -40,20 +42,84 @@ export class StaffOrdersController {
     }
 
     @Get('tables-board')
-    @RequiresPlaceRole('agente')
+    @RequiresPlaceRole('mozo')
     tablesBoard(@Param('placeId') placeId: string) {
         return this.orders.tablesBoard(placeId);
     }
 
+    @Get('tables/by-qr/:qrToken')
+    @RequiresPlaceRole('mozo')
+    staffTable(@Param('placeId') placeId: string, @Param('qrToken') qrToken: string) {
+        return this.orders.staffTableView(placeId, qrToken);
+    }
+
     @Post('tabs/:tabId/close')
-    @RequiresPlaceRole('agente')
+    @RequiresPlaceRole('mozo')
     closeTab(@Param('placeId') placeId: string, @Param('tabId') tabId: string) {
         return this.orders.closeTab(placeId, tabId);
     }
 
-    @Post('payments/manual')
+    // ── Mozo en sala ────────────────────────────────────────────────────
+    @Get('waiters')
+    @RequiresPlaceRole('mozo')
+    waiters(@Param('placeId') placeId: string) {
+        return this.orders.waiters(placeId);
+    }
+
+    @Get('tables/:tableId/detail')
+    @RequiresPlaceRole('mozo')
+    tableDetail(@Param('placeId') placeId: string, @Param('tableId') tableId: string) {
+        return this.orders.staffTableDetail(placeId, tableId);
+    }
+
+    @Post('tables/:tableId/orders')
+    @RequiresPlaceRole('mozo')
+    staffOrder(@Param('placeId') placeId: string, @Param('tableId') tableId: string, @Body() dto: StaffOrderDto, @CurrentUser() user: any) {
+        return this.orders.createStaffOrder(placeId, tableId, user.id, dto);
+    }
+
+    @Patch('tabs/:tabId/waiter')
+    @RequiresPlaceRole('mozo')
+    assignWaiter(@Param('placeId') placeId: string, @Param('tabId') tabId: string, @Body() dto: AssignWaiterDto) {
+        return this.orders.assignWaiter(placeId, tabId, dto.waiterUserId ?? null);
+    }
+
+    @Post('tabs/:tabId/precuenta')
+    @RequiresPlaceRole('mozo')
+    requestPrecuenta(@Param('placeId') placeId: string, @Param('tabId') tabId: string, @Body() dto: PrecuentaDto) {
+        return this.cash.requestPrecuenta(placeId, tabId, dto);
+    }
+
+    // ── Caja ────────────────────────────────────────────────────────────
+    @Get('cash')
     @RequiresPlaceRole('agente')
-    manualPayment(@Param('placeId') placeId: string, @Body() dto: ManualPaymentDto, @CurrentUser() user: any) {
+    cashCurrent(@Param('placeId') placeId: string) {
+        return this.cash.current(placeId);
+    }
+
+    @Post('cash/open')
+    @RequiresPlaceRole('agente')
+    cashOpen(@Param('placeId') placeId: string, @Body() dto: OpenCashDto, @CurrentUser() user: any) {
+        return this.cash.open(placeId, user.id, dto.openingAmount);
+    }
+
+    @Post('cash/charge')
+    @RequiresPlaceRole('agente')
+    cashCharge(@Param('placeId') placeId: string, @Body() dto: ChargeDto, @CurrentUser() user: any) {
+        return this.cash.charge(placeId, user.id, dto);
+    }
+
+    @Post('cash/close')
+    @RequiresPlaceRole('agente')
+    cashClose(@Param('placeId') placeId: string, @Body() dto: CloseCashDto, @CurrentUser() user: any) {
+        return this.cash.close(placeId, user.id, dto.countedCash);
+    }
+
+    @Post('payments/manual')
+    @RequiresPlaceRole('mozo')
+    manualPayment(@Param('placeId') placeId: string, @Body() dto: ManualPaymentDto, @CurrentUser() user: any, @Req() req: any) {
+        // El mozo cobra cuentas de mesa; marcar pagado un pedido suelto (WhatsApp, recojo) es de caja.
+        if (req.placeTeamMember.role === 'mozo' && dto.orderId) throw new ForbiddenException('El mozo solo cobra cuentas de mesa');
         return this.payments.recordManualPayment(placeId, { tabId: dto.tabId, orderId: dto.orderId }, dto.method, user.id);
     }
 
@@ -87,6 +153,14 @@ export class StaffOrdersController {
     async createTable(@Param('placeId') placeId: string, @Body() dto: TableDto) {
         const table = await this.settings.createTable(placeId, dto);
         return { ...table, qrUrl: this.settings.tableQrUrl(table) };
+    }
+
+    @Post('tables/bulk')
+    @RequiresPlaceRole('supervisor')
+    async createTables(@Param('placeId') placeId: string, @Body() dto: BulkTablesDto) {
+        if (dto.to - dto.from >= 100) throw new BadRequestException('Crea como máximo 100 mesas por vez');
+        const tables = await this.settings.createTables(placeId, dto);
+        return tables.map((t) => ({ ...t, qrUrl: this.settings.tableQrUrl(t) }));
     }
 
     @Patch('tables/:tableId')

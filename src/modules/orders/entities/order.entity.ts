@@ -2,7 +2,8 @@ import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, UpdateDateCol
 import { OrderItem } from './order-item.entity';
 
 export type OrderStatus = 'PENDIENTE_PAGO' | 'NUEVO' | 'EN_PREPARACION' | 'LISTO' | 'ENTREGADO' | 'CANCELADO';
-export type OrderChannel = 'MESA' | 'WHATSAPP';
+/** MESA: el cliente con la carta digital (QR); MOZO: el mozo desde su celular o tablet. */
+export type OrderChannel = 'MESA' | 'MOZO' | 'WHATSAPP';
 export type Fulfillment = 'SALA' | 'RECOJO' | 'DELIVERY';
 
 @Entity('orders')
@@ -24,6 +25,7 @@ export class Order {
     @Column({ name: 'delivery_fee', type: 'int', default: 0 }) deliveryFee: number;
     @Column({ type: 'int' }) total: number;
     @Column({ type: 'text', nullable: true }) notes: string | null;
+    @Column({ name: 'taken_by_user_id', type: 'uuid', nullable: true }) takenByUserId: string | null;
     @Column({ name: 'public_token', unique: true }) publicToken: string;
     @Column({ name: 'paid_at', type: 'timestamptz', nullable: true }) paidAt: Date | null;
     @Column({ name: 'ready_at', type: 'timestamptz', nullable: true }) readyAt: Date | null;

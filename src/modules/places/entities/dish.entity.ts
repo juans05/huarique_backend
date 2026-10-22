@@ -34,6 +34,14 @@ export class Dish {
     @Column({ name: 'video_url', nullable: true })
     videoUrl: string | null;
 
+    /** Catálogo común a todos los rubros: 'producto' (carta, tienda) o 'servicio' (corte, consulta, lavado). */
+    @Column({ type: 'varchar', default: 'producto' })
+    kind: 'producto' | 'servicio';
+
+    /** Duración en minutos, solo para servicios (la usará el motor de reservas). */
+    @Column({ name: 'duration_min', type: 'int', nullable: true })
+    durationMin: number | null;
+
     @Column({ name: 'is_vegetarian', default: false })
     isVegetarian: boolean;
 

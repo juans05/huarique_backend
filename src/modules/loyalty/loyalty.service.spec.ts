@@ -10,6 +10,7 @@ import { WalletCampaign } from './entities/wallet-campaign.entity';
 import { WhatsAppNumber } from '../whatsapp/entities/whatsapp-number.entity';
 import { WhatsappService } from '../whatsapp/whatsapp.service';
 import { Place } from '../places/entities/place.entity';
+import { ContactsService } from '../contacts/contacts.service';
 
 const mockRepo = () => ({ find: jest.fn(), findOne: jest.fn(), update: jest.fn(), save: jest.fn(), create: jest.fn() });
 
@@ -18,8 +19,10 @@ describe('LoyaltyService.getMyCards', () => {
   let cardRepo: ReturnType<typeof mockRepo>;
   let programRepo: ReturnType<typeof mockRepo>;
   let placesRepo: ReturnType<typeof mockRepo>;
+  let contacts: { upsertByPhone: jest.Mock };
 
   beforeEach(async () => {
+    contacts = { upsertByPhone: jest.fn().mockResolvedValue(null) };
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         LoyaltyService,
@@ -32,6 +35,7 @@ describe('LoyaltyService.getMyCards', () => {
         { provide: getRepositoryToken(Place), useFactory: mockRepo },
         { provide: getQueueToken('wallet-campaign'), useValue: { add: jest.fn() } },
         { provide: WhatsappService, useValue: {} },
+        { provide: ContactsService, useValue: contacts },
       ],
     }).compile();
 
@@ -86,6 +90,45 @@ describe('LoyaltyService.getMyCards', () => {
       cardRepo.findOne.mockResolvedValue({ placeId: 'p1', customerPhone: '51999999999', stamps: 1, points: 0, totalVisits: 1, marketingConsent: true, marketingConsentAt: new Date('2026-01-01'), lastVisitAt: null });
       await service.scan('p1', '51999999999', 'Ana', false).catch(() => null);
       expect(cardRepo.save.mock.calls[0][0].marketingConsent).toBe(true);
+    });
+  });
+
+  describe('scan: cliente único', () => {
+    const program = { placeId: 'p1', type: 'stamps', stampsToReward: 10, minHoursBetweenVisits: 0, pointsPerVisit: 0, isActive: true };
+    const prep = () => {
+      programRepo.findOne.mockResolvedValue(program);
+      cardRepo.create.mockImplementation((v: any) => ({ marketingConsent: false, marketingConsentAt: null, ...v }));
+      cardRepo.save.mockImplementation(async (v: any) => v);
+    };
+
+    it('al crear la tarjeta hace upsert del contacto con el consentimiento de la tarjeta', async () => {
+      prep();
+      cardRepo.findOne.mockResolvedValue(null);
+      await service.scan('p1', '999999999', 'Ana', true);
+      expect(contacts.upsertByPhone).toHaveBeenCalledWith('p1', '999999999', { name: 'Ana', source: 'loyalty', marketingConsent: true });
+    });
+
+    it('una visita de una tarjeta existente, sin cambio de consentimiento, no toca el contacto', async () => {
+      prep();
+      cardRepo.findOne.mockResolvedValue({ placeId: 'p1', customerPhone: '999999999', stamps: 1, points: 0, totalVisits: 1, marketingConsent: true, lastVisitAt: null });
+      await service.scan('p1', '999999999', 'Ana', true);
+      expect(contacts.upsertByPhone).not.toHaveBeenCalled();
+    });
+
+    it('una visita con consentimiento sobre una tarjeta existente que no lo tenía lo lleva al contacto (marketingConsent true)', async () => {
+      prep();
+      cardRepo.findOne.mockResolvedValue({ placeId: 'p1', customerPhone: '999999999', stamps: 1, points: 0, totalVisits: 1, marketingConsent: false, marketingConsentAt: null, lastVisitAt: null });
+      await service.scan('p1', '999999999', 'Ana', true);
+      expect(contacts.upsertByPhone).toHaveBeenCalledTimes(1);
+      expect(contacts.upsertByPhone).toHaveBeenCalledWith('p1', '999999999', { name: 'Ana', source: 'loyalty', marketingConsent: true });
+    });
+
+    it('si el contacto falla, la visita se registra igual', async () => {
+      prep();
+      cardRepo.findOne.mockResolvedValue(null);
+      contacts.upsertByPhone.mockRejectedValue(new Error('db caída'));
+      const res = await service.scan('p1', '999999999', 'Ana');
+      expect(res.isNew).toBe(true);
     });
   });
 });

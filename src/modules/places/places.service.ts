@@ -27,6 +27,7 @@ import { CreatePlaceClaimDto } from './dto/create-place-claim.dto';
 import { GetPlacesDto } from './dto/get-places.dto';
 import { PlaceResponseDto } from './dto/place-response.dto';
 import { PaginatedResponse } from '../../common/dto/pagination.dto';
+import { applyVerticalFilter, resolveVertical } from './vertical-filter';
 
 @Injectable()
 export class PlacesService {
@@ -69,6 +70,7 @@ export class PlacesService {
             .leftJoinAndSelect('place.amenities', 'amenities');
 
         queryBuilder.where('place.status = :status', { status: 'active' });
+        applyVerticalFilter(queryBuilder, query.vertical);
 
         if (category) {
             queryBuilder.andWhere('(category.slug = :category OR category.name = :category)', { category });
@@ -228,8 +230,11 @@ export class PlacesService {
         };
     }
 
-    async getCategories() {
+    // Sin `vertical` solo gastronomía (la migración dejó las existentes en 'gastronomia'); 'all' las devuelve todas.
+    async getCategories(vertical?: string) {
+        const resolved = resolveVertical(vertical);
         return this.categoriesRepository.find({
+            ...(resolved && { where: { vertical: resolved } }),
             order: { name: 'ASC' },
         });
     }
@@ -359,7 +364,7 @@ export class PlacesService {
         return this.claimsRepository.save(claim);
     }
 
-    async getDiscovery(district?: string, category?: string, limit = 10): Promise<PlaceResponseDto[]> {
+    async getDiscovery(district?: string, category?: string, limit = 10, vertical?: string): Promise<PlaceResponseDto[]> {
         // Discovery Algorithm: score based on recent activity (last 7 days)
         // score = (checkins_7d * 10 + likes_7d * 5)
 
@@ -374,6 +379,7 @@ export class PlacesService {
             .addSelect('COUNT(checkin.id)', 'recentCheckinsCount')
             .addSelect('SUM(COALESCE(checkin.likesCount, 0))', 'recentLikesCount')
             .where('place.status = :status', { status: 'active' });
+        applyVerticalFilter(query, vertical);
 
         if (district) {
             query.andWhere('district.district = :district', { district });
@@ -399,7 +405,7 @@ export class PlacesService {
     // "¿Dónde comemos hoy?" — reutiliza el mismo filtro de findAll (categoría,
     // presupuesto, distancia, openNow) y solo agrega la curación: de los
     // mejor calificados que cumplen el filtro, sortea 3 en vez de devolver
-    // siempre los mismos.
+    // siempre los mismos. `vertical` viaja dentro de `query` hasta findAll.
     async getRecommendations(query: GetPlacesDto): Promise<PlaceResponseDto[]> {
         // findAll lee query.limitOrSize, un getter de la clase GetPlacesDto — un
         // objeto armado con spread no lo hereda, así que hay que ponerlo a mano
@@ -422,14 +428,16 @@ export class PlacesService {
         return top.slice(0, 3);
     }
 
-    async getMostFavorited(limit = 10): Promise<PlaceResponseDto[]> {
+    async getMostFavorited(limit = 10, vertical?: string): Promise<PlaceResponseDto[]> {
         const query = this.placesRepository.createQueryBuilder('place')
             .leftJoinAndSelect('place.category', 'category')
             .leftJoinAndSelect('place.district', 'district')
             .leftJoin(FavoritePlace, 'favorite', 'favorite.placeId = place.id')
             .addSelect('COUNT(favorite.id)', 'favoritesCount')
-            .where('place.status = :status', { status: 'active' })
-            .groupBy('place.id')
+            .where('place.status = :status', { status: 'active' });
+        applyVerticalFilter(query, vertical);
+
+        query.groupBy('place.id')
             .addGroupBy('category.id')
             .addGroupBy('district.id')
             .orderBy('COUNT(favorite.id)', 'DESC')

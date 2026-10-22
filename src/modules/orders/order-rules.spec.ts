@@ -42,3 +42,11 @@ describe('order-rules', () => {
         expect(newPublicToken()).not.toBe(first);
     });
 });
+
+describe('assertCanCancel: mozo', () => {
+    it('el mozo no cancela pedidos', () => {
+        expect(() => assertCanCancel('NUEVO', 'mozo')).toThrow(ForbiddenException);
+        expect(() => assertCanCancel('EN_PREPARACION', 'mozo')).toThrow(ForbiddenException);
+        expect(() => assertCanCancel('EN_PREPARACION', 'supervisor')).not.toThrow();
+    });
+});

@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { MenuCategory } from './entities/menu-category.entity';
@@ -19,6 +19,9 @@ export interface UpdateCategoryDto {
     categoryType?: 'food' | 'drink' | 'dessert' | 'other';
 }
 
+export type DishKind = 'producto' | 'servicio';
+const DISH_KINDS: DishKind[] = ['producto', 'servicio'];
+
 export interface CreateDishDto {
     name: string;
     price?: number;
@@ -32,6 +35,9 @@ export interface CreateDishDto {
     isAvailable?: boolean;
     categoryId?: string;
     displayOrder?: number;
+    kind?: DishKind;
+    /** Minutos, entero >= 0; null para quitarla. */
+    durationMin?: number | null;
 }
 
 export interface UpdateDishDto {
@@ -47,6 +53,9 @@ export interface UpdateDishDto {
     isAvailable?: boolean;
     categoryId?: string;
     displayOrder?: number;
+    kind?: DishKind;
+    /** Minutos, entero >= 0; null para quitarla. */
+    durationMin?: number | null;
 }
 
 @Injectable()
@@ -133,6 +142,7 @@ export class MenuService {
     }
 
     async createDish(placeId: string, dto: CreateDishDto): Promise<Dish> {
+        this.assertKindFields(dto);
         await this.assertCategoryOfPlace(placeId, dto.categoryId);
         const dish = this.dishRepo.create({
             name: dto.name,
@@ -147,6 +157,8 @@ export class MenuService {
             categoryId: dto.categoryId,
             placeId,
             displayOrder: dto.displayOrder ?? 0,
+            kind: dto.kind ?? 'producto',
+            durationMin: dto.durationMin ?? null,
         });
         return this.dishRepo.save(dish);
     }
@@ -154,6 +166,7 @@ export class MenuService {
     async updateDish(placeId: string, dishId: string, dto: UpdateDishDto): Promise<Dish> {
         const dish = await this.dishRepo.findOne({ where: { id: dishId, placeId } });
         if (!dish) throw new NotFoundException(`Plato ${dishId} no encontrado`);
+        this.assertKindFields(dto);
         await this.assertCategoryOfPlace(placeId, dto.categoryId);
 
         if (dto.name !== undefined) dish.name = dto.name;
@@ -167,6 +180,8 @@ export class MenuService {
         if (dto.isAvailable !== undefined) dish.isAvailable = dto.isAvailable;
         if (dto.categoryId !== undefined) dish.categoryId = dto.categoryId;
         if (dto.displayOrder !== undefined) dish.displayOrder = dto.displayOrder;
+        if (dto.kind !== undefined) dish.kind = dto.kind;
+        if (dto.durationMin !== undefined) dish.durationMin = dto.durationMin;
 
         return this.dishRepo.save(dish);
     }
@@ -175,6 +190,16 @@ export class MenuService {
         const dish = await this.dishRepo.findOne({ where: { id: dishId, placeId } });
         if (!dish) throw new NotFoundException(`Plato ${dishId} no encontrado`);
         await this.dishRepo.remove(dish);
+    }
+
+    private assertKindFields(dto: { kind?: unknown; durationMin?: unknown }): void {
+        if (dto.kind !== undefined && !DISH_KINDS.includes(dto.kind as DishKind)) {
+            throw new BadRequestException('El tipo debe ser "producto" o "servicio"');
+        }
+        const d = dto.durationMin;
+        if (d !== undefined && d !== null && (typeof d !== 'number' || !Number.isInteger(d) || d < 0)) {
+            throw new BadRequestException('La duración debe ser un número entero de minutos (0 o más)');
+        }
     }
 
     // Un plato no puede colgar de la categoría de otro local.
