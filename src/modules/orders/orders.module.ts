@@ -25,13 +25,16 @@ import { OrderAgentService } from './order-agent.service';
 import { PayoutsService } from './payouts.service';
 import { AdminPayoutsController } from './admin-payouts.controller';
 import { OrderEventsService } from './order-events.service';
+import { CashSession } from './entities/cash-session.entity';
+import { Receipt } from './entities/receipt.entity';
+import { CashService } from './cash.service';
 
-export const ORDER_ENTITIES = [PlaceOrderSettings, PlaceTable, Tab, Order, OrderItem, OrderPayment, PlacePayout, WhatsappOrderDraft, Dish, Place];
+export const ORDER_ENTITIES = [PlaceOrderSettings, PlaceTable, Tab, Order, OrderItem, OrderPayment, PlacePayout, WhatsappOrderDraft, Dish, Place, CashSession, Receipt];
 
 @Module({
     imports: [TypeOrmModule.forFeature(ORDER_ENTITIES), TeamModule, AuthModule, AiModule, ContactsModule],
     controllers: [StaffOrdersController, OrdersStreamController, PublicOrdersController, AdminPayoutsController],
-    providers: [OrderEventsService, PinAttemptsService, OrdersService, OrderSettingsService, PaymentsService, OrderAgentService, PayoutsService],
+    providers: [OrderEventsService, PinAttemptsService, OrdersService, OrderSettingsService, PaymentsService, OrderAgentService, PayoutsService, CashService],
     exports: [OrderEventsService, OrdersService, OrderSettingsService, PaymentsService, OrderAgentService],
 })
 export class OrdersModule { }

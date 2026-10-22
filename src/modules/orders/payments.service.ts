@@ -105,7 +105,7 @@ export class PaymentsService {
         return false;
     }
 
-    async recordManualPayment(placeId: string, target: { orderId?: string; tabId?: string }, method: 'EFECTIVO' | 'POS', userId: string) {
+    async recordManualPayment(placeId: string, target: { orderId?: string; tabId?: string }, method: 'EFECTIVO' | 'POS' | 'YAPE', userId: string) {
         if (!target.tabId === !target.orderId) throw new BadRequestException('Indica la cuenta o el pedido, no ambos');
         let amount: number;
         if (target.tabId) {

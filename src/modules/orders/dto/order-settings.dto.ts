@@ -1,4 +1,15 @@
-import { IsBoolean, IsIn, IsInt, IsNumber, IsOptional, IsString, Max, MaxLength, Min } from 'class-validator';
+import { Type } from 'class-transformer';
+import { IsBoolean, IsIn, IsInt, IsNumber, IsOptional, IsString, Matches, Max, MaxLength, Min, ValidateNested } from 'class-validator';
+
+const SERIES = /^[A-Z0-9]{4}$/;
+const SERIES_MSG = 'Cada serie tiene 4 caracteres (letras mayúsculas o números), por ejemplo B001';
+
+export class ReceiptSeriesDto {
+    @Matches(SERIES, { message: SERIES_MSG }) TICKET: string;
+    @Matches(SERIES, { message: SERIES_MSG }) BOLETA: string;
+    @Matches(SERIES, { message: SERIES_MSG }) FACTURA: string;
+    @Matches(SERIES, { message: SERIES_MSG }) NOTA_CREDITO: string;
+}
 
 export class UpdateOrderSettingsDto {
     @IsOptional() @IsBoolean() ordersEnabled?: boolean;
@@ -13,6 +24,7 @@ export class UpdateOrderSettingsDto {
     @IsOptional() @IsInt() @Min(1) @Max(180) prepTimeMin?: number;
     @IsOptional() @IsBoolean() pricesIncludeIgv?: boolean;
     @IsOptional() @IsBoolean() cashPaymentEnabled?: boolean;
+    @IsOptional() @ValidateNested() @Type(() => ReceiptSeriesDto) receiptSeries?: ReceiptSeriesDto;
 }
 
 export class AdminCommissionDto {
