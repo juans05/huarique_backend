@@ -1,4 +1,15 @@
-import { IsBoolean, IsIn, IsInt, IsNumber, IsOptional, IsString, Max, MaxLength, Min } from 'class-validator';
+import { Type } from 'class-transformer';
+import { IsBoolean, IsIn, IsInt, IsNumber, IsOptional, IsString, Matches, Max, MaxLength, Min, ValidateNested } from 'class-validator';
+
+const SERIES = /^[A-Z0-9]{4}$/;
+const SERIES_MSG = 'Cada serie tiene 4 caracteres (letras mayúsculas o números), por ejemplo B001';
+
+export class ReceiptSeriesDto {
+    @Matches(SERIES, { message: SERIES_MSG }) TICKET: string;
+    @Matches(SERIES, { message: SERIES_MSG }) BOLETA: string;
+    @Matches(SERIES, { message: SERIES_MSG }) FACTURA: string;
+    @Matches(SERIES, { message: SERIES_MSG }) NOTA_CREDITO: string;
+}
 
 export class UpdateOrderSettingsDto {
     @IsOptional() @IsBoolean() ordersEnabled?: boolean;
@@ -13,6 +24,8 @@ export class UpdateOrderSettingsDto {
     @IsOptional() @IsInt() @Min(1) @Max(180) prepTimeMin?: number;
     @IsOptional() @IsBoolean() pricesIncludeIgv?: boolean;
     @IsOptional() @IsBoolean() cashPaymentEnabled?: boolean;
+    @IsOptional() @ValidateNested() @Type(() => ReceiptSeriesDto) receiptSeries?: ReceiptSeriesDto;
+    @IsOptional() @IsBoolean() tableOnlinePaymentEnabled?: boolean;
 }
 
 export class AdminCommissionDto {
@@ -21,6 +34,14 @@ export class AdminCommissionDto {
 
 export class TableDto {
     @IsString() @MaxLength(40) name: string;
+    @IsOptional() @IsInt() @Min(1) @Max(40) capacity?: number;
+}
+
+export class BulkTablesDto {
+    @IsOptional() @IsString() @MaxLength(30) prefix?: string;
+    @IsInt() @Min(1) @Max(500) from: number;
+    // Hasta 100 por vez: un error de tipeo (1 a 1000) no llena el local de mesas.
+    @IsInt() @Min(1) @Max(599) to: number;
     @IsOptional() @IsInt() @Min(1) @Max(40) capacity?: number;
 }
 

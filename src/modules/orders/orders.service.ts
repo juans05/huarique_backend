@@ -1,5 +1,5 @@
 import { timingSafeEqual } from 'crypto';
-import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ForbiddenException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { InjectDataSource, InjectRepository } from '@nestjs/typeorm';
 import { DataSource, In, MoreThanOrEqual, Repository } from 'typeorm';
@@ -12,10 +12,15 @@ import { OrderPayment } from './entities/order-payment.entity';
 import { Dish } from '../places/entities/dish.entity';
 import { PlaceTeamRole } from '../team/entities/place-team-member.entity';
 import { PinAttemptsService } from './pin-attempts.service';
+import { PlaceTeamService } from '../team/place-team.service';
+import { SubscriptionTier } from '../subscriptions/subscriptions.service';
 import { OrderEventsService } from './order-events.service';
+import { ContactsService } from '../contacts/contacts.service';
 import { assertCanCancel, calculateTotals, canTransition, newPublicToken, newTablePin, normalizePhone, toCents } from './order-rules';
 
 export interface CartLine { dishId: string; quantity: number; note?: string }
+/** Ítem fuera de carta que registra el mozo; precio en céntimos. */
+export interface CustomLine { name: string; unitPrice: number; quantity: number; note?: string }
 
 type NewOrderItem = Pick<OrderItem, 'dishId' | 'dishNameSnapshot' | 'unitPrice' | 'quantity' | 'note' | 'lineTotal'>;
 
@@ -38,6 +43,7 @@ const PIN_ON_REDIS_ERROR: 'allow' | 'deny' = 'allow';
 
 @Injectable()
 export class OrdersService {
+    private readonly logger = new Logger(OrdersService.name);
 
     constructor(
         @InjectRepository(PlaceOrderSettings) private settingsRepo: Repository<PlaceOrderSettings>,
@@ -50,11 +56,18 @@ export class OrdersService {
         private events: OrderEventsService,
         private emitter: EventEmitter2,
         private pinAttempts: PinAttemptsService,
+        private contacts: ContactsService,
+        private team: PlaceTeamService,
     ) { }
+
+    /** Plan activo de la sede: pedidos en mesa desde Fidelización+, por WhatsApp solo con IA Total. */
+    hasPlan(placeId: string, tier: SubscriptionTier): Promise<boolean> {
+        return this.team.assertPlaceTier(placeId, tier).then(() => true, () => false);
+    }
 
     async getSettings(placeId: string): Promise<PlaceOrderSettings> {
         const found = await this.settingsRepo.findOne({ where: { placeId } });
-        return found ?? this.settingsRepo.create({ placeId, ordersEnabled: false, tablePaymentMode: 'CUENTA_ABIERTA', paymentDestination: 'LOCAL', pickupEnabled: true, deliveryEnabled: false, deliveryFee: 0, prepTimeMin: 20, pricesIncludeIgv: true, cashPaymentEnabled: true, wuarikesCommissionPct: 0.05, culqiPublicKey: null, culqiSecretKey: null, deliveryNote: null });
+        return found ?? this.settingsRepo.create({ placeId, ordersEnabled: false, tablePaymentMode: 'CUENTA_ABIERTA', paymentDestination: 'LOCAL', pickupEnabled: true, deliveryEnabled: false, deliveryFee: 0, prepTimeMin: 20, pricesIncludeIgv: true, cashPaymentEnabled: true, tableOnlinePaymentEnabled: true, wuarikesCommissionPct: 0.05, culqiPublicKey: null, culqiSecretKey: null, deliveryNote: null });
     }
 
     async createTableOrder(qrToken: string, input: { pin: string; items: CartLine[]; customerName?: string; customerPhone?: string; notes?: string }, clientKey?: string) {
@@ -62,7 +75,7 @@ export class OrdersService {
         if (!table) throw new NotFoundException('Mesa no encontrada');
         await this.assertTablePin(table, input.pin, clientKey);
         const settings = await this.getSettings(table.placeId);
-        if (!settings.ordersEnabled) throw new BadRequestException('Este local no está recibiendo pedidos por ahora');
+        if (!settings.ordersEnabled || !(await this.hasPlan(table.placeId, 'fidelizacion'))) throw new BadRequestException('Este local no está recibiendo pedidos por ahora');
 
         const items = await this.buildItems(table.placeId, input.items);
         const totals = calculateTotals(items, 0, settings.pricesIncludeIgv);
@@ -76,8 +89,77 @@ export class OrdersService {
             status: prepaid ? 'PENDIENTE_PAGO' : 'NUEVO', customerName: input.customerName ?? null, customerPhone: normalizePhone(input.customerPhone),
             notes: input.notes ?? null, subtotal: totals.subtotal, deliveryFee: 0, total: totals.total, items,
         });
+        this.captureContact(order);
         if (!prepaid) await this.publish('order.created', order, tab);
         return { order, tab, requiresPayment: prepaid };
+    }
+
+    /**
+     * Pedido tomado por el mozo desde su celular o tablet: sin PIN, va directo a cocina y se suma a la cuenta
+     * de la mesa (la misma donde caen los pedidos que el cliente hace con la carta digital).
+     */
+    async createStaffOrder(placeId: string, tableId: string, userId: string, input: { items?: CartLine[]; customItems?: CustomLine[]; notes?: string }) {
+        const table = await this.tablesRepo.findOne({ where: { id: tableId, placeId, active: true } });
+        if (!table) throw new NotFoundException('Mesa no encontrada');
+        if (!(await this.hasPlan(placeId, 'fidelizacion'))) throw new BadRequestException('Tu plan no incluye pedidos en mesa');
+        const settings = await this.getSettings(placeId);
+
+        const items = [
+            ...(input.items?.length ? await this.buildItems(placeId, input.items) : []),
+            // "Otro ítem": algo que no está en la carta (un extra, un plato del día), con nombre y precio que pone el mozo.
+            ...(input.customItems ?? []).map((c) => {
+                const quantity = Math.max(1, Math.min(50, Math.floor(c.quantity)));
+                return { dishId: null, dishNameSnapshot: c.name.trim().slice(0, 120), unitPrice: c.unitPrice, quantity, note: c.note?.slice(0, 200) ?? null, lineTotal: c.unitPrice * quantity };
+            }),
+        ];
+        if (!items.length) throw new BadRequestException('La comanda está vacía');
+        const totals = calculateTotals(items, 0, settings.pricesIncludeIgv);
+        const tab = await this.findOrOpenTab(table);
+        if (!tab.waiterUserId) {
+            await this.tabsRepo.update({ id: tab.id }, { waiterUserId: userId });
+            tab.waiterUserId = userId;
+        }
+        const order = await this.saveOrder({
+            placeId, tabId: tab.id, tableId: table.id, channel: 'MOZO', fulfillment: 'SALA', status: 'NUEVO', takenByUserId: userId,
+            customerName: null, customerPhone: null, notes: input.notes?.slice(0, 300) ?? null, subtotal: totals.subtotal, deliveryFee: 0, total: totals.total, items,
+        });
+        await this.publish('order.created', order, tab);
+        return order;
+    }
+
+    /** Mesa vista por el personal: cuenta abierta, mozo, precuenta y todas las rondas (carta digital y mozo). */
+    async staffTableDetail(placeId: string, tableId: string) {
+        const table = await this.tablesRepo.findOne({ where: { id: tableId, placeId } });
+        if (!table) throw new NotFoundException('Mesa no encontrada');
+        const tab = await this.tabsRepo.findOne({ where: { tableId: table.id, status: In(LIVE_TAB) } });
+        if (!tab) return { table, tab: null, orders: [] };
+        const orders = await this.ordersRepo.find({ where: { tabId: tab.id }, relations: ['items'], order: { createdAt: 'ASC' } });
+        return {
+            table, tab: { ...tab, ...(await this.tabTotal(tab.id)) },
+            orders: orders.map((o) => ({
+                id: o.id, number: o.number, channel: o.channel, status: o.status, total: o.total, notes: o.notes, createdAt: o.createdAt, takenByUserId: o.takenByUserId,
+                items: (o.items ?? []).map((i) => ({ id: i.id, name: i.dishNameSnapshot, quantity: i.quantity, unitPrice: i.unitPrice, lineTotal: i.lineTotal, note: i.note })),
+            })),
+        };
+    }
+
+    async assignWaiter(placeId: string, tabId: string, waiterUserId: string | null) {
+        const tab = await this.tabsRepo.findOne({ where: { id: tabId, placeId } });
+        if (!tab || tab.status === 'CERRADA') throw new NotFoundException('Cuenta no encontrada');
+        if (waiterUserId && !(await this.waiters(placeId)).some((w) => w.userId === waiterUserId)) throw new BadRequestException('Esa persona no es del equipo de este local');
+        await this.tabsRepo.update({ id: tab.id }, { waiterUserId });
+        await this.events.publish({ type: 'tab.updated', placeId, tabId: tab.id, tableId: tab.tableId, status: tab.status, publicTokens: [tab.publicToken] });
+        return { ...tab, waiterUserId };
+    }
+
+    /** Quienes pueden atender mesas: el equipo del local sin el rol de cocina. */
+    async waiters(placeId: string): Promise<{ userId: string; fullName: string; role: string }[]> {
+        return this.dataSource.query(
+            `SELECT m.user_id AS "userId", u.full_name AS "fullName", m.role
+             FROM wuarike_db.place_team_members m JOIN wuarike_db.users u ON u.id = m.user_id
+             WHERE m.place_id = $1 AND m.role <> 'cocina' ORDER BY (m.role = 'mozo') DESC, u.full_name`,
+            [placeId],
+        );
     }
 
     async createWhatsappOrder(placeId: string, input: { items: CartLine[]; customerName: string; customerPhone: string; whatsappNumberId: string | null; fulfillment: 'RECOJO' | 'DELIVERY'; deliveryAddress?: string }) {
@@ -89,11 +171,21 @@ export class OrdersService {
         const items = await this.buildItems(placeId, input.items);
         const fee = input.fulfillment === 'DELIVERY' ? settings.deliveryFee : 0;
         const totals = calculateTotals(items, fee, settings.pricesIncludeIgv);
-        return this.saveOrder({
+        const order = await this.saveOrder({
             placeId, tabId: null, tableId: null, channel: 'WHATSAPP', fulfillment: input.fulfillment, status: 'PENDIENTE_PAGO',
             customerName: input.customerName, customerPhone: normalizePhone(input.customerPhone), whatsappNumberId: input.whatsappNumberId,
             deliveryAddress: input.deliveryAddress ?? null, notes: null, subtotal: totals.subtotal, deliveryFee: fee, total: totals.total, items,
         });
+        this.captureContact(order);
+        return order;
+    }
+
+    /** Cliente único: el pedido deja al cliente en la ficha de contactos (sin consentimiento de marketing). No bloquea el pedido. */
+    private captureContact(order: Order): void {
+        if (!order.customerPhone) return;
+        this.contacts
+            .upsertByPhone(order.placeId, order.customerPhone, { name: order.customerName ?? undefined, source: 'order' })
+            .catch((err) => this.logger.warn(`No se pudo actualizar el contacto del pedido ${order.id}: ${err?.message}`));
     }
 
     /** PENDIENTE_PAGO → NUEVO una sola vez (webhook y revisión periódica pueden llegar a la vez). */
@@ -204,7 +296,8 @@ export class OrdersService {
         if (!tab) throw new NotFoundException('Cuenta no encontrada');
         const orders = await this.ordersRepo.find({ where: { tabId: tab.id }, relations: ['items'], order: { createdAt: 'ASC' } });
         const sums = await this.tabTotal(tab.id);
-        return { status: tab.status, ...sums, orders: orders.map((o) => this.publicView(o)) };
+        const { tableOnlinePaymentEnabled } = await this.getSettings(tab.placeId);
+        return { status: tab.status, ...sums, onlinePaymentEnabled: tableOnlinePaymentEnabled !== false, orders: orders.map((o) => this.publicView(o)) };
     }
 
     async listForPlace(placeId: string, filter: { status?: OrderStatus[]; channel?: OrderChannel; q?: string; from?: Date; page?: number }) {
@@ -218,7 +311,7 @@ export class OrdersService {
             else qb.andWhere('(o.customer_phone ILIKE :q OR o.customer_name ILIKE :q)', { q: `%${filter.q}%` });
         }
         const page = Math.max(1, Math.floor(filter.page || 1));
-        const [items, total] = await qb.orderBy('o.created_at', 'DESC').skip((page - 1) * PAGE_SIZE).take(PAGE_SIZE).getManyAndCount();
+        const [items, total] = await qb.orderBy('o.createdAt', 'DESC').skip((page - 1) * PAGE_SIZE).take(PAGE_SIZE).getManyAndCount();
         return { items, total };
     }
 
@@ -228,10 +321,28 @@ export class OrdersService {
             where: { placeId, status: In(['NUEVO', 'EN_PREPARACION', 'LISTO']), createdAt: MoreThanOrEqual(new Date(Date.now() - 24 * 3600_000)) },
             relations: ['items'], order: { createdAt: 'ASC' }, take: 200,
         });
+        const tableIds = [...new Set(orders.map((o) => o.tableId).filter((id): id is string => !!id))];
+        const tables = tableIds.length ? await this.tablesRepo.find({ where: { id: In(tableIds) } }) : [];
+        // Por pedido (no envolvemos el arreglo) para que un panel viejo siga funcionando durante el despliegue.
+        const { prepTimeMin } = await this.getSettings(placeId);
         return orders.map((o) => ({
             id: o.id, number: o.number, channel: o.channel, fulfillment: o.fulfillment, status: o.status, tableId: o.tableId, notes: o.notes, createdAt: o.createdAt,
+            tableName: tables.find((t) => t.id === o.tableId)?.name ?? null, prepTimeMin: prepTimeMin ?? 20,
             items: (o.items ?? []).map((i) => ({ id: i.id, name: i.dishNameSnapshot, quantity: i.quantity, note: i.note })),
         }));
+    }
+
+    /** Vista del mozo al escanear el QR de una mesa: la cuenta viva completa, solo si la mesa es de su sede. */
+    async staffTableView(placeId: string, qrToken: string) {
+        const table = await this.tablesRepo.findOne({ where: { qrToken, placeId, active: true } });
+        if (!table) throw new NotFoundException('Mesa no encontrada en esta sede');
+        const tab = await this.tabsRepo.findOne({ where: { tableId: table.id, status: In(LIVE_TAB) } });
+        if (!tab) return { table: { id: table.id, name: table.name, pin: table.pin }, tab: null };
+        const orders = await this.ordersRepo.find({ where: { tabId: tab.id }, relations: ['items'], order: { createdAt: 'ASC' } });
+        return {
+            table: { id: table.id, name: table.name, pin: table.pin },
+            tab: { id: tab.id, status: tab.status, openedAt: tab.openedAt, ...(await this.tabTotal(tab.id)), orders: orders.map((o) => this.publicView(o)) },
+        };
     }
 
     async tablesBoard(placeId: string): Promise<TableBoardRow[]> {

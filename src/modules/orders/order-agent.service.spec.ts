@@ -17,6 +17,7 @@ const build = (aiReply: string, existingDraft: any = null) => {
     const ai = { chat: jest.fn(async () => aiReply) };
     const orders = {
         getSettings: jest.fn(async () => ({ ordersEnabled: true, pickupEnabled: true, deliveryEnabled: true, deliveryFee: 500, pricesIncludeIgv: true })),
+        hasPlan: jest.fn(async () => true),
         createWhatsappOrder: jest.fn(async () => ({ id: 'o1', number: 12, total: 3500, publicToken: 'otok' })),
     };
     const config = { get: () => 'https://admin.wuarikes.com' };
@@ -27,6 +28,14 @@ const build = (aiReply: string, existingDraft: any = null) => {
 const input = { placeId: 'p1', whatsappNumberId: 'wa1', customerName: 'Luis', customerPhone: '51999', history: [] };
 
 describe('OrderAgentService', () => {
+    it('sin plan IA Total el bot no toma pedidos por WhatsApp', async () => {
+        const { svc, orders, ai } = build('{"reply":"x","actions":[]}');
+        orders.hasPlan.mockResolvedValue(false);
+        await expect(svc.handle({ ...input, message: 'quiero un lomo saltado' })).resolves.toEqual({ handled: false });
+        expect(orders.hasPlan).toHaveBeenCalledWith('p1', 'ia_total');
+        expect(ai.chat).not.toHaveBeenCalled();
+    });
+
     it('sin intención ni borrador no toma el mensaje', async () => {
         const { svc, ai } = build('{}');
         await expect(svc.handle({ ...input, message: '¿a qué hora abren?' })).resolves.toEqual({ handled: false });

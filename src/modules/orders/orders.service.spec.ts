@@ -46,7 +46,7 @@ const memRepo = <T extends { id?: string }>(rows: T[] = []) => ({
     }),
 });
 
-const build = (opts: { mode?: 'CUENTA_ABIERTA' | 'PREPAGO'; dishAvailable?: boolean; dishPrice?: string | null } = {}) => {
+const build = (opts: { mode?: 'CUENTA_ABIERTA' | 'PREPAGO'; dishAvailable?: boolean; dishPrice?: string | null; noPlan?: boolean } = {}) => {
     const settings = memRepo([{ placeId: 'p1', ordersEnabled: true, tablePaymentMode: opts.mode ?? 'CUENTA_ABIERTA', pricesIncludeIgv: true, deliveryFee: 500, deliveryEnabled: true, pickupEnabled: true } as any]);
     const tables = memRepo([{ id: 't1', placeId: 'p1', name: 'Mesa 4', qrToken: 'qr-1', pin: '1234', active: true } as any]);
     const tabs = memRepo<any>([]);
@@ -62,8 +62,10 @@ const build = (opts: { mode?: 'CUENTA_ABIERTA' | 'PREPAGO'; dishAvailable?: bool
     const emitter = { emit: jest.fn() };
     const pinAttempts = new PinAttemptsService({ get: () => undefined } as any, () => fakeRedisStore());
     pinAttempts.onModuleInit();
-    const svc = new OrdersService(settings as any, tables as any, tabs as any, orders as any, payments as any, dishes as any, dataSource as any, events as any, emitter as any, pinAttempts);
-    return { svc, tabs, tables, orders, payments, events, emitter };
+    const contacts = { upsertByPhone: jest.fn().mockResolvedValue(null) };
+    const team = { assertPlaceTier: jest.fn(async () => { if (opts.noPlan) throw new Error('sin plan'); }) };
+    const svc = new OrdersService(settings as any, tables as any, tabs as any, orders as any, payments as any, dishes as any, dataSource as any, events as any, emitter as any, pinAttempts, contacts as any, team as any);
+    return { svc, tabs, tables, orders, payments, events, emitter, contacts };
 };
 
 describe('OrdersService', () => {
@@ -206,9 +208,18 @@ describe('OrdersService', () => {
         expect(kds.map((o: any) => o.id).sort()).toEqual(['a', 'b']);
         expect(kds.find((o: any) => o.id === 'a')).toEqual({
             id: 'a', number: 1, channel: 'WHATSAPP', fulfillment: 'DELIVERY', status: 'NUEVO', tableId: null, notes: 'sin ají', createdAt: expect.any(Date),
+            tableName: null, prepTimeMin: 20,
             items: [{ id: 'i1', name: 'Lomo saltado', quantity: 2, note: 'bien cocido' }],
         });
         expect(orders.find).toHaveBeenLastCalledWith(expect.objectContaining({ order: { createdAt: 'ASC' }, take: 200 }));
+    });
+
+    it('KDS: pedido de mesa trae el nombre de la mesa y el tiempo de preparación del local', async () => {
+        const { svc, orders } = build();
+        await svc.createTableOrder('qr-1', { pin: '1234', items: [{ dishId: 'd1', quantity: 1 }] });
+        orders.rows[0].createdAt = new Date(); // el repo en memoria no pone created_at
+        const [order] = await svc.listActiveForKds('p1');
+        expect(order).toMatchObject({ tableName: 'Mesa 4', prepTimeMin: 20 });
     });
 
     it.each([null, '0.00'])('plato sin precio (%p): 400 con el nombre', async (price) => {
@@ -225,6 +236,25 @@ describe('OrdersService', () => {
         expect(wa.customerPhone).toBe('51987654321');
         const blank = await svc.createTableOrder('qr-1', { pin: '1234', items: [{ dishId: 'd1', quantity: 1 }], customerPhone: '  ' });
         expect(blank.order.customerPhone).toBeNull();
+    });
+
+    it('cliente único: cada pedido con teléfono hace upsert del contacto (source order, sin consentimiento) y sin teléfono no', async () => {
+        const { svc, contacts } = build();
+        await svc.createTableOrder('qr-1', { pin: '1234', items: [{ dishId: 'd1', quantity: 1 }], customerName: 'Ana', customerPhone: '987 654 321' });
+        expect(contacts.upsertByPhone).toHaveBeenLastCalledWith('p1', '51987654321', { name: 'Ana', source: 'order' });
+        await svc.createWhatsappOrder('p1', { items: [{ dishId: 'd2', quantity: 1 }], customerName: 'Luis', customerPhone: '+51 912-345-678', whatsappNumberId: null, fulfillment: 'RECOJO' });
+        expect(contacts.upsertByPhone).toHaveBeenLastCalledWith('p1', '51912345678', { name: 'Luis', source: 'order' });
+        contacts.upsertByPhone.mockClear();
+        await svc.createTableOrder('qr-1', { pin: '1234', items: [{ dishId: 'd1', quantity: 1 }] });
+        expect(contacts.upsertByPhone).not.toHaveBeenCalled();
+    });
+
+    it('cliente único: si el upsert falla el pedido se crea igual', async () => {
+        const { svc, contacts, orders } = build();
+        contacts.upsertByPhone.mockRejectedValue(new Error('db caída'));
+        const { order } = await svc.createTableOrder('qr-1', { pin: '1234', items: [{ dishId: 'd1', quantity: 1 }], customerPhone: '987654321' });
+        expect(order.id).toBeDefined();
+        expect(orders.rows).toHaveLength(1);
     });
 
     it('pedir la cuenta devuelve solo el estado', async () => {
@@ -300,3 +330,26 @@ describe('OrdersService: bloqueo por intentos de PIN', () => {
     });
 });
 
+
+describe('OrdersService.staffTableView (mozo escanea el QR)', () => {
+    it('devuelve la cuenta viva con saldo; mesa sin cuenta = tab null', async () => {
+        const { svc } = build();
+        await expect(svc.staffTableView('p1', 'qr-1')).resolves.toMatchObject({ table: { name: 'Mesa 4' }, tab: null });
+        await svc.createTableOrder('qr-1', { pin: '1234', items: [{ dishId: 'd1', quantity: 2 }] });
+        const view = await svc.staffTableView('p1', 'qr-1');
+        expect(view.tab).toMatchObject({ status: 'ABIERTA', total: 7000, paid: 0, due: 7000 });
+        expect(view.tab!.orders).toHaveLength(1);
+    });
+
+    it('QR de una mesa de otra sede: 404 (no se filtra la cuenta ajena)', async () => {
+        const { svc } = build();
+        await expect(svc.staffTableView('p2', 'qr-1')).rejects.toBeInstanceOf(NotFoundException);
+    });
+});
+
+describe('OrdersService: plan de la sede', () => {
+    it('sin Fidelización+ activo la mesa no puede pedir', async () => {
+        const { svc } = build({ noPlan: true });
+        await expect(svc.createTableOrder('qr-1', { pin: '1234', items: [{ dishId: 'd1', quantity: 1 }] })).rejects.toThrow('no está recibiendo pedidos');
+    });
+});

@@ -290,6 +290,13 @@ export class AdminController {
         return this.adminService.updatePlace(id, updateData);
     }
 
+    @Patch('places/:id/business-type')
+    @ApiOperation({ summary: 'Fijar el tipo de negocio de un local (p. ej. scrapeado o sin dueño)' })
+    @ApiParam({ name: 'id', description: 'Place UUID' })
+    async setPlaceBusinessType(@Param('id') id: string, @Body('businessType') businessType: string) {
+        return this.adminService.setBusinessType(id, businessType);
+    }
+
     @Post('places/import')
     @ApiOperation({ summary: 'Bulk create restaurants from the Google Maps scraper CSV' })
     @ApiResponse({ status: 201, description: 'Returns { imported, skipped, failed, errors }.' })

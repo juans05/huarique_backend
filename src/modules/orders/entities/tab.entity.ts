@@ -1,6 +1,8 @@
 import { Entity, PrimaryGeneratedColumn, Column } from 'typeorm';
 
 export type TabStatus = 'ABIERTA' | 'CUENTA_PEDIDA' | 'PAGADA' | 'CERRADA';
+/** Datos del comprobante que el mozo pide junto con la precuenta; caja los usa al cobrar. */
+export type Precuenta = { docType: 'TICKET' | 'BOLETA' | 'FACTURA'; customerDocType?: string; customerDocNumber?: string; customerName?: string; customerAddress?: string };
 
 @Entity('tabs')
 export class Tab {
@@ -12,4 +14,7 @@ export class Tab {
     @Column({ name: 'opened_at', type: 'timestamptz', default: () => 'now()' }) openedAt: Date;
     @Column({ name: 'bill_requested_at', type: 'timestamptz', nullable: true }) billRequestedAt: Date | null;
     @Column({ name: 'closed_at', type: 'timestamptz', nullable: true }) closedAt: Date | null;
+    @Column({ type: 'jsonb', nullable: true }) precuenta: Precuenta | null;
+    /** Mozo que atiende la mesa (lo elige el mozo o caja; por defecto quien tomó el primer pedido). */
+    @Column({ name: 'waiter_user_id', type: 'uuid', nullable: true }) waiterUserId: string | null;
 }

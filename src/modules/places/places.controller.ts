@@ -29,6 +29,7 @@ import { PlacesService } from './places.service';
 import { MenuService } from './menu.service';
 import { MenuAssistantService, AssistantTurn } from './menu-assistant.service';
 import { sanitizeMenuTheme } from './menu-theme.util';
+import { publicBusinessTypes } from './business-types';
 import { Throttle } from '@nestjs/throttler';
 import { PromotionsService } from './promotions.service';
 import { TikTokSearchService } from './tiktok-search.service';
@@ -60,11 +61,19 @@ export class PlacesController {
         return this.placesService.findAll(query);
     }
 
+    @Get('business-types')
+    @ApiOperation({ summary: 'Rubros y tipos de negocio disponibles (público)' })
+    @ApiResponse({ status: 200, description: '{ verticals: [{ key, label, catalogLabel, types: [{ key, label }] }] }' })
+    getBusinessTypes() {
+        return publicBusinessTypes();
+    }
+
     @Get('categories')
-    @ApiOperation({ summary: 'Get all place categories' })
+    @ApiOperation({ summary: 'Get place categories (solo gastronomía si no se indica vertical)' })
+    @ApiQuery({ name: 'vertical', required: false, type: String, description: "Rubro o 'all'" })
     @ApiResponse({ status: 200, description: 'Array of categories with id, name, slug and icon.' })
-    async getCategories() {
-        return this.placesService.getCategories();
+    async getCategories(@Query('vertical') vertical?: string) {
+        return this.placesService.getCategories(vertical);
     }
 
     @Get('amenities')
@@ -79,13 +88,15 @@ export class PlacesController {
     @ApiQuery({ name: 'district', required: false, type: String })
     @ApiQuery({ name: 'category', required: false, type: String })
     @ApiQuery({ name: 'limit', required: false, type: Number, example: 10 })
+    @ApiQuery({ name: 'vertical', required: false, type: String, description: "Rubro o 'all'. Sin valor: solo gastronomía" })
     @ApiResponse({ status: 200, type: PlaceResponseDto, isArray: true })
     async getDiscovery(
         @Query('district') district?: string,
         @Query('category') category?: string,
         @Query('limit') limit?: number,
+        @Query('vertical') vertical?: string,
     ) {
-        return this.placesService.getDiscovery(district, category, limit);
+        return this.placesService.getDiscovery(district, category, limit, vertical);
     }
 
     @Get('recommendations')
@@ -98,9 +109,10 @@ export class PlacesController {
     @Get('discovery/most-favorited')
     @ApiOperation({ summary: 'Most-favorited places — "más guardados"' })
     @ApiQuery({ name: 'limit', required: false, type: Number, example: 10 })
+    @ApiQuery({ name: 'vertical', required: false, type: String, description: "Rubro o 'all'. Sin valor: solo gastronomía" })
     @ApiResponse({ status: 200, type: PlaceResponseDto, isArray: true })
-    async getMostFavorited(@Query('limit') limit?: number) {
-        return this.placesService.getMostFavorited(limit);
+    async getMostFavorited(@Query('limit') limit?: number, @Query('vertical') vertical?: string) {
+        return this.placesService.getMostFavorited(limit, vertical);
     }
 
     @Get('my-submissions')

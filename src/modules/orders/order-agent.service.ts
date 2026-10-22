@@ -27,6 +27,7 @@ export class OrderAgentService {
     async handle(input: { placeId: string; whatsappNumberId: string | null; customerName: string; customerPhone: string; message: string; history: { role: 'user' | 'assistant'; content: string }[] }): Promise<{ handled: false } | { handled: true; reply: string }> {
         const settings = await this.orders.getSettings(input.placeId);
         if (!settings.ordersEnabled || (!settings.pickupEnabled && !settings.deliveryEnabled)) return { handled: false };
+        if (!(await this.orders.hasPlan(input.placeId, 'ia_total'))) return { handled: false };
 
         let draft = await this.draftsRepo.findOne({ where: { placeId: input.placeId, customerPhone: input.customerPhone, status: 'ARMANDO' } });
         if (draft && Date.now() - new Date(draft.updatedAt).getTime() > DRAFT_TTL_MS) {

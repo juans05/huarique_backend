@@ -1,10 +1,29 @@
 import { Type } from 'class-transformer';
-import { ArrayMaxSize, ArrayMinSize, IsEmail, IsIn, IsInt, IsOptional, IsString, IsUUID, Max, MaxLength, Matches, Min, ValidateNested } from 'class-validator';
+import { ArrayMaxSize, ArrayMinSize, IsEmail, IsIn, IsInt, IsOptional, IsString, IsUUID, Max, MaxLength, Matches, Min, MinLength, ValidateNested } from 'class-validator';
 
 export class CartLineDto {
     @IsUUID() dishId: string;
     @IsInt() @Min(1) @Max(50) quantity: number;
     @IsOptional() @IsString() @MaxLength(200) note?: string;
+}
+
+export class CustomLineDto {
+    @IsString() @MinLength(1) @MaxLength(120) name: string;
+    /** Céntimos. */
+    @IsInt() @Min(0) @Max(1_000_000) unitPrice: number;
+    @IsInt() @Min(1) @Max(50) quantity: number;
+    @IsOptional() @IsString() @MaxLength(200) note?: string;
+}
+
+/** Comanda del mozo: platos de la carta y/o ítems fuera de carta. */
+export class StaffOrderDto {
+    @IsOptional() @ValidateNested({ each: true }) @Type(() => CartLineDto) @ArrayMaxSize(40) items?: CartLineDto[];
+    @IsOptional() @ValidateNested({ each: true }) @Type(() => CustomLineDto) @ArrayMaxSize(20) customItems?: CustomLineDto[];
+    @IsOptional() @IsString() @MaxLength(300) notes?: string;
+}
+
+export class AssignWaiterDto {
+    @IsOptional() @IsUUID() waiterUserId?: string | null;
 }
 
 export class CreateTableOrderDto {

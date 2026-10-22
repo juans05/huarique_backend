@@ -29,8 +29,10 @@ import { sanitizeMenuTheme } from './menu-theme.util';
 import { buildReplyMessages } from './review-reply.util';
 import { MenuService } from './menu.service';
 import { PromotionsService } from './promotions.service';
+import { TodayService } from './today.service';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Place } from './entities/place.entity';
+import { Category } from './entities/category.entity';
 import { Amenity } from './entities/amenity.entity';
 import { Repository, ILike, IsNull, In } from 'typeorm';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
@@ -41,6 +43,13 @@ import { SubscriptionsService } from '../subscriptions/subscriptions.service';
 import { CreateSubscriptionDto } from '../subscriptions/dto/create-subscription.dto';
 
 import { GoogleReview } from './entities/google-review.entity';
+import {
+    DEFAULT_BUSINESS_TYPE,
+    assertCategoryMatchesVertical,
+    categoryMatchesVertical,
+    getVerticalConfig,
+    requireBusinessType,
+} from './business-types';
 
 @ApiTags('business-places')
 @Controller('business')
@@ -57,10 +66,13 @@ export class BusinessPlacesController {
         private readonly menuImport: MenuImportService,
         private readonly menuService: MenuService,
         private readonly promotionsService: PromotionsService,
+        private readonly todayService: TodayService,
         @InjectRepository(Place)
         private placesRepo: Repository<Place>,
         @InjectRepository(Amenity)
         private amenityRepo: Repository<Amenity>,
+        @InjectRepository(Category)
+        private categoryRepo: Repository<Category>,
         @InjectRepository(GoogleReview)
         private googleReviewsRepo: Repository<GoogleReview>,
         @InjectRepository(PlaceTeamMember)
@@ -122,28 +134,44 @@ export class BusinessPlacesController {
 
     @Post('onboarding/claim/:id')
     @ApiOperation({ summary: 'Claim an existing Wuarike place' })
-    async claimPlace(@Param('id') id: string, @CurrentUser() user: any) {
+    async claimPlace(@Param('id') id: string, @CurrentUser() user: any, @Body('businessType') businessType?: string) {
+        // El tipo elegido por el dueño reemplaza al que tuviera el local; sin tipo (cliente anterior al multirrubro) se conserva el existente.
+        const type = businessType == null ? undefined : requireBusinessType(businessType);
+        const place = await this.placesRepo.findOne({ where: { id }, relations: ['category'] });
+        if (!place) throw new NotFoundException('Lugar no encontrado');
+        if (place.claimedByUserId) throw new BadRequestException('Este lugar ya ha sido reclamado');
+
         const result = await this.placesRepo.update(
             { id, claimedByUserId: IsNull() },
-            { claimedByUserId: user.id, status: 'pending' }
+            {
+                claimedByUserId: user.id,
+                status: 'pending',
+                ...(type
+                    ? {
+                        businessType: type,
+                        // Una categoría de otro rubro ya no corresponde: se quita (no se borra nada más).
+                        ...(categoryMatchesVertical(place.category, type) ? {} : { categoryId: null }),
+                    }
+                    : {}),
+            }
         );
-
-        if (result.affected === 0) {
-            const place = await this.placesRepo.findOne({ where: { id } });
-            if (!place) throw new NotFoundException('Lugar no encontrado');
-            throw new BadRequestException('Este lugar ya ha sido reclamado');
-        }
+        if (result.affected === 0) throw new BadRequestException('Este lugar ya ha sido reclamado');
 
         return { message: 'Reclamación iniciada con éxito', placeId: id };
     }
 
     @Post('onboarding/import')
     @ApiOperation({ summary: 'Import a place from Google and claim it' })
-    async importPlace(@Body('googlePlaceId') googlePlaceId: string, @CurrentUser() user: any) {
+    async importPlace(
+        @Body('googlePlaceId') googlePlaceId: string,
+        @Body('businessType') businessType: string | undefined,
+        @CurrentUser() user: any,
+    ) {
+        if (businessType != null) requireBusinessType(businessType);
         // Check if already in Wuarike
         const existing = await this.placesRepo.findOne({ where: { googlePlaceId } });
         if (existing) {
-            return this.claimPlace(existing.id, user);
+            return this.claimPlace(existing.id, user, businessType);
         }
 
         // Get details from Google
@@ -153,6 +181,7 @@ export class BusinessPlacesController {
         // Create in Wuarike and assign to user
         const newPlace = this.placesRepo.create({
             ...details,
+            businessType: businessType ?? DEFAULT_BUSINESS_TYPE,
             claimedByUserId: user.id,
             status: 'pending'
         });
@@ -178,6 +207,7 @@ export class BusinessPlacesController {
         const newPlace = this.placesRepo.create({
             name,
             address: dto.address?.trim() || '',
+            businessType: dto.businessType ?? DEFAULT_BUSINESS_TYPE,
             claimedByUserId: user.id,
             status: 'pending'
         });
@@ -207,13 +237,19 @@ export class BusinessPlacesController {
             })
             : [];
 
-        return [...ownedPlaces, ...teamPlaces].map(p => ({
-            id: p.id,
-            name: p.name,
-            coverImageUrl: p.coverImageUrl,
-            category: p.category,
-            status: p.status,
-        }));
+        return [...ownedPlaces, ...teamPlaces].map(p => {
+            const verticalConfig = getVerticalConfig(p.businessType);
+            return {
+                id: p.id,
+                name: p.name,
+                coverImageUrl: p.coverImageUrl,
+                category: p.category,
+                status: p.status,
+                businessType: p.businessType,
+                vertical: verticalConfig.vertical,
+                verticalConfig,
+            };
+        });
     }
 
     // El plan pago es de la SEDE, no del usuario que consulta — así un
@@ -226,6 +262,24 @@ export class BusinessPlacesController {
         await this.placeTeamService.assertAccess(user.id, id);
         const subscription = await this.subscriptionsService.getSubscriptionForPlace(id);
         return { tier: subscription?.status === 'active' ? subscription.tier : null };
+    }
+
+    // "Tu día" (inicio del panel): dueño o equipo de la sede (mismo chequeo que subscription-tier). El Google va
+    // en una ruta aparte para que Inicio cargue rápido aunque Google tarde o falle.
+    @Get('places/:id/today')
+    @ApiOperation({ summary: 'Pending items and weekly stats for the panel home (database only)' })
+    @ApiParam({ name: 'id', description: 'Place UUID' })
+    async getToday(@Param('id') id: string, @CurrentUser() user: any) {
+        await this.placeTeamService.assertAccess(user.id, id);
+        return this.todayService.getToday(id);
+    }
+
+    @Get('places/:id/today/reviews')
+    @ApiOperation({ summary: 'Unanswered Google reviews count (cached 10 min, never fails)' })
+    @ApiParam({ name: 'id', description: 'Place UUID' })
+    async getTodayReviews(@Param('id') id: string, @CurrentUser() user: any) {
+        await this.placeTeamService.assertAccess(user.id, id);
+        return this.todayService.getReviewsToday(id);
     }
 
     // Gestión de la suscripción — solo Admin de la sede (maneja la tarjeta/facturación
@@ -296,7 +350,24 @@ export class BusinessPlacesController {
 
         if (data.name !== undefined) place.name = data.name;
         if (data.address !== undefined) place.address = data.address;
-        if (data.categoryId !== undefined) place.categoryId = data.categoryId;
+        if (data.businessType !== undefined || data.categoryId !== undefined) {
+            const newType = data.businessType !== undefined ? requireBusinessType(data.businessType) : place.businessType;
+            const typeChanged = newType !== place.businessType;
+            if (data.categoryId !== undefined) {
+                // Categoría enviada: solo se valida si ella o el tipo cambian respecto de lo guardado.
+                if (data.categoryId && (typeChanged || data.categoryId !== place.categoryId)) {
+                    const category = await this.categoryRepo.findOne({ where: { id: data.categoryId } });
+                    if (!category) throw new BadRequestException('Categoría no encontrada');
+                    assertCategoryMatchesVertical(category, newType);
+                }
+                place.categoryId = data.categoryId;
+            } else if (typeChanged && place.categoryId) {
+                // Cambió de rubro y no se envió categoría: se quita la que ya no corresponde, sin error.
+                const current = await this.categoryRepo.findOne({ where: { id: place.categoryId } });
+                if (!categoryMatchesVertical(current, newType)) place.categoryId = null;
+            }
+            place.businessType = newType;
+        }
         if (data.districtId !== undefined) place.districtId = data.districtId;
         if (data.openHoursText !== undefined) place.openHoursText = data.openHoursText;
         if (data.openingHours !== undefined) place.openingHours = data.openingHours;

@@ -39,6 +39,10 @@ export class Place {
     @Column({ type: 'text', nullable: true })
     description: string | null;
 
+    /** Subtipo de negocio (ver business-types.ts); el rubro se deriva de él. Todo local existente es 'restaurante'. */
+    @Column({ name: 'business_type', type: 'varchar', default: 'restaurante' })
+    businessType: string;
+
     @ManyToOne(() => Category, (category) => category.places, { nullable: true })
     @JoinColumn({ name: 'category_id' })
     category: Category | null;

@@ -13,6 +13,7 @@ import { WhatsAppNumber } from '../whatsapp/entities/whatsapp-number.entity';
 import { WhatsappService } from '../whatsapp/whatsapp.service';
 import { Place } from '../places/entities/place.entity';
 import { pick } from '../../common/utils/pick';
+import { ContactsService } from '../contacts/contacts.service';
 
 // Campos que el dueño puede escribir; id, placeId y fechas los pone el servidor.
 const PROGRAM_FIELDS = ['type', 'stampsToReward', 'pointsPerVisit', 'minHoursBetweenVisits', 'rewardTitle', 'rewardDescription', 'welcomeMessage', 'isActive', 'winbackEnabled', 'winbackMessage'] as const;
@@ -35,6 +36,7 @@ export class LoyaltyService {
     @InjectRepository(Place) private placesRepo: Repository<Place>,
     @InjectQueue('wallet-campaign') private walletCampaignQueue: Queue,
     private whatsappService: WhatsappService,
+    private contactsService: ContactsService,
   ) {}
 
   // ── PROGRAMA ────────────────────────────────────────────────────────────
@@ -122,7 +124,8 @@ export class LoyaltyService {
     }
 
     // El cliente acepta recibir promociones al unirse. Solo se enciende; omitirlo en una visita no lo revoca.
-    if (marketingConsent === true && !card.marketingConsent) {
+    const consentGranted = marketingConsent === true && !card.marketingConsent;
+    if (consentGranted) {
       card.marketingConsent = true;
       card.marketingConsentAt = new Date();
     }
@@ -142,6 +145,14 @@ export class LoyaltyService {
       card.stamps % program.stampsToReward === 0;
 
     await this.cardRepo.save(card);
+
+    // Cliente único: la tarjeta nueva (o un consentimiento recién dado) llega a la ficha del cliente con el valor de la tarjeta.
+    // Sin bloquear la visita: si falla, solo se registra.
+    if (isNew || consentGranted) {
+      this.contactsService
+        .upsertByPhone(placeId, customerPhone, { name: card.customerName ?? undefined, source: 'loyalty', marketingConsent: card.marketingConsent })
+        .catch((err) => this.logger.warn(`No se pudo actualizar el contacto de ${placeId}: ${err?.message}`));
+    }
 
     await this.txRepo.save(this.txRepo.create({
       loyaltyCardId: card.id,

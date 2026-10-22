@@ -281,7 +281,7 @@ Calificación: ${feedback.rating} de 5
             return { channel: 'email', sent: true, feedback };
         }
         if (channel?.type === 'whatsapp') {
-            return { channel: 'whatsapp', sent: false, whatsappUrl: `https://wa.me/${channel.phone}?text=${encodeURIComponent(text)}`, feedback };
+            return { channel: 'whatsapp', sent: false, whatsappUrl: `https://wa.me/${String(channel.phone).replace(/\D/g, '')}?text=${encodeURIComponent(text)}`, feedback };
         }
         return { channel: 'none', sent: false, feedback };
     }

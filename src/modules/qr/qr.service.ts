@@ -10,6 +10,7 @@ import { AssignQrDto } from './dto/assign-qr.dto';
 import { Place } from '../places/entities/place.entity';
 import { Category } from '../places/entities/category.entity';
 import { Ubigeo } from '../ubigeo/entities/ubigeo.entity';
+import { DEFAULT_BUSINESS_TYPE, assertCategoryMatchesVertical } from '../places/business-types';
 
 // Alfabeto sin caracteres ambiguos (sin 0/O, 1/I) para que el token se
 // pueda leer/tipear a mano si hace falta.
@@ -155,6 +156,8 @@ export class QrService {
 
         const category = await this.categoryRepository.findOne({ where: { id: dto.newPlace.categoryId } });
         if (!category) throw new BadRequestException('Categoría no encontrada');
+        const businessType = dto.newPlace.businessType ?? DEFAULT_BUSINESS_TYPE;
+        assertCategoryMatchesVertical(category, businessType);
 
         const district = await this.ubigeoRepository.findOne({ where: { district: dto.newPlace.district } });
         if (!district) throw new BadRequestException(`Distrito '${dto.newPlace.district}' no encontrado`);
@@ -162,6 +165,7 @@ export class QrService {
         const place = this.placesRepository.create({
             name: dto.newPlace.name,
             nameNormalized: dto.newPlace.name.toLowerCase().trim(),
+            businessType,
             category,
             district,
             address: dto.newPlace.address ?? null,
