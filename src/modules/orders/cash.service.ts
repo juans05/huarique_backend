@@ -1,6 +1,6 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { DataSource, In, Repository } from 'typeorm';
+import { DataSource, EntityManager, In, Repository } from 'typeorm';
 import { CashSession, CashTotals } from './entities/cash-session.entity';
 import { CashMethod, Receipt } from './entities/receipt.entity';
 import { Tab } from './entities/tab.entity';
@@ -44,12 +44,16 @@ export class CashService {
 
     async close(placeId: string, userId: string, countedCash?: number) {
         const session = await this.requireOpen(placeId);
-        const totals = this.sum(await this.receiptsRepo.find({ where: { cashSessionId: session.id } }));
-        const expectedCash = session.openingAmount + totals.EFECTIVO;
-        await this.sessionsRepo.update({ id: session.id, status: 'ABIERTA' }, {
-            status: 'CERRADA', closedAt: new Date(), closedByUserId: userId, totals, expectedCash, countedCash: countedCash ?? null,
+        return this.dataSource.transaction(async (em) => {
+            // Espera a que termine cualquier cobro en curso: así el arqueo incluye todos los comprobantes del turno.
+            await this.lockOpen(em, session.id);
+            const totals = this.sum(await em.find(Receipt, { where: { cashSessionId: session.id } }));
+            const expectedCash = session.openingAmount + totals.EFECTIVO;
+            await em.update(CashSession, { id: session.id }, {
+                status: 'CERRADA', closedAt: new Date(), closedByUserId: userId, totals, expectedCash, countedCash: countedCash ?? null,
+            });
+            return { ...session, status: 'CERRADA' as const, totals, expectedCash, countedCash: countedCash ?? null, difference: countedCash == null ? null : countedCash - expectedCash };
         });
-        return { ...session, status: 'CERRADA' as const, totals, expectedCash, countedCash: countedCash ?? null, difference: countedCash == null ? null : countedCash - expectedCash };
     }
 
     /** El mozo pide la precuenta con los datos del comprobante; la mesa pasa a "cuenta pedida". */
@@ -69,22 +73,23 @@ export class CashService {
     /** Cobra la cuenta completa, emite el comprobante con el siguiente número de su serie y libera la mesa. */
     async charge(placeId: string, userId: string, dto: ChargeDto) {
         const session = await this.requireOpen(placeId);
-        const tab = await this.tabsRepo.findOne({ where: { id: dto.tabId, placeId } });
-        if (!tab || tab.status === 'CERRADA') throw new NotFoundException('Cuenta no encontrada');
-        const { due } = await this.orders.tabTotal(tab.id);
-        if (due <= 0) throw new BadRequestException('Esta cuenta no tiene saldo por cobrar');
-        const error = receiptCustomerError(dto.docType, dto, due);
-        if (error) throw new BadRequestException(error);
-
-        // Primero el pago: si otra caja ya cobró la cuenta, falla aquí ("no hay saldo") y no se gasta un número.
-        const payment = await this.payments.recordManualPayment(placeId, { tabId: tab.id }, PAYMENT_METHOD[dto.method], userId);
         const settings = await this.orders.getSettings(placeId);
         const series = (settings.receiptSeries ?? DEFAULT_RECEIPT_SERIES)[dto.docType];
-        const table = await this.tablesRepo.findOne({ where: { id: tab.tableId } });
 
+        // ponytail: un cobro a la vez por local (bloquea la fila de la caja abierta); basta para el volumen de una caja.
+        // Dentro del bloqueo se vuelve a leer el saldo, así dos cajeros no cobran dos veces la misma cuenta,
+        // y el cierre de turno espera a que termine el cobro.
         const receipt = await this.dataSource.transaction(async (em) => {
-            // La caja abierta es única por local: bloquear su fila serializa la numeración.
-            await em.query(`SELECT id FROM wuarike_db.cash_sessions WHERE id = $1 FOR UPDATE`, [session.id]);
+            await this.lockOpen(em, session.id);
+            const tab = await this.tabsRepo.findOne({ where: { id: dto.tabId, placeId } });
+            if (!tab || tab.status === 'CERRADA') throw new NotFoundException('Cuenta no encontrada');
+            const { due } = await this.orders.tabTotal(tab.id);
+            if (due <= 0) throw new BadRequestException('Esta cuenta no tiene saldo por cobrar');
+            const error = receiptCustomerError(dto.docType, dto, due);
+            if (error) throw new BadRequestException(error);
+
+            const payment = await this.payments.recordManualPayment(placeId, { tabId: tab.id }, PAYMENT_METHOD[dto.method], userId);
+            const table = await this.tablesRepo.findOne({ where: { id: tab.tableId } });
             const [{ max }] = await em.query(`SELECT COALESCE(MAX(number), 0) AS max FROM wuarike_db.receipts WHERE place_id = $1 AND series = $2`, [placeId, series]);
             const customer = this.clean(dto);
             return em.save(em.create(Receipt, {
@@ -94,8 +99,14 @@ export class CashService {
                 customerName: customer.customerName ?? null, customerAddress: customer.customerAddress ?? null,
             }));
         });
-        await this.orders.closeTab(placeId, tab.id);
+        await this.orders.closeTab(placeId, receipt.tabId!);
         return { ...receipt, code: receiptCode(receipt.series, receipt.number) };
+    }
+
+    /** Bloquea la caja hasta el fin de la transacción y confirma que siga abierta (pudo cerrarse mientras tanto). */
+    private async lockOpen(em: EntityManager, sessionId: string) {
+        const [row] = await em.query(`SELECT status FROM wuarike_db.cash_sessions WHERE id = $1 FOR UPDATE`, [sessionId]);
+        if (row?.status !== 'ABIERTA') throw new BadRequestException('La caja se cerró. Ábrela de nuevo para cobrar');
     }
 
     private async pendingPrecuentas(placeId: string) {
