@@ -8,7 +8,7 @@ import { OrderSettingsService } from './order-settings.service';
 import { PaymentsService } from './payments.service';
 import { CashService } from './cash.service';
 import { ChargeDto, CloseCashDto, OpenCashDto, PrecuentaDto } from './dto/cash.dto';
-import { ChangeStatusDto, ManualPaymentDto } from './dto/orders.dto';
+import { AssignWaiterDto, ChangeStatusDto, ManualPaymentDto, StaffOrderDto } from './dto/orders.dto';
 import { BulkTablesDto, TableDto, UpdateOrderSettingsDto, UpdateTableDto } from './dto/order-settings.dto';
 import { OrderChannel, OrderStatus } from './entities/order.entity';
 
@@ -59,8 +59,33 @@ export class StaffOrdersController {
         return this.orders.closeTab(placeId, tabId);
     }
 
+    // ── Mozo en sala ────────────────────────────────────────────────────
+    @Get('waiters')
+    @RequiresPlaceRole('mozo')
+    waiters(@Param('placeId') placeId: string) {
+        return this.orders.waiters(placeId);
+    }
+
+    @Get('tables/:tableId/detail')
+    @RequiresPlaceRole('mozo')
+    tableDetail(@Param('placeId') placeId: string, @Param('tableId') tableId: string) {
+        return this.orders.staffTableDetail(placeId, tableId);
+    }
+
+    @Post('tables/:tableId/orders')
+    @RequiresPlaceRole('mozo')
+    staffOrder(@Param('placeId') placeId: string, @Param('tableId') tableId: string, @Body() dto: StaffOrderDto, @CurrentUser() user: any) {
+        return this.orders.createStaffOrder(placeId, tableId, user.id, dto);
+    }
+
+    @Patch('tabs/:tabId/waiter')
+    @RequiresPlaceRole('mozo')
+    assignWaiter(@Param('placeId') placeId: string, @Param('tabId') tabId: string, @Body() dto: AssignWaiterDto) {
+        return this.orders.assignWaiter(placeId, tabId, dto.waiterUserId ?? null);
+    }
+
     @Post('tabs/:tabId/precuenta')
-    @RequiresPlaceRole('agente')
+    @RequiresPlaceRole('mozo')
     requestPrecuenta(@Param('placeId') placeId: string, @Param('tabId') tabId: string, @Body() dto: PrecuentaDto) {
         return this.cash.requestPrecuenta(placeId, tabId, dto);
     }
