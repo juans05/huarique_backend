@@ -2,7 +2,7 @@ import { BadRequestException, Injectable, NotFoundException } from '@nestjs/comm
 import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
-import { PlaceOrderSettings } from './entities/place-order-settings.entity';
+import { DEFAULT_RECEIPT_SERIES, PlaceOrderSettings } from './entities/place-order-settings.entity';
 import { PlaceTable } from './entities/place-table.entity';
 import { TableDto, UpdateOrderSettingsDto, UpdateTableDto } from './dto/order-settings.dto';
 import { newPublicToken, newTablePin } from './order-rules';
@@ -10,7 +10,7 @@ import { newPublicToken, newTablePin } from './order-rules';
 const DEFAULTS: Omit<PlaceOrderSettings, 'placeId' | 'updatedAt'> = {
     ordersEnabled: false, tablePaymentMode: 'CUENTA_ABIERTA', paymentDestination: 'LOCAL', culqiPublicKey: null, culqiSecretKey: null,
     pickupEnabled: true, deliveryEnabled: false, deliveryFee: 0, deliveryNote: null, prepTimeMin: 20, pricesIncludeIgv: true,
-    cashPaymentEnabled: true, wuarikesCommissionPct: 0.05,
+    cashPaymentEnabled: true, wuarikesCommissionPct: 0.05, receiptSeries: DEFAULT_RECEIPT_SERIES,
 };
 
 @Injectable()
@@ -32,6 +32,9 @@ export class OrderSettingsService {
         if (culqiSecretKey) next.culqiSecretKey = culqiSecretKey.trim();
         // El modo WUARIKES queda bloqueado hasta su validación legal y de Culqi (ver spec, "Riesgo regulatorio").
         if (dto.paymentDestination === 'WUARIKES') throw new BadRequestException('El cobro a través de Wuarikes todavía no está disponible');
+        if (dto.receiptSeries && new Set(Object.values(dto.receiptSeries)).size < 4) {
+            throw new BadRequestException('No se pueden repetir las series');
+        }
         // Sin llaves se puede guardar igual (por ejemplo, para cobrar solo en efectivo/POS); la pantalla avisa con
         // culqiConfigured=false y PaymentsService rechaza el cobro online hasta que se registren.
         return this.toView(await this.settingsRepo.save(next));

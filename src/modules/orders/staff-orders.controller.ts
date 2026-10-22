@@ -6,6 +6,8 @@ import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { OrdersService } from './orders.service';
 import { OrderSettingsService } from './order-settings.service';
 import { PaymentsService } from './payments.service';
+import { CashService } from './cash.service';
+import { ChargeDto, CloseCashDto, OpenCashDto, PrecuentaDto } from './dto/cash.dto';
 import { ChangeStatusDto, ManualPaymentDto } from './dto/orders.dto';
 import { TableDto, UpdateOrderSettingsDto, UpdateTableDto } from './dto/order-settings.dto';
 import { OrderChannel, OrderStatus } from './entities/order.entity';
@@ -13,7 +15,7 @@ import { OrderChannel, OrderStatus } from './entities/order.entity';
 @UseGuards(JwtAuthGuard, PlaceRoleGuard)
 @Controller('business/places/:placeId/orders')
 export class StaffOrdersController {
-    constructor(private orders: OrdersService, private settings: OrderSettingsService, private payments: PaymentsService) { }
+    constructor(private orders: OrdersService, private settings: OrderSettingsService, private payments: PaymentsService, private cash: CashService) { }
 
     @Get('me')
     @RequiresPlaceRole('cocina')
@@ -49,6 +51,37 @@ export class StaffOrdersController {
     @RequiresPlaceRole('agente')
     closeTab(@Param('placeId') placeId: string, @Param('tabId') tabId: string) {
         return this.orders.closeTab(placeId, tabId);
+    }
+
+    @Post('tabs/:tabId/precuenta')
+    @RequiresPlaceRole('agente')
+    requestPrecuenta(@Param('placeId') placeId: string, @Param('tabId') tabId: string, @Body() dto: PrecuentaDto) {
+        return this.cash.requestPrecuenta(placeId, tabId, dto);
+    }
+
+    // ── Caja ────────────────────────────────────────────────────────────
+    @Get('cash')
+    @RequiresPlaceRole('agente')
+    cashCurrent(@Param('placeId') placeId: string) {
+        return this.cash.current(placeId);
+    }
+
+    @Post('cash/open')
+    @RequiresPlaceRole('agente')
+    cashOpen(@Param('placeId') placeId: string, @Body() dto: OpenCashDto, @CurrentUser() user: any) {
+        return this.cash.open(placeId, user.id, dto.openingAmount);
+    }
+
+    @Post('cash/charge')
+    @RequiresPlaceRole('agente')
+    cashCharge(@Param('placeId') placeId: string, @Body() dto: ChargeDto, @CurrentUser() user: any) {
+        return this.cash.charge(placeId, user.id, dto);
+    }
+
+    @Post('cash/close')
+    @RequiresPlaceRole('agente')
+    cashClose(@Param('placeId') placeId: string, @Body() dto: CloseCashDto, @CurrentUser() user: any) {
+        return this.cash.close(placeId, user.id, dto.countedCash);
     }
 
     @Post('payments/manual')
