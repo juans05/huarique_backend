@@ -14,7 +14,8 @@ import axios from 'axios';
 import { JSDOM } from 'jsdom';
 import { Readability } from '@mozilla/readability';
 
-const pdfParse = require('pdf-parse');
+// pdf-parse v2: la API es la clase PDFParse (la v1 exportaba una función).
+const { PDFParse } = require('pdf-parse');
 const mammoth = require('mammoth');
 const TurndownService = require('turndown');
 
@@ -189,7 +190,8 @@ export class AiAgentController {
         }
 
         if (mime === 'application/pdf') {
-            const pdfData = await pdfParse(file.buffer);
+            const parser = new PDFParse({ data: file.buffer });
+            const pdfData = await parser.getText().finally(() => parser.destroy());
             // pdf-parse solo lee la capa de texto embebida. Un PDF escaneado (foto guardada
             // como PDF) no tiene esa capa y devuelve texto vacío/basura — en ese caso lo
             // tratamos igual que una imagen y lo mandamos a Gemini/Claude para OCR.
