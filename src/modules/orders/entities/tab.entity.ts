@@ -15,4 +15,6 @@ export class Tab {
     @Column({ name: 'bill_requested_at', type: 'timestamptz', nullable: true }) billRequestedAt: Date | null;
     @Column({ name: 'closed_at', type: 'timestamptz', nullable: true }) closedAt: Date | null;
     @Column({ type: 'jsonb', nullable: true }) precuenta: Precuenta | null;
+    /** Mozo que atiende la mesa (lo elige el mozo o caja; por defecto quien tomó el primer pedido). */
+    @Column({ name: 'waiter_user_id', type: 'uuid', nullable: true }) waiterUserId: string | null;
 }

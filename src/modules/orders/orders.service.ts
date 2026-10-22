@@ -19,6 +19,8 @@ import { ContactsService } from '../contacts/contacts.service';
 import { assertCanCancel, calculateTotals, canTransition, newPublicToken, newTablePin, normalizePhone, toCents } from './order-rules';
 
 export interface CartLine { dishId: string; quantity: number; note?: string }
+/** Ítem fuera de carta que registra el mozo; precio en céntimos. */
+export interface CustomLine { name: string; unitPrice: number; quantity: number; note?: string }
 
 type NewOrderItem = Pick<OrderItem, 'dishId' | 'dishNameSnapshot' | 'unitPrice' | 'quantity' | 'note' | 'lineTotal'>;
 
@@ -90,6 +92,74 @@ export class OrdersService {
         this.captureContact(order);
         if (!prepaid) await this.publish('order.created', order, tab);
         return { order, tab, requiresPayment: prepaid };
+    }
+
+    /**
+     * Pedido tomado por el mozo desde su celular o tablet: sin PIN, va directo a cocina y se suma a la cuenta
+     * de la mesa (la misma donde caen los pedidos que el cliente hace con la carta digital).
+     */
+    async createStaffOrder(placeId: string, tableId: string, userId: string, input: { items?: CartLine[]; customItems?: CustomLine[]; notes?: string }) {
+        const table = await this.tablesRepo.findOne({ where: { id: tableId, placeId, active: true } });
+        if (!table) throw new NotFoundException('Mesa no encontrada');
+        if (!(await this.hasPlan(placeId, 'fidelizacion'))) throw new BadRequestException('Tu plan no incluye pedidos en mesa');
+        const settings = await this.getSettings(placeId);
+
+        const items = [
+            ...(input.items?.length ? await this.buildItems(placeId, input.items) : []),
+            // "Otro ítem": algo que no está en la carta (un extra, un plato del día), con nombre y precio que pone el mozo.
+            ...(input.customItems ?? []).map((c) => {
+                const quantity = Math.max(1, Math.min(50, Math.floor(c.quantity)));
+                return { dishId: null, dishNameSnapshot: c.name.trim().slice(0, 120), unitPrice: c.unitPrice, quantity, note: c.note?.slice(0, 200) ?? null, lineTotal: c.unitPrice * quantity };
+            }),
+        ];
+        if (!items.length) throw new BadRequestException('La comanda está vacía');
+        const totals = calculateTotals(items, 0, settings.pricesIncludeIgv);
+        const tab = await this.findOrOpenTab(table);
+        if (!tab.waiterUserId) {
+            await this.tabsRepo.update({ id: tab.id }, { waiterUserId: userId });
+            tab.waiterUserId = userId;
+        }
+        const order = await this.saveOrder({
+            placeId, tabId: tab.id, tableId: table.id, channel: 'MOZO', fulfillment: 'SALA', status: 'NUEVO', takenByUserId: userId,
+            customerName: null, customerPhone: null, notes: input.notes?.slice(0, 300) ?? null, subtotal: totals.subtotal, deliveryFee: 0, total: totals.total, items,
+        });
+        await this.publish('order.created', order, tab);
+        return order;
+    }
+
+    /** Mesa vista por el personal: cuenta abierta, mozo, precuenta y todas las rondas (carta digital y mozo). */
+    async staffTableDetail(placeId: string, tableId: string) {
+        const table = await this.tablesRepo.findOne({ where: { id: tableId, placeId } });
+        if (!table) throw new NotFoundException('Mesa no encontrada');
+        const tab = await this.tabsRepo.findOne({ where: { tableId: table.id, status: In(LIVE_TAB) } });
+        if (!tab) return { table, tab: null, orders: [] };
+        const orders = await this.ordersRepo.find({ where: { tabId: tab.id }, relations: ['items'], order: { createdAt: 'ASC' } });
+        return {
+            table, tab: { ...tab, ...(await this.tabTotal(tab.id)) },
+            orders: orders.map((o) => ({
+                id: o.id, number: o.number, channel: o.channel, status: o.status, total: o.total, notes: o.notes, createdAt: o.createdAt, takenByUserId: o.takenByUserId,
+                items: (o.items ?? []).map((i) => ({ id: i.id, name: i.dishNameSnapshot, quantity: i.quantity, unitPrice: i.unitPrice, lineTotal: i.lineTotal, note: i.note })),
+            })),
+        };
+    }
+
+    async assignWaiter(placeId: string, tabId: string, waiterUserId: string | null) {
+        const tab = await this.tabsRepo.findOne({ where: { id: tabId, placeId } });
+        if (!tab || tab.status === 'CERRADA') throw new NotFoundException('Cuenta no encontrada');
+        if (waiterUserId && !(await this.waiters(placeId)).some((w) => w.userId === waiterUserId)) throw new BadRequestException('Esa persona no es del equipo de este local');
+        await this.tabsRepo.update({ id: tab.id }, { waiterUserId });
+        await this.events.publish({ type: 'tab.updated', placeId, tabId: tab.id, tableId: tab.tableId, status: tab.status, publicTokens: [tab.publicToken] });
+        return { ...tab, waiterUserId };
+    }
+
+    /** Quienes pueden atender mesas: el equipo del local sin el rol de cocina. */
+    async waiters(placeId: string): Promise<{ userId: string; fullName: string; role: string }[]> {
+        return this.dataSource.query(
+            `SELECT m.user_id AS "userId", u.full_name AS "fullName", m.role
+             FROM wuarike_db.place_team_members m JOIN wuarike_db.users u ON u.id = m.user_id
+             WHERE m.place_id = $1 AND m.role <> 'cocina' ORDER BY (m.role = 'mozo') DESC, u.full_name`,
+            [placeId],
+        );
     }
 
     async createWhatsappOrder(placeId: string, input: { items: CartLine[]; customerName: string; customerPhone: string; whatsappNumberId: string | null; fulfillment: 'RECOJO' | 'DELIVERY'; deliveryAddress?: string }) {
