@@ -9,13 +9,14 @@ import { Dish } from '../places/entities/dish.entity';
 import { Place } from '../places/entities/place.entity';
 import { Professional } from './entities/professional.entity';
 import { Appointment, AppointmentDraft } from './entities/appointment.entity';
+import { CustomerAsset } from './entities/customer-asset.entity';
 import { AppointmentsService } from './appointments.service';
 import { BookingAgentService } from './booking-agent.service';
 import { RemindersService } from './reminders.service';
 import { PublicAgendaController, StaffAgendaController } from './appointments.controller';
 
 @Module({
-    imports: [TypeOrmModule.forFeature([Professional, Appointment, AppointmentDraft, Dish, Place, WhatsAppNumber]), TeamModule, AuthModule, AiModule, MessagingModule],
+    imports: [TypeOrmModule.forFeature([Professional, Appointment, AppointmentDraft, CustomerAsset, Dish, Place, WhatsAppNumber]), TeamModule, AuthModule, AiModule, MessagingModule],
     controllers: [StaffAgendaController, PublicAgendaController],
     providers: [AppointmentsService, BookingAgentService, RemindersService],
     exports: [AppointmentsService, BookingAgentService, RemindersService],

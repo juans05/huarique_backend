@@ -6,7 +6,7 @@ import { RequiresPlaceRole } from '../../common/decorators/requires-place-role.d
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { AppointmentsService } from './appointments.service';
 import { RemindersService } from './reminders.service';
-import { AvailabilityQueryDto, BookDto, DayQueryDto, ProfessionalDto, PublicBookDto, UpdateAppointmentDto } from './dto/appointments.dto';
+import { AssetDto, AvailabilityQueryDto, BookDto, DayQueryDto, ProfessionalDto, PublicBookDto, UpdateAppointmentDto } from './dto/appointments.dto';
 
 /** Agenda vista por el personal del local (recepción, dueño). La Agenda es del plan base. */
 @UseGuards(JwtAuthGuard, PlaceRoleGuard)
@@ -69,6 +69,27 @@ export class StaffAgendaController {
     async update(@Param('placeId') placeId: string, @Param('id') id: string, @Body() dto: UpdateAppointmentDto) {
         await this.agenda.assertEnabled(placeId);
         return this.agenda.update(placeId, id, dto);
+    }
+
+    @Get('assets')
+    @RequiresPlaceRole('agente')
+    async assets(@Param('placeId') placeId: string, @Query('phone') phone?: string) {
+        await this.agenda.assertEnabled(placeId);
+        return this.agenda.assets(placeId, phone);
+    }
+
+    @Post('assets')
+    @RequiresPlaceRole('agente')
+    async createAsset(@Param('placeId') placeId: string, @Body() dto: AssetDto) {
+        await this.agenda.assertEnabled(placeId);
+        return this.agenda.saveAsset(placeId, null, dto);
+    }
+
+    @Patch('assets/:id')
+    @RequiresPlaceRole('agente')
+    async updateAsset(@Param('placeId') placeId: string, @Param('id') id: string, @Body() dto: AssetDto) {
+        await this.agenda.assertEnabled(placeId);
+        return this.agenda.saveAsset(placeId, id, dto);
     }
 
     @Get('professionals')

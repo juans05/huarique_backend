@@ -45,6 +45,8 @@ export interface VerticalConfig {
     catalogKind: 'producto' | 'servicio' | 'mixto';
     teamRoles: PlaceTeamRole[];
     botPersona: string;
+    /** Ficha que se atiende en la cita: mascota (veterinaria, grooming) o vehículo (taller, lavadero). */
+    assetKind?: 'PET' | 'VEHICLE';
 }
 
 const ALL_MODULES: ModuleKey[] = [
@@ -128,6 +130,7 @@ export const VERTICALS: Record<Vertical, VerticalConfig> = {
         catalogKind: 'mixto',
         teamRoles: TEAM_ROLES,
         botPersona: 'asistente de un negocio para mascotas',
+        assetKind: 'PET',
     },
     automotriz: {
         label: 'Automotriz',
@@ -136,6 +139,7 @@ export const VERTICALS: Record<Vertical, VerticalConfig> = {
         catalogKind: 'servicio',
         teamRoles: TEAM_ROLES,
         botPersona: 'asesor de servicio de un taller automotriz',
+        assetKind: 'VEHICLE',
     },
     servicios: {
         label: 'Servicios',

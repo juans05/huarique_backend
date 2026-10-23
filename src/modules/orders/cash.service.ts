@@ -176,7 +176,7 @@ export class CashService {
             `SELECT a.id, a.service_name AS "serviceName", a.price, a.starts_at AS "startsAt", a.customer_name AS "customerName",
                     a.status, p.name AS "professionalName", p.station
              FROM wuarike_db.appointments a JOIN wuarike_db.place_professionals p ON p.id = a.professional_id
-             WHERE a.place_id = $1 AND a.receipt_id IS NULL AND a.status IN ('RESERVADA', 'ATENDIDA')
+             WHERE a.place_id = $1 AND a.receipt_id IS NULL AND a.status IN ('RESERVADA', 'LISTO', 'ATENDIDA')
                AND (a.starts_at AT TIME ZONE 'America/Lima')::date = (now() AT TIME ZONE 'America/Lima')::date
              ORDER BY a.starts_at`,
             [placeId],
