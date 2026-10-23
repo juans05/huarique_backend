@@ -33,7 +33,8 @@ export type ModuleKey =
     | 'reportes'
     | 'equipo'
     | 'broadcasts'
-    | 'ia';
+    | 'ia'
+    | 'agenda';
 
 export interface VerticalConfig {
     label: string;
@@ -48,8 +49,10 @@ const ALL_MODULES: ModuleKey[] = [
     'reputacion', 'social', 'carta', 'pedidos', 'cocina', 'mesas', 'fidelizacion', 'clientes',
     'email-marketing', 'whatsapp', 'plazbot', 'chat', 'reportes', 'equipo', 'broadcasts', 'ia',
 ];
+// Pedidos, cocina y mesas son de gastronomía; la agenda de citas, de los rubros que atienden con cita.
 // Solo gastronomía opera pedidos, cocina y mesas.
 const CORE_MODULES = ALL_MODULES.filter((m) => m !== 'pedidos' && m !== 'cocina' && m !== 'mesas');
+const BOOKING_MODULES: ModuleKey[] = [...CORE_MODULES, 'agenda'];
 const TEAM_ROLES: PlaceTeamRole[] = ['admin', 'supervisor', 'agente'];
 
 export const BUSINESS_TYPES: Record<string, { label: string; vertical: Vertical }> = {
@@ -102,7 +105,7 @@ export const VERTICALS: Record<Vertical, VerticalConfig> = {
     },
     belleza: {
         label: 'Belleza',
-        modules: CORE_MODULES,
+        modules: BOOKING_MODULES,
         labels: { catalog: 'Servicios', catalogItem: 'Servicio', customer: 'Cliente' },
         catalogKind: 'servicio',
         teamRoles: TEAM_ROLES,
@@ -110,7 +113,7 @@ export const VERTICALS: Record<Vertical, VerticalConfig> = {
     },
     salud: {
         label: 'Salud',
-        modules: CORE_MODULES,
+        modules: BOOKING_MODULES,
         labels: { catalog: 'Servicios', catalogItem: 'Servicio', customer: 'Paciente' },
         catalogKind: 'servicio',
         teamRoles: TEAM_ROLES,
@@ -118,7 +121,7 @@ export const VERTICALS: Record<Vertical, VerticalConfig> = {
     },
     mascotas: {
         label: 'Mascotas',
-        modules: CORE_MODULES,
+        modules: BOOKING_MODULES,
         labels: { catalog: 'Catálogo', catalogItem: 'Producto o servicio', customer: 'Tutor' },
         catalogKind: 'mixto',
         teamRoles: TEAM_ROLES,
@@ -126,7 +129,7 @@ export const VERTICALS: Record<Vertical, VerticalConfig> = {
     },
     automotriz: {
         label: 'Automotriz',
-        modules: CORE_MODULES,
+        modules: BOOKING_MODULES,
         labels: { catalog: 'Servicios', catalogItem: 'Servicio', customer: 'Cliente' },
         catalogKind: 'servicio',
         teamRoles: TEAM_ROLES,
@@ -134,7 +137,7 @@ export const VERTICALS: Record<Vertical, VerticalConfig> = {
     },
     servicios: {
         label: 'Servicios',
-        modules: CORE_MODULES,
+        modules: BOOKING_MODULES,
         labels: { catalog: 'Servicios', catalogItem: 'Servicio', customer: 'Cliente' },
         catalogKind: 'servicio',
         teamRoles: TEAM_ROLES,
