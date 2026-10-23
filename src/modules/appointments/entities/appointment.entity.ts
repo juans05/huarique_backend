@@ -1,6 +1,7 @@
 import { Column, CreateDateColumn, Entity, PrimaryGeneratedColumn, UpdateDateColumn } from 'typeorm';
 
-export type AppointmentStatus = 'RESERVADA' | 'ATENDIDA' | 'NO_ASISTIO' | 'CANCELADA';
+/** LISTO: el trabajo terminó y el cliente puede recoger (ej. su vehículo). */
+export type AppointmentStatus = 'RESERVADA' | 'LISTO' | 'ATENDIDA' | 'NO_ASISTIO' | 'CANCELADA';
 export type AppointmentSource = 'PANEL' | 'BOT' | 'WEB';
 
 @Entity('appointments')
@@ -9,6 +10,8 @@ export class Appointment {
     @Column({ name: 'place_id' }) placeId: string;
     @Column({ name: 'professional_id' }) professionalId: string;
     @Column({ name: 'service_id', type: 'uuid', nullable: true }) serviceId: string | null;
+    /** Mascota o vehículo atendido (ficha del cliente). */
+    @Column({ name: 'asset_id', type: 'uuid', nullable: true }) assetId: string | null;
     @Column({ name: 'service_name' }) serviceName: string;
     @Column({ name: 'duration_min', type: 'int' }) durationMin: number;
     /** Céntimos. */

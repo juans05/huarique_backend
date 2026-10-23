@@ -3,15 +3,19 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Between, DataSource, EntityManager, In, Not, Repository } from 'typeorm';
 import { Professional } from './entities/professional.entity';
 import { Appointment, AppointmentSource } from './entities/appointment.entity';
+import { AssetKind, CustomerAsset } from './entities/customer-asset.entity';
+import { RemindersService, safeName } from './reminders.service';
 import { Dish } from '../places/entities/dish.entity';
 import { Place } from '../places/entities/place.entity';
 import { newPublicToken, normalizePhone, toCents } from '../orders/order-rules';
 import { PlaceTeamService } from '../team/place-team.service';
 import { getVerticalConfig } from '../places/business-types';
 import { DEFAULT_DURATION_MIN, Range, freeSlots, limaDate, limaInstant, limaTime, overlaps, workingWindow } from './appointments.rules';
-import { BookDto, ProfessionalDto, UpdateAppointmentDto } from './dto/appointments.dto';
+import { AssetDto, BookDto, ProfessionalDto, UpdateAppointmentDto } from './dto/appointments.dto';
 
-const LIVE: Appointment['status'][] = ['RESERVADA', 'ATENDIDA'];
+const LIVE: Appointment['status'][] = ['RESERVADA', 'LISTO', 'ATENDIDA'];
+/** Datos de ficha aceptados (mascota y vehículo); el resto se descarta. */
+const ASSET_FIELDS = ['species', 'breed', 'birthDate', 'sex', 'weight', 'vaccines', 'brand', 'model', 'year', 'color', 'mileage'];
 const MAX_DAYS_AHEAD = 60;
 /** Citas futuras activas que un mismo teléfono puede tener en un local (link público y bot). */
 const MAX_ACTIVE_PER_PHONE = 3;
@@ -24,8 +28,10 @@ export class AppointmentsService {
         @InjectRepository(Appointment) private apptRepo: Repository<Appointment>,
         @InjectRepository(Dish) private dishesRepo: Repository<Dish>,
         @InjectRepository(Place) private placesRepo: Repository<Place>,
+        @InjectRepository(CustomerAsset) private assetsRepo: Repository<CustomerAsset>,
         private dataSource: DataSource,
         private team: PlaceTeamService,
+        private reminders: RemindersService,
     ) { }
 
     /** La agenda existe si el local tiene plan activo y su rubro atiende con cita. */
@@ -89,6 +95,7 @@ export class AppointmentsService {
         // Desde afuera el teléfono es obligatorio y válido: sin él no se podría aplicar el tope por cliente.
         if (source !== 'PANEL' && (!phone || phone.length < 7)) throw new BadRequestException('Ingresa un teléfono válido');
         const capped = source !== 'PANEL';
+        const assetId = await this.resolveAsset(placeId, dto, phone);
 
         for (const pro of candidates) {
             const created = await this.dataSource.transaction(async (em) => {
@@ -106,10 +113,10 @@ export class AppointmentsService {
                 return em.save(em.create(Appointment, {
                     placeId, professionalId: pro.id, serviceId: service.id, serviceName: service.name, durationMin: service.durationMin, price: service.price,
                     startsAt: slot.start, endsAt: slot.end, customerName: dto.customerName.trim(), customerPhone: phone,
-                    notes: dto.notes?.trim() || null, status: 'RESERVADA', source, publicToken: newPublicToken(), createdByUserId: userId,
+                    notes: dto.notes?.trim() || null, status: 'RESERVADA', source, publicToken: newPublicToken(), createdByUserId: userId, assetId,
                 }));
             });
-            if (created) return this.view(created, pro);
+            if (created) return this.view(created, pro, assetId ? await this.assetsRepo.findOne({ where: { id: assetId } }) : null);
         }
         throw new BadRequestException('Ese horario ya no está disponible. Elige otro.');
     }
@@ -124,13 +131,15 @@ export class AppointmentsService {
         const appts = await this.apptRepo.createQueryBuilder('a')
             .where('a.place_id = :placeId AND a.starts_at BETWEEN :from AND :to', { placeId, from, to })
             .orderBy('a.starts_at', 'ASC').getMany();
+        const assetIds = appts.map((a) => a.assetId).filter(Boolean) as string[];
+        const assets = assetIds.length ? await this.assetsRepo.find({ where: { id: In(assetIds) } }) : [];
         return {
             date,
             professionals: pros.map((p) => {
                 const w = workingWindow(p, place?.openingHours ?? null, date);
                 return { id: p.id, name: p.name, station: p.station, photoUrl: p.photoUrl, open: w ? limaTime(w.start) : null, close: w ? limaTime(w.end) : null };
             }),
-            appointments: appts.map((a) => this.view(a, pros.find((p) => p.id === a.professionalId))),
+            appointments: appts.map((a) => this.view(a, pros.find((p) => p.id === a.professionalId), assets.find((x) => x.id === a.assetId))),
         };
     }
 
@@ -153,16 +162,24 @@ export class AppointmentsService {
             await this.apptRepo.update({ id: appt.id }, { status: dto.status });
         }
         const fresh = (await this.apptRepo.findOne({ where: { id: appt.id } }))!;
-        return this.view(fresh, await this.prosRepo.findOne({ where: { id: fresh.professionalId } }));
+        const asset = fresh.assetId ? await this.assetsRepo.findOne({ where: { id: fresh.assetId } }) : null;
+        let notified: boolean | undefined;
+        if (dto.status === 'LISTO' && appt.status !== 'LISTO' && asset?.kind === 'VEHICLE' && fresh.customerPhone) {
+            const place = await this.placesRepo.findOne({ where: { id: placeId }, select: ['id', 'name'] });
+            notified = await this.reminders.sendSystemTemplate(placeId, 'vehicleReady', fresh.customerPhone, [safeName(fresh.customerName), asset.name, place?.name ?? 'el taller']).catch(() => false);
+        }
+        return { ...this.view(fresh, await this.prosRepo.findOne({ where: { id: fresh.professionalId } }), asset), notified };
     }
 
     // ── Link público ─────────────────────────────────────────────────────
     async publicInfo(placeId: string) {
-        const place = await this.placesRepo.findOne({ where: { id: placeId }, select: ['id', 'name', 'logoUrl', 'coverImageUrl', 'address'] });
+        const place = await this.placesRepo.findOne({ where: { id: placeId }, select: ['id', 'name', 'logoUrl', 'coverImageUrl', 'address', 'businessType'] });
         if (!place) throw new NotFoundException('Local no encontrado');
         const pros = await this.professionals(placeId, true);
+        const { businessType, ...publicPlace } = place;
         return {
-            place,
+            place: publicPlace,
+            assetKind: getVerticalConfig(businessType).assetKind ?? null,
             services: await this.services(placeId),
             professionals: pros.map((p) => ({ id: p.id, name: p.name, station: p.station, photoUrl: p.photoUrl, serviceIds: p.serviceIds })),
         };
@@ -175,8 +192,9 @@ export class AppointmentsService {
             this.prosRepo.findOne({ where: { id: appt.professionalId } }),
             this.placesRepo.findOne({ where: { id: appt.placeId }, select: ['id', 'name', 'address'] }),
         ]);
-        const { customerPhone, createdByUserId, ...rest } = this.view(appt, pro);
-        return { ...rest, place };
+        const asset = appt.assetId ? await this.assetsRepo.findOne({ where: { id: appt.assetId } }) : null;
+        const { customerPhone, createdByUserId, asset: full, ...rest } = this.view(appt, pro, asset);
+        return { ...rest, assetName: full?.name ?? null, place };
     }
 
     async cancelByToken(token: string) {
@@ -185,6 +203,60 @@ export class AppointmentsService {
         if (appt.status !== 'RESERVADA' || appt.startsAt <= new Date()) throw new BadRequestException('Esta cita ya no se puede cancelar');
         await this.apptRepo.update({ id: appt.id, status: 'RESERVADA' }, { status: 'CANCELADA' });
         return this.byToken(token);
+    }
+
+    // ── Fichas (mascota o vehículo) ─────────────────────────────────────
+    async assetKind(placeId: string): Promise<AssetKind | null> {
+        const place = await this.placesRepo.findOne({ where: { id: placeId }, select: ['id', 'businessType'] });
+        return place ? getVerticalConfig(place.businessType).assetKind ?? null : null;
+    }
+
+    async assets(placeId: string, phone?: string) {
+        const normalized = phone ? normalizePhone(phone) : null;
+        return this.assetsRepo.find({ where: { placeId, ...(normalized ? { customerPhone: normalized } : {}) }, order: { name: 'ASC' }, take: 200 });
+    }
+
+    async saveAsset(placeId: string, id: string | null, dto: AssetDto) {
+        const kind = await this.assetKind(placeId);
+        if (!kind) throw new BadRequestException('Este rubro no usa fichas de mascota ni de vehículo');
+        const current = id ? await this.assetsRepo.findOne({ where: { id, placeId } }) : null;
+        if (id && !current) throw new NotFoundException('Ficha no encontrada');
+        const phone = normalizePhone(dto.customerPhone);
+        if (!phone) throw new BadRequestException('Ingresa un teléfono válido');
+        return this.assetsRepo.save({
+            ...(current ?? { placeId, kind }), customerPhone: phone, customerName: dto.customerName?.trim() || current?.customerName || null,
+            name: this.assetName(kind, dto.name), data: { ...(current?.data ?? {}), ...this.cleanData(dto.data) }, notes: dto.notes ?? current?.notes ?? null,
+        });
+    }
+
+    /** Ficha de la cita: la existente (assetId) o una nueva por nombre/placa (se reutiliza si el cliente ya la tenía). */
+    private async resolveAsset(placeId: string, dto: BookDto, phone: string | null): Promise<string | null> {
+        if (dto.assetId) {
+            const found = await this.assetsRepo.findOne({ where: { id: dto.assetId, placeId } });
+            if (!found) throw new BadRequestException('Ficha no encontrada');
+            return found.id;
+        }
+        if (!dto.assetName?.trim() || !phone) return null;
+        const kind = await this.assetKind(placeId);
+        if (!kind) return null;
+        const name = this.assetName(kind, dto.assetName);
+        const existing = await this.assetsRepo.createQueryBuilder('x')
+            .where('x.place_id = :placeId AND x.customer_phone = :phone AND x.kind = :kind AND lower(x.name) = lower(:name)', { placeId, phone, kind, name })
+            .getOne();
+        if (existing) return existing.id;
+        const created = await this.assetsRepo.save(this.assetsRepo.create({ placeId, customerPhone: phone, customerName: dto.customerName.trim(), kind, name, data: this.cleanData(dto.assetData) }));
+        return created.id;
+    }
+
+    private cleanData(data?: Record<string, unknown> | null) {
+        const out: Record<string, string | null> = {};
+        for (const k of ASSET_FIELDS) if (data && k in data) out[k] = data[k] == null ? null : String(data[k]).slice(0, 60);
+        return out;
+    }
+
+    /** Placas en mayúsculas y sin espacios (ABC-123); nombres de mascota tal cual. */
+    private assetName(kind: AssetKind, name: string) {
+        return kind === 'VEHICLE' ? name.toUpperCase().replace(/\s+/g, '') : name.trim();
     }
 
     // ── Internos ─────────────────────────────────────────────────────────
@@ -225,10 +297,11 @@ export class AppointmentsService {
         return map;
     }
 
-    private view(a: Appointment, pro?: Professional | null) {
+    private view(a: Appointment, pro?: Professional | null, asset?: CustomerAsset | null) {
         return {
             ...a, date: limaDate(a.startsAt), time: limaTime(a.startsAt), endTime: limaTime(a.endsAt),
             professional: pro ? { id: pro.id, name: pro.name, station: pro.station, photoUrl: pro.photoUrl } : null,
+            asset: asset ? { id: asset.id, kind: asset.kind, name: asset.name, data: asset.data } : null,
         };
     }
 }
