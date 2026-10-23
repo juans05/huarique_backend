@@ -1,5 +1,6 @@
 import { Injectable, ServiceUnavailableException } from '@nestjs/common';
 import * as crypto from 'crypto';
+import { logoPng, stampsPng, logoDataUri, walletHex } from './wallet-images';
 
 // Mismo esquema de firma (ECv2SigningOnly) que usan los tokens de Google Pay —
 // Google Wallet reutiliza el protocolo PaymentMethodToken para firmar los callbacks.
@@ -44,6 +45,16 @@ export class WalletService {
     return hex && /^#[0-9A-Fa-f]{6}$/.test(hex) ? hex : '#EE5924';
   }
 
+  /** URL de la imagen de sellos de esta tarjeta (null si el programa es de puntos). */
+  private stampsImageUrl(place: any, card: any, program: any): string | null {
+    if (program?.type !== 'stamps') return null;
+    const backendUrl = process.env.BACKEND_URL || 'https://backendwarike-production.up.railway.app';
+    const total = program.stampsToReward ?? 10;
+    const color = walletHex(place.metadata?.walletColor).slice(1);
+    const logo = place.logoUrl ? crypto.createHash('sha1').update(place.logoUrl).digest('hex').slice(0, 8) : '0';
+    return `${backendUrl}/api/public/loyalty/wallet/stamps/${place.id}/${Math.min(card.stamps ?? 0, total)}/${total}.png?c=${color}&l=${logo}`;
+  }
+
   getGoogleWalletSaveUrl(place: any, card: any, program: any): string {
     const issuerId = process.env.GOOGLE_WALLET_ISSUER_ID;
     const saEmail = process.env.GOOGLE_WALLET_SA_EMAIL;
@@ -66,6 +77,7 @@ export class WalletService {
       },
       reviewStatus: 'UNDER_REVIEW',
       hexBackgroundColor: this.walletColor(place.metadata?.walletColor),
+      localizedIssuerName: { defaultValue: { language: 'es', value: place.name || 'Wuarike' } },
     };
 
     // Notificación nativa de Google Wallet cuando el cliente está cerca del local
@@ -86,6 +98,7 @@ export class WalletService {
       ? `${card.stamps ?? 0} / ${program.stampsToReward ?? 10}`
       : `${card.points ?? 0} pts`;
 
+    const heroUrl = this.stampsImageUrl(place, card, program);
     const loyaltyObject = {
       id: objectId,
       classId,
@@ -96,6 +109,8 @@ export class WalletService {
         balance: { string: stampsLabel },
         label: program?.type === 'stamps' ? 'Sellos' : 'Puntos',
       },
+      // Franja con los círculos de sellos: se renueva en cada sello (la URL cambia con el saldo).
+      heroImage: heroUrl ? { sourceUri: { uri: heroUrl }, contentDescription: { defaultValue: { language: 'es', value: `Sellos: ${stampsLabel}` } } } : undefined,
       textModulesData: program?.rewardTitle ? [
         {
           header: 'Premio',
@@ -193,6 +208,7 @@ export class WalletService {
       },
       body: JSON.stringify({
         loyaltyPoints: { balance: { string: stampsLabel } },
+        ...(this.stampsImageUrl(place, card, program) ? { heroImage: { sourceUri: { uri: this.stampsImageUrl(place, card, program) } } } : {}),
         notifyPreference: 'notifyOnUpdate',
       }),
     });
@@ -340,6 +356,8 @@ export class WalletService {
       ? `${card.stamps ?? 0} / ${program.stampsToReward ?? 10}`
       : `${card.points ?? 0}`;
 
+    const color = walletHex(place.metadata?.walletColor);
+    const rgb = `rgb(${parseInt(color.slice(1, 3), 16)}, ${parseInt(color.slice(3, 5), 16)}, ${parseInt(color.slice(5, 7), 16)})`;
     const pass = new PKPass({}, {
       signerCert: Buffer.from(certBase64, 'base64'),
       signerKey: Buffer.from(certBase64, 'base64'),
@@ -351,17 +369,35 @@ export class WalletService {
       serialNumber: card.id,
       organizationName: place.name || 'Wuarike',
       description: `Tarjeta de fidelización ${place.name}`,
-      backgroundColor: 'rgb(238, 89, 36)',
+      backgroundColor: rgb,
+      logoText: place.name || 'Wuarike',
       foregroundColor: 'rgb(255,255,255)',
       labelColor: 'rgb(255,255,255)',
     });
 
     pass.type = 'storeCard';
 
+    // Logo e ícono (Apple exige icon.png) y, en programas de sellos, la franja con los círculos.
+    const [logo1, logo2, icon1, icon2] = await Promise.all([
+      logoPng(place.logoUrl, place.name, 50, color), logoPng(place.logoUrl, place.name, 100, color),
+      logoPng(place.logoUrl, place.name, 29, color), logoPng(place.logoUrl, place.name, 58, color),
+    ]);
+    pass.addBuffer('logo.png', logo1);
+    pass.addBuffer('logo@2x.png', logo2);
+    pass.addBuffer('icon.png', icon1);
+    pass.addBuffer('icon@2x.png', icon2);
+    if (program?.type === 'stamps') {
+      const total = program.stampsToReward ?? 10;
+      const logoUri = await logoDataUri(place.logoUrl);
+      pass.addBuffer('strip.png', await stampsPng({ stamps: card.stamps ?? 0, total, color, width: 375, height: 123, logo: logoUri }));
+      pass.addBuffer('strip@2x.png', await stampsPng({ stamps: card.stamps ?? 0, total, color, width: 750, height: 246, logo: logoUri }));
+    }
+
     pass.headerFields.push({ key: 'balance', label: program?.type === 'stamps' ? 'Sellos' : 'Puntos', value: stampsLabel });
-    pass.primaryFields.push({ key: 'name', label: 'Cliente', value: card.customerName || card.customerPhone });
-    pass.secondaryFields.push({ key: 'visits', label: 'Visitas', value: String(card.totalVisits ?? 0) });
-    pass.secondaryFields.push({ key: 'level', label: 'Nivel', value: card.level || 'BRONCE' });
+    pass.secondaryFields.push({ key: 'name', label: 'Cliente', value: card.customerName || card.customerPhone });
+    if (program?.rewardTitle) pass.secondaryFields.push({ key: 'rewardFront', label: 'Premio', value: program.rewardTitle });
+    pass.auxiliaryFields.push({ key: 'visits', label: 'Visitas', value: String(card.totalVisits ?? 0) });
+    pass.auxiliaryFields.push({ key: 'level', label: 'Nivel', value: card.level || 'BRONCE' });
 
     if (program?.rewardTitle) {
       pass.backFields.push({ key: 'reward', label: 'Premio', value: program.rewardTitle });
