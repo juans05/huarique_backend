@@ -33,7 +33,7 @@ export const SYSTEM_PROFILES: { name: string; description: string; permissions: 
     { name: 'Soporte', description: 'Usuarios y bot de WhatsApp', permissions: ['locales.ver', 'usuarios.ver', 'usuarios.gestionar', 'whatsapp.gestionar'] },
 ];
 
-/** Sin perfil asignado: el admin conserva todo (como antes) y el comercial usa la plantilla Comercial. */
+/** Sin perfil asignado: el admin no tiene acceso y el comercial usa la plantilla Comercial. */
 export function defaultPermissions(role: string): PlatformPermission[] {
     if (role === 'sales') return SYSTEM_PROFILES.find((p) => p.name === 'Comercial')!.permissions;
     return [];
