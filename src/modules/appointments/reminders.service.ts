@@ -27,6 +27,12 @@ export const SYSTEM_TEMPLATES: Record<'reminder' | 'vehicleReady', CreateTemplat
 type TemplateKey = keyof typeof SYSTEM_TEMPLATES;
 export type TemplateStatus = 'NO_WHATSAPP' | 'NOT_CREATED' | 'PENDING' | 'APPROVED' | 'REJECTED';
 
+/** Nombre del cliente para la plantilla: solo letras y espacios, corto; sin enlaces ni números (evita texto de terceros). */
+export function safeName(name: string | null): string {
+    const clean = (name ?? '').replace(/https?:\/\/\S+|www\.\S+/gi, '').replace(/[^\p{L}\s]/gu, '').replace(/\s+/g, ' ').trim().slice(0, 40);
+    return clean.length >= 2 ? clean : 'cliente';
+}
+
 /** Recordatorios de citas por WhatsApp: 24 h y 2 h antes, desde el número del local, con plantilla aprobada. */
 @Injectable()
 export class RemindersService {
@@ -101,6 +107,10 @@ export class RemindersService {
              JOIN wuarike_db.place_professionals p ON p.id = a.professional_id
              JOIN wuarike_db.places pl ON pl.id = a.place_id
              WHERE a.status = 'RESERVADA' AND a.customer_phone IS NOT NULL AND a.${col} IS NULL AND ${window}
+               -- Solo números verificados: el que escribió por WhatsApp (bot), el que cargó el personal (panel) o, desde el
+               -- link público, un número que ya le escribió antes al negocio. Así nadie usa el WhatsApp del local contra un tercero.
+               AND (a.source IN ('BOT', 'PANEL') OR EXISTS (
+                 SELECT 1 FROM wuarike_db.conversations c WHERE c.place_id = a.place_id AND regexp_replace(c.customer_phone, '\D', '', 'g') = a.customer_phone))
                AND COALESCE(pl.metadata->'reminders'->>'enabled', 'true') <> 'false'
              LIMIT 200`,
         );
@@ -113,7 +123,7 @@ export class RemindersService {
             const start = new Date(a.starts_at);
             try {
                 await this.sendSystemTemplate(a.place_id, 'reminder', a.customer_phone, [
-                    a.customer_name, a.service_name, a.pro, dayLabel(limaDate(start)), timeLabel(limaTime(start)), a.place_name, `${dashboard}/reservar/cita/${a.public_token}`,
+                    safeName(a.customer_name), a.service_name, a.pro, dayLabel(limaDate(start)), timeLabel(limaTime(start)), a.place_name, `${dashboard}/reservar/cita/${a.public_token}`,
                 ]);
             } catch (err) {
                 this.logger.warn(`No se pudo enviar el recordatorio ${which}h de la cita ${a.id}: ${(err as Error).message}`);
