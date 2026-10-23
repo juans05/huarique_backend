@@ -5,7 +5,7 @@ import { Professional } from './entities/professional.entity';
 import { Appointment, AppointmentSource } from './entities/appointment.entity';
 import { Dish } from '../places/entities/dish.entity';
 import { Place } from '../places/entities/place.entity';
-import { newPublicToken, toCents } from '../orders/order-rules';
+import { newPublicToken, normalizePhone, toCents } from '../orders/order-rules';
 import { PlaceTeamService } from '../team/place-team.service';
 import { getVerticalConfig } from '../places/business-types';
 import { DEFAULT_DURATION_MIN, Range, freeSlots, limaDate, limaInstant, limaTime, overlaps, workingWindow } from './appointments.rules';
@@ -84,20 +84,26 @@ export class AppointmentsService {
         const slot = this.slot(dto.date, dto.time, service.durationMin);
         if (slot.start <= new Date()) throw new BadRequestException('Ese horario ya pasó');
         if (slot.start.getTime() > Date.now() + MAX_DAYS_AHEAD * 86400_000) throw new BadRequestException(`Solo se puede reservar hasta ${MAX_DAYS_AHEAD} días adelante`);
-        // Desde afuera (link público o bot) un teléfono no puede acaparar la agenda.
-        if (source !== 'PANEL' && dto.customerPhone) {
-            const active = await this.apptRepo.createQueryBuilder('a')
-                .where('a.place_id = :placeId AND a.customer_phone = :phone AND a.status = :st AND a.starts_at > now()', { placeId, phone: dto.customerPhone.trim(), st: 'RESERVADA' })
-                .getCount();
-            if (active >= MAX_ACTIVE_PER_PHONE) throw new BadRequestException(`Ya tienes ${active} citas reservadas. Cancela alguna o comunícate con el local.`);
-        }
+        // Mismo número escrito de distintas formas (+51, espacios, guiones) = un solo cliente.
+        const phone = normalizePhone(dto.customerPhone);
+        const capped = source !== 'PANEL' && phone;
 
         for (const pro of candidates) {
             const created = await this.dataSource.transaction(async (em) => {
+                if (capped) {
+                    // Desde afuera (link público o bot) un teléfono no puede acaparar la agenda. El bloqueo por
+                    // (local, teléfono) hace que reservas simultáneas del mismo número se cuenten de a una.
+                    await em.query(`SELECT pg_advisory_xact_lock(hashtext($1))`, [`${placeId}:${phone}`]);
+                    const [{ n }] = await em.query(
+                        `SELECT count(*)::int AS n FROM wuarike_db.appointments WHERE place_id = $1 AND customer_phone = $2 AND status = 'RESERVADA' AND starts_at > now()`,
+                        [placeId, phone],
+                    );
+                    if (n >= MAX_ACTIVE_PER_PHONE) throw new BadRequestException(`Ya tienes ${n} citas reservadas. Cancela alguna o comunícate con el local.`);
+                }
                 if (!(await this.fits(em, pro, place?.openingHours ?? null, dto.date, slot))) return null;
                 return em.save(em.create(Appointment, {
                     placeId, professionalId: pro.id, serviceId: service.id, serviceName: service.name, durationMin: service.durationMin, price: service.price,
-                    startsAt: slot.start, endsAt: slot.end, customerName: dto.customerName.trim(), customerPhone: dto.customerPhone?.trim() || null,
+                    startsAt: slot.start, endsAt: slot.end, customerName: dto.customerName.trim(), customerPhone: phone,
                     notes: dto.notes?.trim() || null, status: 'RESERVADA', source, publicToken: newPublicToken(), createdByUserId: userId,
                 }));
             });
