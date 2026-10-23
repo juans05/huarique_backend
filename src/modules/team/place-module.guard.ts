@@ -1,8 +1,17 @@
 import { CanActivate, ExecutionContext, ForbiddenException, Injectable } from '@nestjs/common';
+import { PATH_METADATA } from '@nestjs/common/constants';
 import { ConfigService } from '@nestjs/config';
 import { DataSource } from 'typeorm';
 import { verify } from 'jsonwebtoken';
 import { moduleForPath } from './team-modules';
+
+// Rutas por id sin sede en la URL: de qué tabla sale la sede del recurso.
+const ID_PLACE_LOOKUP: Record<string, string> = {
+    conversationId: 'conversations',
+    broadcastId: 'broadcasts',
+    campaignId: 'email_campaigns',
+    kbId: 'knowledge_bases',
+};
 
 /**
  * Guard global: si la ruta de negocio pertenece a una sección y el miembro del equipo tiene un perfil
@@ -15,10 +24,13 @@ export class PlaceModuleGuard implements CanActivate {
 
     async canActivate(context: ExecutionContext): Promise<boolean> {
         if (context.getType() !== 'http') return true;
-        const req = context.switchToHttp().getRequest();
-        const module = moduleForPath(req.originalUrl ?? req.url ?? '');
+        // Plantilla de la ruta que Nest ya resolvió (no la URL): sin trucos de mayúsculas, dobles barras ni encoding.
+        const template = [Reflect.getMetadata(PATH_METADATA, context.getClass()), Reflect.getMetadata(PATH_METADATA, context.getHandler())]
+            .filter((s) => typeof s === 'string').join('/');
+        const module = moduleForPath(`/api/${template}`.replace(/\/+/g, '/'));
         if (!module) return true;
 
+        const req = context.switchToHttp().getRequest();
         const header: string = req.headers?.authorization ?? '';
         const token = header.startsWith('Bearer ') ? header.slice(7) : req.cookies?.accessToken;
         if (!token) return true;
@@ -30,10 +42,17 @@ export class PlaceModuleGuard implements CanActivate {
         }
         if (!userId) return true;
 
-        const placeId = req.params?.placeId ?? req.query?.placeId ?? req.body?.placeId;
+        const placeId = req.params?.placeId ?? req.query?.placeId ?? req.body?.placeId ?? (await this.placeOfResource(req.params ?? {}));
         const allowed = placeId ? await this.allowedInPlace(userId, placeId, module) : await this.allowedSomewhere(userId, module);
         if (!allowed) throw new ForbiddenException('Tu perfil no incluye esta sección');
         return true;
+    }
+
+    private async placeOfResource(params: Record<string, string>): Promise<string | null> {
+        const key = Object.keys(ID_PLACE_LOOKUP).find((k) => params[k]);
+        if (!key || !/^[0-9a-f-]{36}$/i.test(params[key])) return null;
+        const [row] = await this.dataSource.query(`SELECT place_id FROM wuarike_db.${ID_PLACE_LOOKUP[key]} WHERE id = $1`, [params[key]]);
+        return row?.place_id ?? null;
     }
 
     private async allowedInPlace(userId: string, placeId: string, module: string) {
@@ -45,7 +64,7 @@ export class PlaceModuleGuard implements CanActivate {
         return !row || row.modules.includes(module);
     }
 
-    /** Rutas por id (una conversación, una campaña): basta con tener la sección en alguna sede, o no tener perfil en ninguna. */
+    /** Sin sede conocida (recurso inexistente o ruta sin sede): se niega a quien solo tiene perfiles sin la sección. */
     private async allowedSomewhere(userId: string, module: string) {
         const [row] = await this.dataSource.query(
             `SELECT

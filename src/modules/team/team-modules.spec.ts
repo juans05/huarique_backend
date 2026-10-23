@@ -21,3 +21,11 @@ describe('moduleForPath', () => {
         expect(moduleForPath('/api/business/contactsx')).toBeNull();
     });
 });
+
+describe('moduleForPath con plantillas de Nest', () => {
+    it('la plantilla resuelta (con :placeId) cae en su sección', () => {
+        expect(moduleForPath('/api/business/places/:placeId/agenda/day')).toBe('agenda');
+        expect(moduleForPath('/api/business/places/:placeId/orders/')).toBe('pedidos');
+        expect(moduleForPath('/api/business/conversations/:conversationId/messages')).toBe('chat');
+    });
+});
