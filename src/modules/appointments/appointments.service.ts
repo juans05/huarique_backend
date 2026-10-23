@@ -86,7 +86,9 @@ export class AppointmentsService {
         if (slot.start.getTime() > Date.now() + MAX_DAYS_AHEAD * 86400_000) throw new BadRequestException(`Solo se puede reservar hasta ${MAX_DAYS_AHEAD} días adelante`);
         // Mismo número escrito de distintas formas (+51, espacios, guiones) = un solo cliente.
         const phone = normalizePhone(dto.customerPhone);
-        const capped = source !== 'PANEL' && phone;
+        // Desde afuera el teléfono es obligatorio y válido: sin él no se podría aplicar el tope por cliente.
+        if (source !== 'PANEL' && (!phone || phone.length < 7)) throw new BadRequestException('Ingresa un teléfono válido');
+        const capped = source !== 'PANEL';
 
         for (const pro of candidates) {
             const created = await this.dataSource.transaction(async (em) => {
