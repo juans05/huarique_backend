@@ -4,6 +4,33 @@ import sharp = require('sharp');
 // cualquier servidor aunque no tenga fuentes instaladas.
 
 const MAX_STAMPS = 20;
+const MAX_LOGO_BYTES = 3_000_000;
+// Solo el CDN donde Wuarikes sube las imágenes: el servidor nunca descarga URLs arbitrarias (evita SSRF).
+const LOGO_HOSTS = new Set(['res.cloudinary.com', ...(process.env.WALLET_LOGO_HOSTS ?? '').split(',').map((h) => h.trim()).filter(Boolean)]);
+
+/** Descarga el logo de forma segura: host permitido, sin redirecciones, máx. 3 MB leídos y tope de píxeles. */
+async function fetchLogo(logoUrl: string | null | undefined): Promise<sharp.Sharp | null> {
+  let url: URL;
+  try { url = new URL(logoUrl ?? ''); } catch { return null; }
+  if (url.protocol !== 'https:' || !LOGO_HOSTS.has(url.hostname)) return null;
+  try {
+    const res = await fetch(url, { redirect: 'error', signal: AbortSignal.timeout(5000) });
+    if (!res.ok || !res.body) return null;
+    const chunks: Uint8Array[] = [];
+    let size = 0;
+    const reader = res.body.getReader();
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      size += value.byteLength;
+      if (size > MAX_LOGO_BYTES) { await reader.cancel(); return null; }
+      chunks.push(value);
+    }
+    return sharp(Buffer.concat(chunks), { limitInputPixels: 25_000_000 });
+  } catch {
+    return null;
+  }
+}
 const CHECK = 'M-9 0 L-3 6 L9 -7'; // marca del sello (centrada en 0,0, para radio ~22)
 // Regalo: caja + tapa + cinta + moño (centrado en 0,0).
 const GIFT = 'M-11 -2 h22 v13 h-22 z M-13 -8 h26 v6 h-26 z M-1.5 -8 v19 M1.5 -8 v19 M0 -8 c-3 -6 -10 -6 -8 -1 M0 -8 c3 -6 10 -6 8 -1';
@@ -86,13 +113,9 @@ export function stampsPng(opts: { stamps: number; total: number; color: string; 
 
 /** Logo del local para Apple Wallet (cuadrado, fondo transparente) o, si no hay, su inicial en un círculo. */
 export async function logoPng(logoUrl: string | null | undefined, name: string, size: number, color: string): Promise<Buffer> {
-  if (logoUrl && /^https:\/\//i.test(logoUrl)) {
-    try {
-      const res = await fetch(logoUrl, { signal: AbortSignal.timeout(5000) });
-      if (res.ok && Number(res.headers.get('content-length') ?? 0) < 5_000_000) {
-        return await sharp(Buffer.from(await res.arrayBuffer())).resize(size, size, { fit: 'contain', background: { r: 0, g: 0, b: 0, alpha: 0 } }).png().toBuffer();
-      }
-    } catch { /* sin logo: se usa la inicial */ }
+  const img = await fetchLogo(logoUrl);
+  if (img) {
+    try { return await img.resize(size, size, { fit: 'contain', background: { r: 0, g: 0, b: 0, alpha: 0 } }).png().toBuffer(); } catch { /* imagen inválida: se usa la inicial */ }
   }
   const initial = (name || 'W').trim().charAt(0).toUpperCase().replace(/[^A-ZÁÉÍÓÚÑ0-9]/, 'W');
   // Sin logo: la inicial del local sobre su color (si el servidor no tiene fuentes, queda el círculo de color).
@@ -106,17 +129,17 @@ export async function logoPng(logoUrl: string | null | undefined, name: string, 
 const logoCache = new Map<string, { uri: string | null; at: number }>();
 /** Logo del local como data URI PNG (para dibujarlo dentro de los sellos). Se guarda 1 hora en memoria. */
 export async function logoDataUri(logoUrl: string | null | undefined): Promise<string | null> {
-  if (!logoUrl || !/^https:\/\//i.test(logoUrl)) return null;
+  if (!logoUrl) return null;
   const hit = logoCache.get(logoUrl);
   if (hit && Date.now() - hit.at < 3600_000) return hit.uri;
   let uri: string | null = null;
-  try {
-    const res = await fetch(logoUrl, { signal: AbortSignal.timeout(5000) });
-    if (res.ok) {
-      const png = await sharp(Buffer.from(await res.arrayBuffer())).resize(96, 96, { fit: 'contain', background: { r: 255, g: 255, b: 255, alpha: 1 } }).png().toBuffer();
+  const img = await fetchLogo(logoUrl);
+  if (img) {
+    try {
+      const png = await img.resize(96, 96, { fit: 'contain', background: { r: 255, g: 255, b: 255, alpha: 1 } }).png().toBuffer();
       uri = `data:image/png;base64,${png.toString('base64')}`;
-    }
-  } catch { /* sin logo: el sello lleva la marca */ }
+    } catch { /* imagen inválida: el sello lleva la marca */ }
+  }
   logoCache.set(logoUrl, { uri, at: Date.now() });
   return uri;
 }
