@@ -50,20 +50,20 @@ export class PlatformAccessController {
 
     @Post('profiles')
     @RequirePermission('perfiles.gestionar')
-    createProfile(@Body() dto: ProfileDto) {
-        return this.access.saveProfile(null, dto);
+    createProfile(@Body() dto: ProfileDto, @CurrentUser() user: any, @Req() req: any) {
+        return this.access.saveProfile(null, dto, { id: user.id, perms: req.platformPermissions ?? [] });
     }
 
     @Put('profiles/:id')
     @RequirePermission('perfiles.gestionar')
-    updateProfile(@Param('id') id: string, @Body() dto: ProfileDto) {
-        return this.access.saveProfile(id, dto);
+    updateProfile(@Param('id') id: string, @Body() dto: ProfileDto, @CurrentUser() user: any, @Req() req: any) {
+        return this.access.saveProfile(id, dto, { id: user.id, perms: req.platformPermissions ?? [] });
     }
 
     @Delete('profiles/:id')
     @RequirePermission('perfiles.gestionar')
-    deleteProfile(@Param('id') id: string) {
-        return this.access.deleteProfile(id);
+    deleteProfile(@Param('id') id: string, @CurrentUser() user: any, @Req() req: any) {
+        return this.access.deleteProfile(id, { id: user.id, perms: req.platformPermissions ?? [] });
     }
 
     @Get('staff')
