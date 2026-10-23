@@ -5,13 +5,36 @@ import { PlaceRoleGuard } from '../../common/guards/place-role.guard';
 import { RequiresPlaceRole } from '../../common/decorators/requires-place-role.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { AppointmentsService } from './appointments.service';
+import { RemindersService } from './reminders.service';
 import { AvailabilityQueryDto, BookDto, DayQueryDto, ProfessionalDto, PublicBookDto, UpdateAppointmentDto } from './dto/appointments.dto';
 
 /** Agenda vista por el personal del local (recepción, dueño). La Agenda es del plan base. */
 @UseGuards(JwtAuthGuard, PlaceRoleGuard)
 @Controller('business/places/:placeId/agenda')
 export class StaffAgendaController {
-    constructor(private agenda: AppointmentsService) { }
+    constructor(private agenda: AppointmentsService, private reminders: RemindersService) { }
+
+    // ── Recordatorios por WhatsApp ──
+    @Get('reminders')
+    @RequiresPlaceRole('agente')
+    async remindersStatus(@Param('placeId') placeId: string) {
+        await this.agenda.assertEnabled(placeId);
+        return this.reminders.status(placeId);
+    }
+
+    @Post('reminders/template')
+    @RequiresPlaceRole('supervisor')
+    async createReminderTemplate(@Param('placeId') placeId: string) {
+        await this.agenda.assertEnabled(placeId);
+        return this.reminders.ensureTemplate(placeId);
+    }
+
+    @Patch('reminders')
+    @RequiresPlaceRole('supervisor')
+    async setReminders(@Param('placeId') placeId: string, @Body('enabled') enabled: boolean) {
+        await this.agenda.assertEnabled(placeId);
+        return this.reminders.setEnabled(placeId, enabled !== false);
+    }
 
     @Get('day')
     @RequiresPlaceRole('agente')
