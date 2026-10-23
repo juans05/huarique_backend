@@ -50,7 +50,7 @@ describe('StaffOrdersController roles', () => {
 describe('StaffOrdersController.manualPayment', () => {
     it('mozo cobra la cuenta de mesa pero no marca pagado un pedido suelto', async () => {
         const payments = { recordManualPayment: jest.fn(async () => ({ status: 'PAGADO' })) };
-        const ctrl = new StaffOrdersController({} as any, {} as any, payments as any, {} as any);
+        const ctrl = new StaffOrdersController({} as any, {} as any, payments as any, {} as any, {} as any);
         const req = { placeTeamMember: { role: 'mozo' } };
         await expect(ctrl.manualPayment('p1', { tabId: 't1', method: 'EFECTIVO' } as any, { id: 'u1' }, req)).resolves.toMatchObject({ status: 'PAGADO' });
         expect(() => ctrl.manualPayment('p1', { orderId: 'o1', method: 'EFECTIVO' } as any, { id: 'u1' }, req)).toThrow(ForbiddenException);
@@ -60,7 +60,7 @@ describe('StaffOrdersController.manualPayment', () => {
 describe('StaffOrdersController.list', () => {
     it('page no numérico se toma como 1', () => {
         const orders = { listForPlace: jest.fn() };
-        new StaffOrdersController(orders as any, {} as any, {} as any, {} as any).list('p1', undefined, undefined, undefined, 'abc');
+        new StaffOrdersController(orders as any, {} as any, {} as any, {} as any, {} as any).list('p1', undefined, undefined, undefined, 'abc');
         expect(orders.listForPlace).toHaveBeenCalledWith('p1', expect.objectContaining({ page: 1 }));
     });
 });
