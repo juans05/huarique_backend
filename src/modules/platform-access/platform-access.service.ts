@@ -115,8 +115,10 @@ export class PlatformAccessService {
      */
     async assertCanManage(actorPerms: string[], targetUserId: string, newProfile?: PlatformProfile) {
         if (actorPerms.includes('*')) return;
-        const target = await this.usersRepo.findOne({ where: { id: targetUserId }, select: ['id', 'role'] as any });
-        if (target && (await this.permissionsOf(target)).includes('*')) throw new ForbiddenException('Solo un Administrador puede gestionar a otro Administrador');
+        // Perfil configurado, no los permisos efectivos: un Administrador baneado sigue siendo Administrador.
+        const target = await this.usersRepo.findOne({ where: { id: targetUserId }, select: ['id', 'role', 'platformProfileId'] as any });
+        const targetProfile = (target as any)?.platformProfileId ? await this.profilesRepo.findOne({ where: { id: (target as any).platformProfileId } }) : null;
+        if (targetProfile?.permissions.includes('*')) throw new ForbiddenException('Solo un Administrador puede gestionar a otro Administrador');
         if (newProfile && !newProfile.permissions.every((p) => actorPerms.includes(p))) throw new ForbiddenException('No puedes dar permisos que tú no tienes');
     }
 
