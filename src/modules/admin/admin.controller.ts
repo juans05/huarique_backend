@@ -1,4 +1,5 @@
 import {
+    ForbiddenException,
     Controller,
     Get,
     Post,
@@ -22,6 +23,7 @@ import { ImportScrapedPlacesDto } from './dto/import-scraped-place.dto';
 import { ImportScrapedReviewsDto } from './dto/import-scraped-reviews.dto';
 import { RequirePermission } from '../../common/decorators/require-permission.decorator';
 import { hasPermission } from '../platform-access/permissions';
+import { PlatformAccessService } from '../platform-access/platform-access.service';
 
 @ApiTags('admin')
 @Controller('admin')
@@ -29,7 +31,7 @@ import { hasPermission } from '../platform-access/permissions';
 @Roles('admin')
 @ApiBearerAuth()
 export class AdminController {
-    constructor(private readonly adminService: AdminService) { }
+    constructor(private readonly adminService: AdminService, private readonly access: PlatformAccessService) { }
 
     @RequirePermission('oportunidades.todas', 'oportunidades.propias')
 
@@ -284,7 +286,11 @@ export class AdminController {
     @ApiResponse({ status: 400, description: 'Validation error.' })
     @ApiResponse({ status: 401, description: 'Not authenticated.' })
     @ApiResponse({ status: 403, description: 'Forbidden — admin role required.' })
-    async createUser(@Body() createUserDto: any) {
+    async createUser(@Body() createUserDto: any, @Req() req: any) {
+        // Las cuentas del equipo se crean en admin/access/staff, con perfil; aquí solo el Administrador.
+        if (['admin', 'sales'].includes(createUserDto?.role) && !(req.platformPermissions ?? []).includes('*')) {
+            throw new ForbiddenException('Los usuarios del equipo se crean desde Equipo Wuarikes');
+        }
         return this.adminService.createUser(createUserDto);
     }
 
@@ -297,8 +303,11 @@ export class AdminController {
     @ApiResponse({ status: 401, description: 'Not authenticated.' })
     @ApiResponse({ status: 403, description: 'Forbidden — admin role required.' })
     @ApiResponse({ status: 404, description: 'User not found.' })
-    async banUser(@Param('id') id: string) {
-        return this.adminService.banUser(id);
+    async banUser(@Param('id') id: string, @Req() req: any) {
+        await this.access.assertCanManage(req.platformPermissions ?? [], id);
+        const result = await this.adminService.banUser(id);
+        this.access.invalidate(id);
+        return result;
     }
 
     @RequirePermission('usuarios.gestionar')
@@ -310,8 +319,11 @@ export class AdminController {
     @ApiResponse({ status: 401, description: 'Not authenticated.' })
     @ApiResponse({ status: 403, description: 'Forbidden — admin role required.' })
     @ApiResponse({ status: 404, description: 'User not found.' })
-    async activateUser(@Param('id') id: string) {
-        return this.adminService.activateUser(id);
+    async activateUser(@Param('id') id: string, @Req() req: any) {
+        await this.access.assertCanManage(req.platformPermissions ?? [], id);
+        const result = await this.adminService.activateUser(id);
+        this.access.invalidate(id);
+        return result;
     }
 
     @RequirePermission('usuarios.gestionar')
@@ -322,7 +334,8 @@ export class AdminController {
     @ApiParam({ name: 'id', description: 'User UUID' })
     @ApiResponse({ status: 200, description: 'Email sent.' })
     @ApiResponse({ status: 404, description: 'User not found.' })
-    async sendAccessEmail(@Param('id') id: string) {
+    async sendAccessEmail(@Param('id') id: string, @Req() req: any) {
+        await this.access.assertCanManage(req.platformPermissions ?? [], id);
         return this.adminService.sendAccessEmail(id);
     }
 

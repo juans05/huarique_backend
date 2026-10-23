@@ -35,7 +35,6 @@ export const SYSTEM_PROFILES: { name: string; description: string; permissions: 
 
 /** Sin perfil asignado: el admin conserva todo (como antes) y el comercial usa la plantilla Comercial. */
 export function defaultPermissions(role: string): PlatformPermission[] {
-    if (role === 'admin') return ['*'];
     if (role === 'sales') return SYSTEM_PROFILES.find((p) => p.name === 'Comercial')!.permissions;
     return [];
 }
