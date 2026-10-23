@@ -24,6 +24,8 @@ export class Appointment {
     @Column({ name: 'created_by_user_id', type: 'uuid', nullable: true }) createdByUserId: string | null;
     /** Comprobante con el que se cobró en caja (null = por cobrar). */
     @Column({ name: 'receipt_id', type: 'uuid', nullable: true }) receiptId: string | null;
+    @Column({ name: 'reminder_24_sent_at', type: 'timestamptz', nullable: true }) reminder24SentAt: Date | null;
+    @Column({ name: 'reminder_2_sent_at', type: 'timestamptz', nullable: true }) reminder2SentAt: Date | null;
     @CreateDateColumn({ name: 'created_at' }) createdAt: Date;
 }
 
