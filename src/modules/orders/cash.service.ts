@@ -2,14 +2,16 @@ import { BadRequestException, Injectable, NotFoundException } from '@nestjs/comm
 import { InjectRepository } from '@nestjs/typeorm';
 import { DataSource, EntityManager, In, Repository } from 'typeorm';
 import { CashSession, CashTotals } from './entities/cash-session.entity';
-import { CashMethod, Receipt } from './entities/receipt.entity';
+import { CashMethod, Receipt, ReceiptItem } from './entities/receipt.entity';
 import { Tab } from './entities/tab.entity';
 import { PlaceTable } from './entities/place-table.entity';
 import { DEFAULT_RECEIPT_SERIES } from './entities/place-order-settings.entity';
 import { OrdersService } from './orders.service';
 import { PaymentsService } from './payments.service';
 import { OrderEventsService } from './order-events.service';
-import { ChargeDto, PrecuentaDto } from './dto/cash.dto';
+import { ChargeDto, PrecuentaDto, SaleDto } from './dto/cash.dto';
+import { Dish } from '../places/entities/dish.entity';
+import { toCents } from './order-rules';
 import { receiptCode, receiptCustomerError } from './cash-rules';
 
 const PAYMENT_METHOD: Record<CashMethod, 'EFECTIVO' | 'POS' | 'YAPE'> = { EFECTIVO: 'EFECTIVO', TARJETA: 'POS', YAPE_PLIN: 'YAPE' };
@@ -22,6 +24,7 @@ export class CashService {
         @InjectRepository(Receipt) private receiptsRepo: Repository<Receipt>,
         @InjectRepository(Tab) private tabsRepo: Repository<Tab>,
         @InjectRepository(PlaceTable) private tablesRepo: Repository<PlaceTable>,
+        @InjectRepository(Dish) private dishesRepo: Repository<Dish>,
         private dataSource: DataSource,
         private orders: OrdersService,
         private payments: PaymentsService,
@@ -31,10 +34,10 @@ export class CashService {
     /** Estado de la caja: turno abierto (o null), totales, precuentas por cobrar y comprobantes del turno. */
     async current(placeId: string) {
         const session = await this.sessionsRepo.findOne({ where: { placeId, status: 'ABIERTA' } });
-        const pending = await this.pendingPrecuentas(placeId);
-        if (!session) return { session: null, totals: null, pending, receipts: [] };
-        const receipts = await this.receiptsRepo.find({ where: { cashSessionId: session.id }, order: { createdAt: 'DESC' } });
-        return { session, totals: this.sum(receipts), pending, receipts: receipts.map((r) => ({ ...r, code: receiptCode(r.series, r.number) })) };
+        const [pending, appointments] = await Promise.all([this.pendingPrecuentas(placeId), this.appointmentsToCharge(placeId)]);
+        if (!session) return { session: null, totals: null, pending, appointments, receipts: [] };
+        const receipts = await this.receiptsRepo.find({ where: { cashSessionId: session.id }, relations: ['items'], order: { createdAt: 'DESC' } });
+        return { session, totals: this.sum(receipts), pending, appointments, receipts: receipts.map((r) => ({ ...r, code: receiptCode(r.series, r.number) })) };
     }
 
     async open(placeId: string, userId: string, openingAmount: number) {
@@ -101,6 +104,79 @@ export class CashService {
         });
         await this.orders.closeTab(placeId, receipt.tabId!);
         return { ...receipt, code: receiptCode(receipt.series, receipt.number) };
+    }
+
+    /**
+     * Venta directa (mostrador: productos y servicios del catálogo u "otro ítem") o cobro de una cita
+     * (la cita aporta su servicio y se pueden sumar productos). Emite el comprobante con su serie.
+     */
+    async sell(placeId: string, userId: string, dto: SaleDto) {
+        const session = await this.requireOpen(placeId);
+        const settings = await this.orders.getSettings(placeId);
+        const series = (settings.receiptSeries ?? DEFAULT_RECEIPT_SERIES)[dto.docType];
+        const dishIds = (dto.items ?? []).filter((l) => l.dishId).map((l) => l.dishId!);
+        const dishes = dishIds.length ? await this.dishesRepo.find({ where: { placeId, id: In(dishIds) } }) : [];
+
+        const lines: Omit<ReceiptItem, 'id' | 'receiptId' | 'receipt'>[] = (dto.items ?? []).map((l) => {
+            if (l.dishId) {
+                const dish = dishes.find((d) => d.id === l.dishId);
+                if (!dish) throw new BadRequestException('Uno de los ítems ya no está en el catálogo');
+                const unitPrice = toCents(dish.price as any);
+                return { dishId: dish.id, description: dish.name, quantity: l.quantity, unitPrice, lineTotal: unitPrice * l.quantity };
+            }
+            if (!l.name?.trim() || l.unitPrice == null) throw new BadRequestException('Cada "otro ítem" necesita nombre y precio');
+            return { dishId: null, description: l.name.trim(), quantity: l.quantity, unitPrice: l.unitPrice, lineTotal: l.unitPrice * l.quantity };
+        });
+
+        const receipt = await this.dataSource.transaction(async (em) => {
+            await this.lockOpen(em, session.id);
+            let label = 'Mostrador';
+            if (dto.appointmentId) {
+                // Bloquea la cita: dos cajeros no la cobran dos veces.
+                const [appt] = await em.query(
+                    `SELECT a.id, a.service_id, a.service_name, a.price, a.status, a.receipt_id, p.name AS pro
+                     FROM wuarike_db.appointments a JOIN wuarike_db.place_professionals p ON p.id = a.professional_id
+                     WHERE a.id = $1 AND a.place_id = $2 FOR UPDATE OF a`,
+                    [dto.appointmentId, placeId],
+                );
+                if (!appt || appt.status === 'CANCELADA') throw new NotFoundException('Cita no encontrada');
+                if (appt.receipt_id) throw new BadRequestException('Esta cita ya fue cobrada');
+                lines.unshift({ dishId: appt.service_id, description: appt.service_name, quantity: 1, unitPrice: appt.price, lineTotal: appt.price });
+                label = `Cita · ${appt.pro}`;
+            }
+            const total = lines.reduce((sum, l) => sum + l.lineTotal, 0);
+            if (!lines.length || total <= 0) throw new BadRequestException('Agrega al menos un ítem con precio');
+            const error = receiptCustomerError(dto.docType, dto, total);
+            if (error) throw new BadRequestException(error);
+
+            const [{ max }] = await em.query(`SELECT COALESCE(MAX(number), 0) AS max FROM wuarike_db.receipts WHERE place_id = $1 AND series = $2`, [placeId, series]);
+            const customer = this.clean(dto);
+            const saved = await em.save(em.create(Receipt, {
+                placeId, cashSessionId: session.id, kind: dto.appointmentId ? 'CITA' : 'VENTA', appointmentId: dto.appointmentId ?? null, tabId: null,
+                tableName: label, paymentId: null, docType: dto.docType, series, number: Number(max) + 1, paymentMethod: dto.method, total, createdByUserId: userId,
+                customerDocType: customer.customerDocType ?? null, customerDocNumber: customer.customerDocNumber ?? null,
+                customerName: customer.customerName ?? null, customerAddress: customer.customerAddress ?? null,
+                items: lines.map((l) => em.create(ReceiptItem, l)),
+            }));
+            if (dto.appointmentId) {
+                await em.query(`UPDATE wuarike_db.appointments SET receipt_id = $1, status = CASE WHEN status = 'RESERVADA' THEN 'ATENDIDA' ELSE status END WHERE id = $2`, [saved.id, dto.appointmentId]);
+            }
+            return saved;
+        });
+        return { ...receipt, code: receiptCode(receipt.series, receipt.number) };
+    }
+
+    /** Citas de hoy que todavía no se cobraron (rubros con agenda). */
+    private async appointmentsToCharge(placeId: string) {
+        return this.dataSource.query(
+            `SELECT a.id, a.service_name AS "serviceName", a.price, a.starts_at AS "startsAt", a.customer_name AS "customerName",
+                    a.status, p.name AS "professionalName", p.station
+             FROM wuarike_db.appointments a JOIN wuarike_db.place_professionals p ON p.id = a.professional_id
+             WHERE a.place_id = $1 AND a.receipt_id IS NULL AND a.status IN ('RESERVADA', 'ATENDIDA')
+               AND (a.starts_at AT TIME ZONE 'America/Lima')::date = (now() AT TIME ZONE 'America/Lima')::date
+             ORDER BY a.starts_at`,
+            [placeId],
+        ).catch(() => []);
     }
 
     /** Bloquea la caja hasta el fin de la transacción y confirma que siga abierta (pudo cerrarse mientras tanto). */

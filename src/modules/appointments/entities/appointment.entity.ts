@@ -22,6 +22,8 @@ export class Appointment {
     @Column({ default: 'PANEL' }) source: AppointmentSource;
     @Column({ name: 'public_token', unique: true }) publicToken: string;
     @Column({ name: 'created_by_user_id', type: 'uuid', nullable: true }) createdByUserId: string | null;
+    /** Comprobante con el que se cobró en caja (null = por cobrar). */
+    @Column({ name: 'receipt_id', type: 'uuid', nullable: true }) receiptId: string | null;
     @CreateDateColumn({ name: 'created_at' }) createdAt: Date;
 }
 
