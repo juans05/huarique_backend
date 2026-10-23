@@ -3,6 +3,11 @@ import { ApiTags, ApiBearerAuth, ApiOperation } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { LoyaltyService } from './loyalty.service';
+import { WalletService } from './wallet.service';
+import { InjectRepository } from '@nestjs/typeorm';
+import { Repository } from 'typeorm';
+import { Place } from '../places/entities/place.entity';
+import { walletHex } from './wallet-images';
 import { PlaceTeamService } from '../team/place-team.service';
 
 @ApiTags('loyalty')
@@ -13,6 +18,8 @@ export class LoyaltyController {
   constructor(
     private readonly loyaltyService: LoyaltyService,
     private placeTeamService: PlaceTeamService,
+    private readonly walletService: WalletService,
+    @InjectRepository(Place) private placesRepo: Repository<Place>,
   ) {}
 
   private async assertOwner(placeId: string, userId: string) {
@@ -33,6 +40,30 @@ export class LoyaltyController {
   async upsertProgram(@Param('placeId') placeId: string, @Body() data: any, @CurrentUser() user: any) {
     await this.assertOwner(placeId, user.id);
     return this.loyaltyService.upsertProgram(placeId, data);
+  }
+
+  // ── DISEÑO DE LA TARJETA (Wallet) ────────────────────────────────────
+
+  @Get('wallet-design')
+  @ApiOperation({ summary: 'Wallet card design (color)' })
+  async getWalletDesign(@Param('placeId') placeId: string, @CurrentUser() user: any) {
+    await this.assertOwner(placeId, user.id);
+    const place = await this.placesRepo.findOne({ where: { id: placeId } });
+    return { walletColor: walletHex(place?.metadata?.walletColor), custom: !!place?.metadata?.walletColor, logoUrl: place?.logoUrl ?? null, name: place?.name ?? '' };
+  }
+
+  @Put('wallet-design')
+  @ApiOperation({ summary: 'Save wallet card color' })
+  async setWalletDesign(@Param('placeId') placeId: string, @Body('walletColor') walletColor: string, @CurrentUser() user: any) {
+    await this.assertOwner(placeId, user.id);
+    if (!/^#[0-9A-Fa-f]{6}$/.test(walletColor ?? '')) throw new BadRequestException('Elige un color válido (por ejemplo #C84B31)');
+    const place = await this.placesRepo.findOne({ where: { id: placeId } });
+    if (!place) throw new BadRequestException('Local no encontrado');
+    place.metadata = { ...(place.metadata ?? {}), walletColor: walletColor.toUpperCase() };
+    await this.placesRepo.update(placeId, { metadata: place.metadata });
+    // Las tarjetas ya guardadas en Google cambian de color al actualizar la plantilla del local.
+    const googleUpdated = await this.walletService.updateGoogleClassColor(place).catch(() => false);
+    return { walletColor: place.metadata.walletColor, googleUpdated };
   }
 
   // ── CRM — CLIENTES ───────────────────────────────────────────────────

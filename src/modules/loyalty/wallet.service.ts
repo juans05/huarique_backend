@@ -219,6 +219,21 @@ export class WalletService {
     }
   }
 
+  /** Cambia el color de la plantilla del local en Google (afecta a las tarjetas ya guardadas). 404 = aún no existe. */
+  async updateGoogleClassColor(place: any): Promise<boolean> {
+    const issuerId = process.env.GOOGLE_WALLET_ISSUER_ID;
+    if (!issuerId) return false;
+    const classId = `${issuerId}.loyalty_${place.id.replace(/-/g, '_')}`;
+    const accessToken = await this.getGoogleAccessToken();
+    const res = await fetch(`https://walletobjects.googleapis.com/walletobjects/v1/loyaltyClass/${classId}`, {
+      method: 'PATCH',
+      headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ hexBackgroundColor: this.walletColor(place.metadata?.walletColor) }),
+    });
+    if (!res.ok && res.status !== 404) throw new ServiceUnavailableException(`No se pudo actualizar el color en Google Wallet: ${await res.text()}`);
+    return res.ok;
+  }
+
   // Manda un mensaje libre (no ligado al saldo) a una tarjeta ya guardada — para
   // campañas tipo "hoy 2x1". Usa addMessage, no patch: patch solo notifica cuando
   // cambia loyaltyPoints.balance.

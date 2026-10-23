@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Param, Body, Res, NotFoundException, BadRequestException, ParseIntPipe, ParseUUIDPipe } from '@nestjs/common';
+import { Controller, Get, Post, Param, Body, Res, Query, NotFoundException, BadRequestException, ParseIntPipe, ParseUUIDPipe } from '@nestjs/common';
 import { ApiTags, ApiOperation } from '@nestjs/swagger';
 import { Response } from 'express';
 import { LoyaltyService } from './loyalty.service';
@@ -25,11 +25,12 @@ export class LoyaltyPublicController {
     @Param('stamps', ParseIntPipe) stamps: number,
     @Param('total', ParseIntPipe) total: number,
     @Res() res: Response,
+    @Query('c') color?: string,
   ) {
     if (total < 1 || total > 20 || stamps < 0 || stamps > total) throw new BadRequestException('Parámetros inválidos');
     const place = await this.placesRepo.findOne({ where: { id: placeId }, select: ['id', 'logoUrl', 'metadata'] });
     if (!place) throw new NotFoundException('Local no encontrado');
-    const png = await stampsPng({ stamps, total, color: walletHex(place.metadata?.walletColor), width: 1032, height: 336, logo: await logoDataUri(place.logoUrl) });
+    const png = await stampsPng({ stamps, total, color: /^[0-9A-Fa-f]{6}$/.test(color ?? '') ? `#${color}` : walletHex(place.metadata?.walletColor), width: 1032, height: 336, logo: await logoDataUri(place.logoUrl) });
     res.set({ 'Content-Type': 'image/png', 'Cache-Control': 'public, max-age=31536000, immutable', 'Content-Length': png.length });
     res.send(png);
   }
