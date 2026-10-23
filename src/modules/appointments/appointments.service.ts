@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Between, DataSource, EntityManager, In, Not, Repository } from 'typeorm';
 import { Professional } from './entities/professional.entity';
@@ -6,10 +6,15 @@ import { Appointment, AppointmentSource } from './entities/appointment.entity';
 import { Dish } from '../places/entities/dish.entity';
 import { Place } from '../places/entities/place.entity';
 import { newPublicToken, toCents } from '../orders/order-rules';
+import { PlaceTeamService } from '../team/place-team.service';
+import { getVerticalConfig } from '../places/business-types';
 import { DEFAULT_DURATION_MIN, Range, freeSlots, limaDate, limaInstant, limaTime, overlaps, workingWindow } from './appointments.rules';
 import { BookDto, ProfessionalDto, UpdateAppointmentDto } from './dto/appointments.dto';
 
 const LIVE: Appointment['status'][] = ['RESERVADA', 'ATENDIDA'];
+const MAX_DAYS_AHEAD = 60;
+/** Citas futuras activas que un mismo teléfono puede tener en un local (link público y bot). */
+const MAX_ACTIVE_PER_PHONE = 3;
 
 /** Agenda por profesional: cada cita ocupa a una persona; dos citas de la misma persona nunca se cruzan. */
 @Injectable()
@@ -20,7 +25,16 @@ export class AppointmentsService {
         @InjectRepository(Dish) private dishesRepo: Repository<Dish>,
         @InjectRepository(Place) private placesRepo: Repository<Place>,
         private dataSource: DataSource,
+        private team: PlaceTeamService,
     ) { }
+
+    /** La agenda existe si el local tiene plan activo y su rubro atiende con cita. */
+    async assertEnabled(placeId: string) {
+        const place = await this.placesRepo.findOne({ where: { id: placeId }, select: ['id', 'businessType'] });
+        if (!place) throw new NotFoundException('Local no encontrado');
+        if (!getVerticalConfig(place.businessType).modules.includes('agenda')) throw new ForbiddenException('Este local no usa agenda de citas');
+        await this.team.assertPlaceTier(placeId, 'reputacion');
+    }
 
     // ── Servicios y profesionales ────────────────────────────────────────
     /** Servicios reservables: los ítems de tipo servicio disponibles del catálogo. */
@@ -69,6 +83,14 @@ export class AppointmentsService {
         if (!candidates.length) throw new BadRequestException(dto.professionalId ? 'Ese profesional no hace este servicio' : 'Nadie hace este servicio por ahora');
         const slot = this.slot(dto.date, dto.time, service.durationMin);
         if (slot.start <= new Date()) throw new BadRequestException('Ese horario ya pasó');
+        if (slot.start.getTime() > Date.now() + MAX_DAYS_AHEAD * 86400_000) throw new BadRequestException(`Solo se puede reservar hasta ${MAX_DAYS_AHEAD} días adelante`);
+        // Desde afuera (link público o bot) un teléfono no puede acaparar la agenda.
+        if (source !== 'PANEL' && dto.customerPhone) {
+            const active = await this.apptRepo.createQueryBuilder('a')
+                .where('a.place_id = :placeId AND a.customer_phone = :phone AND a.status = :st AND a.starts_at > now()', { placeId, phone: dto.customerPhone.trim(), st: 'RESERVADA' })
+                .getCount();
+            if (active >= MAX_ACTIVE_PER_PHONE) throw new BadRequestException(`Ya tienes ${active} citas reservadas. Cancela alguna o comunícate con el local.`);
+        }
 
         for (const pro of candidates) {
             const created = await this.dataSource.transaction(async (em) => {
