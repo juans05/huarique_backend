@@ -26,10 +26,10 @@ import { PayoutsService } from './payouts.service';
 import { AdminPayoutsController } from './admin-payouts.controller';
 import { OrderEventsService } from './order-events.service';
 import { CashSession } from './entities/cash-session.entity';
-import { Receipt } from './entities/receipt.entity';
+import { Receipt, ReceiptItem } from './entities/receipt.entity';
 import { CashService } from './cash.service';
 
-export const ORDER_ENTITIES = [PlaceOrderSettings, PlaceTable, Tab, Order, OrderItem, OrderPayment, PlacePayout, WhatsappOrderDraft, Dish, Place, CashSession, Receipt];
+export const ORDER_ENTITIES = [PlaceOrderSettings, PlaceTable, Tab, Order, OrderItem, OrderPayment, PlacePayout, WhatsappOrderDraft, Dish, Place, CashSession, Receipt, ReceiptItem];
 
 @Module({
     imports: [TypeOrmModule.forFeature(ORDER_ENTITIES), TeamModule, AuthModule, AiModule, ContactsModule],

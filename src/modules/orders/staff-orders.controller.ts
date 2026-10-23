@@ -7,7 +7,7 @@ import { OrdersService } from './orders.service';
 import { OrderSettingsService } from './order-settings.service';
 import { PaymentsService } from './payments.service';
 import { CashService } from './cash.service';
-import { ChargeDto, CloseCashDto, OpenCashDto, PrecuentaDto } from './dto/cash.dto';
+import { ChargeDto, CloseCashDto, OpenCashDto, PrecuentaDto, SaleDto } from './dto/cash.dto';
 import { AssignWaiterDto, ChangeStatusDto, ManualPaymentDto, StaffOrderDto } from './dto/orders.dto';
 import { BulkTablesDto, TableDto, UpdateOrderSettingsDto, UpdateTableDto } from './dto/order-settings.dto';
 import { OrderChannel, OrderStatus } from './entities/order.entity';
@@ -107,6 +107,12 @@ export class StaffOrdersController {
     @RequiresPlaceRole('agente')
     cashCharge(@Param('placeId') placeId: string, @Body() dto: ChargeDto, @CurrentUser() user: any) {
         return this.cash.charge(placeId, user.id, dto);
+    }
+
+    @Post('cash/sale')
+    @RequiresPlaceRole('agente')
+    cashSale(@Param('placeId') placeId: string, @Body() dto: SaleDto, @CurrentUser() user: any) {
+        return this.cash.sell(placeId, user.id, dto);
     }
 
     @Post('cash/close')
