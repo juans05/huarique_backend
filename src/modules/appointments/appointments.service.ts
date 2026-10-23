@@ -95,7 +95,7 @@ export class AppointmentsService {
         // Desde afuera el teléfono es obligatorio y válido: sin él no se podría aplicar el tope por cliente.
         if (source !== 'PANEL' && (!phone || phone.length < 7)) throw new BadRequestException('Ingresa un teléfono válido');
         const capped = source !== 'PANEL';
-        const assetId = await this.resolveAsset(placeId, dto, phone);
+        const assetId = await this.resolveAsset(placeId, dto, phone, source);
 
         for (const pro of candidates) {
             const created = await this.dataSource.transaction(async (em) => {
@@ -230,9 +230,10 @@ export class AppointmentsService {
     }
 
     /** Ficha de la cita: la existente (assetId) o una nueva por nombre/placa (se reutiliza si el cliente ya la tenía). */
-    private async resolveAsset(placeId: string, dto: BookDto, phone: string | null): Promise<string | null> {
+    private async resolveAsset(placeId: string, dto: BookDto, phone: string | null, source: AppointmentSource): Promise<string | null> {
         if (dto.assetId) {
-            const found = await this.assetsRepo.findOne({ where: { id: dto.assetId, placeId } });
+            // Desde afuera (link o bot) solo se puede usar una ficha del mismo teléfono que reserva.
+            const found = await this.assetsRepo.findOne({ where: { id: dto.assetId, placeId, ...(source !== 'PANEL' ? { customerPhone: phone ?? '' } : {}) } });
             if (!found) throw new BadRequestException('Ficha no encontrada');
             return found.id;
         }
