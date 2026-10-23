@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Param, Body, Res, NotFoundException } from '@nestjs/common';
+import { Controller, Get, Post, Param, Body, Res, Query, NotFoundException, BadRequestException, ParseIntPipe, ParseUUIDPipe } from '@nestjs/common';
 import { ApiTags, ApiOperation } from '@nestjs/swagger';
 import { Response } from 'express';
 import { LoyaltyService } from './loyalty.service';
@@ -6,6 +6,7 @@ import { WalletService } from './wallet.service';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Place } from '../places/entities/place.entity';
+import { logoDataUri, stampsPng, walletHex } from './wallet-images';
 
 @ApiTags('loyalty-public')
 @Controller('public/loyalty')
@@ -15,6 +16,24 @@ export class LoyaltyPublicController {
     private readonly walletService: WalletService,
     @InjectRepository(Place) private placesRepo: Repository<Place>,
   ) {}
+
+  /** Imagen con los círculos de sellos (Google/Apple Wallet). Pública y cacheable: no lleva datos del cliente. */
+  @Get('wallet/stamps/:placeId/:stamps/:total.png')
+  @ApiOperation({ summary: 'Stamp card image for Wallet passes (public)' })
+  async stampsImage(
+    @Param('placeId', ParseUUIDPipe) placeId: string,
+    @Param('stamps', ParseIntPipe) stamps: number,
+    @Param('total', ParseIntPipe) total: number,
+    @Res() res: Response,
+    @Query('c') color?: string,
+  ) {
+    if (total < 1 || total > 20 || stamps < 0 || stamps > total) throw new BadRequestException('Parámetros inválidos');
+    const place = await this.placesRepo.findOne({ where: { id: placeId }, select: ['id', 'logoUrl', 'metadata'] });
+    if (!place) throw new NotFoundException('Local no encontrado');
+    const png = await stampsPng({ stamps, total, color: /^[0-9A-Fa-f]{6}$/.test(color ?? '') ? `#${color}` : walletHex(place.metadata?.walletColor), width: 1032, height: 336, logo: await logoDataUri(place.logoUrl) });
+    res.set({ 'Content-Type': 'image/png', 'Cache-Control': 'public, max-age=31536000, immutable', 'Content-Length': png.length });
+    res.send(png);
+  }
 
   @Get(':placeId/program')
   @ApiOperation({ summary: 'Get loyalty program info for the NFC page (public)' })
