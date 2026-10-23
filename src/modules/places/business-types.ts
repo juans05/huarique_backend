@@ -35,7 +35,8 @@ export type ModuleKey =
     | 'broadcasts'
     | 'ia'
     | 'agenda'
-    | 'caja';
+    | 'caja'
+    | 'inventario';
 
 export interface VerticalConfig {
     label: string;
@@ -48,7 +49,7 @@ export interface VerticalConfig {
 
 const ALL_MODULES: ModuleKey[] = [
     'reputacion', 'social', 'carta', 'pedidos', 'cocina', 'mesas', 'fidelizacion', 'clientes',
-    'email-marketing', 'whatsapp', 'plazbot', 'chat', 'reportes', 'equipo', 'broadcasts', 'ia', 'caja',
+    'email-marketing', 'whatsapp', 'plazbot', 'chat', 'reportes', 'equipo', 'broadcasts', 'ia', 'caja', 'inventario',
 ];
 // Pedidos, cocina y mesas son de gastronomía; la agenda de citas, de los rubros que atienden con cita.
 // Solo gastronomía opera pedidos, cocina y mesas.

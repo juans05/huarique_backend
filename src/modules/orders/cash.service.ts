@@ -1,5 +1,6 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
+import { EventEmitter2 } from '@nestjs/event-emitter';
 import { DataSource, EntityManager, In, Repository } from 'typeorm';
 import { CashSession, CashTotals } from './entities/cash-session.entity';
 import { CashMethod, Receipt, ReceiptItem } from './entities/receipt.entity';
@@ -29,6 +30,7 @@ export class CashService {
         private orders: OrdersService,
         private payments: PaymentsService,
         private events: OrderEventsService,
+        private emitter: EventEmitter2,
     ) { }
 
     /** Estado de la caja: turno abierto (o null), totales, precuentas por cobrar y comprobantes del turno. */
@@ -163,6 +165,8 @@ export class CashService {
             }
             return saved;
         });
+        // El inventario descuenta lo vendido (escucha 'cash.sale').
+        this.emitter.emit('cash.sale', { placeId, receiptId: receipt.id, userId, lines: (receipt.items ?? []).map((i) => ({ dishId: i.dishId, quantity: i.quantity })) });
         return { ...receipt, code: receiptCode(receipt.series, receipt.number) };
     }
 
