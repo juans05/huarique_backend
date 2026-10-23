@@ -42,7 +42,11 @@ export class PlaceModuleGuard implements CanActivate {
         }
         if (!userId) return true;
 
-        const placeId = req.params?.placeId ?? req.query?.placeId ?? req.body?.placeId ?? (await this.placeOfResource(req.params ?? {}));
+        // Con id de recurso manda la sede del recurso (un ?placeId= de otra sede no la reemplaza).
+        const params = req.params ?? {};
+        const placeId = Object.keys(ID_PLACE_LOOKUP).some((k) => params[k])
+            ? await this.placeOfResource(params)
+            : params.placeId ?? req.query?.placeId ?? req.body?.placeId;
         const allowed = placeId ? await this.allowedInPlace(userId, placeId, module) : await this.allowedSomewhere(userId, module);
         if (!allowed) throw new ForbiddenException('Tu perfil no incluye esta sección');
         return true;
