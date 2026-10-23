@@ -1,0 +1,115 @@
+import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
+import { InjectRepository } from '@nestjs/typeorm';
+import { In, Repository } from 'typeorm';
+import { User } from '../users/entities/user.entity';
+import { PlatformProfile } from './platform-profile.entity';
+import { PERMISSION_KEYS, PLATFORM_PERMISSIONS, defaultPermissions, hasPermission } from './permissions';
+
+const STAFF_ROLES = ['admin', 'sales'];
+const CACHE_MS = 30_000;
+
+/** Permisos efectivos del equipo de Wuarikes y gestión de perfiles. */
+@Injectable()
+export class PlatformAccessService {
+    private cache = new Map<string, { perms: string[]; at: number }>();
+
+    constructor(
+        @InjectRepository(PlatformProfile) private profilesRepo: Repository<PlatformProfile>,
+        @InjectRepository(User) private usersRepo: Repository<User>,
+    ) { }
+
+    /** Permisos del usuario: los de su perfil o, sin perfil, los de su rol (admin = todo, comercial = plantilla). */
+    async permissionsOf(user: { id: string; role: string }): Promise<string[]> {
+        if (!STAFF_ROLES.includes(user.role)) return [];
+        const hit = this.cache.get(user.id);
+        if (hit && Date.now() - hit.at < CACHE_MS) return hit.perms;
+        const row = await this.usersRepo.findOne({ where: { id: user.id }, select: ['id', 'role', 'platformProfileId', 'isBanned'] as any });
+        let perms: string[] = [];
+        if (row && !(row as any).isBanned && STAFF_ROLES.includes(row.role)) {
+            const profile = (row as any).platformProfileId ? await this.profilesRepo.findOne({ where: { id: (row as any).platformProfileId } }) : null;
+            perms = profile ? profile.permissions : defaultPermissions(row.role);
+        }
+        this.cache.set(user.id, { perms, at: Date.now() });
+        return perms;
+    }
+
+    async can(user: { id: string; role: string }, ...any: string[]) {
+        return hasPermission(await this.permissionsOf(user), any);
+    }
+
+    catalog() {
+        return PLATFORM_PERMISSIONS;
+    }
+
+    // ── Perfiles ────────────────────────────────────────────────────────
+    async profiles() {
+        const [profiles, counts] = await Promise.all([
+            this.profilesRepo.find({ order: { isSystem: 'DESC', name: 'ASC' } }),
+            this.usersRepo.createQueryBuilder('u').select('u.platform_profile_id', 'id').addSelect('count(*)::int', 'n').where('u.platform_profile_id IS NOT NULL').groupBy('u.platform_profile_id').getRawMany(),
+        ]);
+        return profiles.map((p) => ({ ...p, usersCount: counts.find((c) => c.id === p.id)?.n ?? 0 }));
+    }
+
+    async saveProfile(id: string | null, dto: { name: string; description?: string | null; permissions: string[] }) {
+        const current = id ? await this.profilesRepo.findOne({ where: { id } }) : null;
+        if (id && !current) throw new NotFoundException('Perfil no encontrado');
+        if (current?.isSystem && current.permissions.includes('*')) throw new BadRequestException('El perfil Administrador no se puede editar');
+        const permissions = [...new Set(dto.permissions)].filter((p) => PERMISSION_KEYS.includes(p));
+        if (!permissions.length) throw new BadRequestException('Elige al menos un permiso');
+        try {
+            const saved = await this.profilesRepo.save({ ...(current ?? { isSystem: false }), name: dto.name.trim(), description: dto.description?.trim() || null, permissions });
+            this.cache.clear();
+            return saved;
+        } catch (err: any) {
+            if (err?.code === '23505') throw new BadRequestException('Ya existe un perfil con ese nombre');
+            throw err;
+        }
+    }
+
+    async deleteProfile(id: string) {
+        const profile = await this.profilesRepo.findOne({ where: { id } });
+        if (!profile) throw new NotFoundException('Perfil no encontrado');
+        if (profile.isSystem) throw new BadRequestException('Los perfiles de fábrica no se borran');
+        // Sin perfil, un admin volvería a tener acceso total: primero hay que reasignar a sus usuarios.
+        const assigned = await this.usersRepo.count({ where: { platformProfileId: id } as any });
+        if (assigned) throw new BadRequestException(`Este perfil tiene ${assigned} usuario(s). Asígnales otro perfil antes de borrarlo.`);
+        await this.profilesRepo.delete(id);
+        return { deleted: true };
+    }
+
+    // ── Equipo de la plataforma ─────────────────────────────────────────
+    async staff() {
+        const users = await this.usersRepo.find({ where: { role: In(STAFF_ROLES) as any }, order: { fullName: 'ASC' } });
+        const profiles = await this.profilesRepo.find();
+        return users.map((u: any) => ({
+            id: u.id, fullName: u.fullName, email: u.email, role: u.role, isBanned: u.isBanned, isVerified: u.isVerified,
+            profileId: u.platformProfileId, profileName: profiles.find((p) => p.id === u.platformProfileId)?.name ?? (u.role === 'admin' ? 'Administrador (sin perfil)' : 'Comercial (sin perfil)'),
+            createdAt: u.createdAt,
+        }));
+    }
+
+    /** Rol según el perfil: los perfiles con comisiones propias son comerciales (las ventas se les atribuyen). */
+    roleForProfile(profile: PlatformProfile): 'admin' | 'sales' {
+        return profile.permissions.includes('comisiones.propias') && !profile.permissions.includes('*') ? 'sales' : 'admin';
+    }
+
+    async requireProfile(id: string) {
+        const profile = await this.profilesRepo.findOne({ where: { id } });
+        if (!profile) throw new BadRequestException('Perfil no encontrado');
+        return profile;
+    }
+
+    async assignProfile(actorId: string, userId: string, profileId: string) {
+        if (actorId === userId) throw new ForbiddenException('No puedes cambiar tu propio perfil');
+        const user = await this.usersRepo.findOne({ where: { id: userId } });
+        if (!user || !STAFF_ROLES.includes(user.role)) throw new NotFoundException('Usuario del equipo no encontrado');
+        const profile = await this.requireProfile(profileId);
+        await this.usersRepo.update(userId, { platformProfileId: profile.id, role: this.roleForProfile(profile) } as any);
+        this.cache.delete(userId);
+        return { id: userId, profileId: profile.id, profileName: profile.name };
+    }
+
+    invalidate(userId: string) {
+        this.cache.delete(userId);
+    }
+}

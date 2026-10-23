@@ -26,6 +26,7 @@ import { CreateDeviceDto } from './dto/create-device.dto';
 import { UpdateDeviceDto } from './dto/update-device.dto';
 import { CreateDeviceRequestDto } from './dto/create-device-request.dto';
 import { UpdateDeviceRequestStatusDto } from './dto/update-device-request-status.dto';
+import { RequirePermission } from '../../common/decorators/require-permission.decorator';
 
 // ── Endpoint público para que la página de scan sepa qué acción ejecutar ──
 @ApiTags('devices')
@@ -208,6 +209,7 @@ export class DeviceRequestsController {
 // ── Revisión de solicitudes de taps por el equipo Wuarike ──
 @ApiTags('devices')
 @ApiBearerAuth()
+@RequirePermission('qr.gestionar')
 @Controller('admin/device-requests')
 @UseGuards(JwtAuthGuard, RolesGuard)
 @Roles('admin')

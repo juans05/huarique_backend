@@ -2,6 +2,7 @@ import {
     Injectable,
     NotFoundException,
     BadRequestException,
+    ForbiddenException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
@@ -639,7 +640,7 @@ export class AdminService {
     // Restaurantes ya en la plataforma pero sin reclamar, rankeados por
     // actividad real (check-ins pesan más que favoritos, que pesan más que
     // reseñas) — para que el equipo sepa a quién contactar primero sin adivinar.
-    async getOpportunities(status?: string): Promise<any[]> {
+    async getOpportunities(status?: string, salesUserId?: string): Promise<any[]> {
         const query = this.placesRepository.createQueryBuilder('place')
             .leftJoinAndSelect('place.district', 'district')
             .leftJoin(Checkin, 'checkin', 'checkin.placeId = place.id')
@@ -654,6 +655,7 @@ export class AdminService {
         if (status) {
             query.andWhere('place.commercialStatus = :commercialStatus', { commercialStatus: status });
         }
+        if (salesUserId) query.andWhere('place.assignedSalesUserId = :salesUserId', { salesUserId });
 
         query.groupBy('place.id').addGroupBy('district.id').addGroupBy('salesUser.id');
 
@@ -679,6 +681,26 @@ export class AdminService {
     async listSalesUsers() {
         const users = await this.usersRepository.find({ where: { role: 'sales' }, order: { fullName: 'ASC' } });
         return users.map((u) => ({ id: u.id, fullName: u.fullName, email: u.email }));
+    }
+
+    /** El comercial solo actúa sobre los locales asignados a él. */
+    async assertAssignedTo(placeId: string, salesUserId: string) {
+        const place = await this.placesRepository.findOne({ where: { id: placeId }, select: ['id', 'assignedSalesUserId'] as any });
+        if (!place || (place as any).assignedSalesUserId !== salesUserId) throw new ForbiddenException('Este local no está asignado a ti');
+    }
+
+    /** Locales del comercial (o de todos): estado comercial, si ya tiene dueño y su suscripción. */
+    async salesClients(salesUserId?: string) {
+        return this.placesRepository.query(
+            `SELECT p.id, p.name, p.address, p.commercial_status AS "commercialStatus", p.claimed_by_user_id IS NOT NULL AS "claimed",
+                    u.full_name AS "salesUserName", s.tier, s.status AS "subscriptionStatus", s.current_period_end AS "periodEnd"
+             FROM wuarike_db.places p
+             LEFT JOIN wuarike_db.users u ON u.id = p.assigned_sales_user_id
+             LEFT JOIN LATERAL (SELECT tier, status, current_period_end FROM wuarike_db.subscriptions x WHERE x.place_id = p.id ORDER BY x.created_at DESC LIMIT 1) s ON true
+             WHERE p.assigned_sales_user_id IS NOT NULL ${salesUserId ? 'AND p.assigned_sales_user_id = $1' : ''}
+             ORDER BY p.name LIMIT 500`,
+            salesUserId ? [salesUserId] : [],
+        );
     }
 
     // Solo el admin reasigna; las suscripciones ya creadas conservan su comercial (congelado en subscriptions.sales_user_id).

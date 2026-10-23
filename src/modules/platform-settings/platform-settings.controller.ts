@@ -5,6 +5,7 @@ import { UpdatePlatformSettingsDto } from './dto/update-platform-settings.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../../common/guards/roles.guard';
 import { Roles } from '../../common/decorators/roles.decorator';
+import { RequirePermission } from '../../common/decorators/require-permission.decorator';
 
 @ApiTags('platform-settings')
 @Controller('platform-settings')
@@ -19,6 +20,7 @@ export class PlatformSettingsController {
     }
 
     @Patch()
+    @RequirePermission('plataforma.config')
     @UseGuards(JwtAuthGuard, RolesGuard)
     @Roles('admin')
     @ApiBearerAuth()
