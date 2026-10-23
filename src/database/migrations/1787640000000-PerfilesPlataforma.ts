@@ -1,6 +1,6 @@
 import { MigrationInterface, QueryRunner } from 'typeorm';
 
-// Perfiles y permisos del equipo de Wuarikes. Sin perfil asignado, el admin conserva acceso total (como hasta hoy).
+// Perfiles y permisos del equipo de Wuarikes. Los admins y comerciales actuales reciben su perfil de fábrica; sin perfil, un admin no tiene acceso.
 export class PerfilesPlataforma1787640000000 implements MigrationInterface {
   public async up(queryRunner: QueryRunner): Promise<void> {
     await queryRunner.query(`
@@ -25,6 +25,12 @@ export class PerfilesPlataforma1787640000000 implements MigrationInterface {
       await queryRunner.query(
         `INSERT INTO wuarike_db.platform_profiles (name, description, permissions, is_system) VALUES ($1, $2, $3, true) ON CONFLICT (name) DO NOTHING`,
         [name, description, permissions],
+      );
+    }
+    for (const [role, name] of [['admin', 'Administrador'], ['sales', 'Comercial']]) {
+      await queryRunner.query(
+        `UPDATE wuarike_db.users SET platform_profile_id = (SELECT id FROM wuarike_db.platform_profiles WHERE name = $2) WHERE role = $1 AND platform_profile_id IS NULL`,
+        [role, name],
       );
     }
   }

@@ -18,7 +18,7 @@ export class PlatformAccessService {
         @InjectRepository(User) private usersRepo: Repository<User>,
     ) { }
 
-    /** Permisos del usuario: los de su perfil o, sin perfil, los de su rol (admin = todo, comercial = plantilla). */
+    /** Permisos del usuario: los de su perfil o, sin perfil, los de su rol (admin = nada, comercial = plantilla). */
     async permissionsOf(user: { id: string; role: string }): Promise<string[]> {
         if (!STAFF_ROLES.includes(user.role)) return [];
         const hit = this.cache.get(user.id);
@@ -70,7 +70,7 @@ export class PlatformAccessService {
         const profile = await this.profilesRepo.findOne({ where: { id } });
         if (!profile) throw new NotFoundException('Perfil no encontrado');
         if (profile.isSystem) throw new BadRequestException('Los perfiles de fábrica no se borran');
-        // Sin perfil, un admin volvería a tener acceso total: primero hay que reasignar a sus usuarios.
+        // Sin perfil, sus usuarios se quedarían sin acceso: primero hay que reasignarlos.
         const assigned = await this.usersRepo.count({ where: { platformProfileId: id } as any });
         if (assigned) throw new BadRequestException(`Este perfil tiene ${assigned} usuario(s). Asígnales otro perfil antes de borrarlo.`);
         await this.profilesRepo.delete(id);
@@ -83,7 +83,7 @@ export class PlatformAccessService {
         const profiles = await this.profilesRepo.find();
         return users.map((u: any) => ({
             id: u.id, fullName: u.fullName, email: u.email, role: u.role, isBanned: u.isBanned, isVerified: u.isVerified,
-            profileId: u.platformProfileId, profileName: profiles.find((p) => p.id === u.platformProfileId)?.name ?? (u.role === 'admin' ? 'Administrador (sin perfil)' : 'Comercial (sin perfil)'),
+            profileId: u.platformProfileId, profileName: profiles.find((p) => p.id === u.platformProfileId)?.name ?? (u.role === 'admin' ? 'Sin perfil (sin acceso)' : 'Comercial (sin perfil)'),
             createdAt: u.createdAt,
         }));
     }
@@ -107,6 +107,17 @@ export class PlatformAccessService {
         await this.usersRepo.update(userId, { platformProfileId: profile.id, role: this.roleForProfile(profile) } as any);
         this.cache.delete(userId);
         return { id: userId, profileId: profile.id, profileName: profile.name };
+    }
+
+    /**
+     * Quien no tiene acceso total no puede tocar a un Administrador (banear, cambiar perfil, reenviar acceso)
+     * ni dar un perfil con permisos que él mismo no tiene.
+     */
+    async assertCanManage(actorPerms: string[], targetUserId: string, newProfile?: PlatformProfile) {
+        if (actorPerms.includes('*')) return;
+        const target = await this.usersRepo.findOne({ where: { id: targetUserId }, select: ['id', 'role'] as any });
+        if (target && (await this.permissionsOf(target)).includes('*')) throw new ForbiddenException('Solo un Administrador puede gestionar a otro Administrador');
+        if (newProfile && !newProfile.permissions.every((p) => actorPerms.includes(p))) throw new ForbiddenException('No puedes dar permisos que tú no tienes');
     }
 
     invalidate(userId: string) {

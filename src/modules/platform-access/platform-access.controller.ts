@@ -77,9 +77,9 @@ export class PlatformAccessController {
     @RequirePermission('usuarios.gestionar')
     async createStaff(@Body() dto: StaffDto, @CurrentUser() actor: any, @Req() req: any) {
         const profile = await this.access.requireProfile(dto.profileId);
-        // Solo quien tiene acceso total puede crear otro Administrador completo.
-        if (profile.permissions.includes('*') && !(req.platformPermissions ?? []).includes('*')) {
-            throw new ForbiddenException('Solo un Administrador puede crear otro Administrador');
+        // Solo se reparten permisos que uno mismo tiene (un Administrador completo, solo otro Administrador).
+        if (!(req.platformPermissions ?? []).includes('*') && !profile.permissions.every((p) => req.platformPermissions.includes(p))) {
+            throw new ForbiddenException('No puedes dar permisos que tú no tienes');
         }
         // Contraseña aleatoria que nadie conoce: el usuario pone la suya al activar la cuenta desde el correo.
         const tempPassword = randomBytes(18).toString('base64url');
@@ -93,9 +93,7 @@ export class PlatformAccessController {
     @RequirePermission('usuarios.gestionar')
     async assignProfile(@Param('id') id: string, @Body() dto: AssignProfileDto, @CurrentUser() actor: any, @Req() req: any) {
         const profile = await this.access.requireProfile(dto.profileId);
-        if (profile.permissions.includes('*') && !(req.platformPermissions ?? []).includes('*')) {
-            throw new ForbiddenException('Solo un Administrador puede dar acceso total');
-        }
+        await this.access.assertCanManage(req.platformPermissions ?? [], id, profile);
         return this.access.assignProfile(actor.id, id, dto.profileId);
     }
 
