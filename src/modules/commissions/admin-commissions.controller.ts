@@ -5,9 +5,11 @@ import { RolesGuard } from '../../common/guards/roles.guard';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { CommissionsService } from './commissions.service';
+import { RequirePermission } from '../../common/decorators/require-permission.decorator';
 
 @ApiTags('admin-commissions')
 @ApiBearerAuth()
+@RequirePermission('comisiones.todas')
 @Controller('admin/commissions')
 @UseGuards(JwtAuthGuard, RolesGuard)
 @Roles('admin')
@@ -27,6 +29,19 @@ export class AdminCommissionsController {
     @Post('payouts')
     generate(@Body('period') period: string) {
         return this.commissions.generatePayouts(period);
+    }
+
+    /** Comercial: solo sus liquidaciones de comisiones. */
+    @RequirePermission('comisiones.propias', 'comisiones.todas')
+    @Get('mine')
+    mine(@CurrentUser() user: any, @Query('period') period?: string) {
+        return this.commissions.listPayouts({ period, salesUserId: user.id });
+    }
+
+    @RequirePermission('comisiones.propias', 'comisiones.todas')
+    @Get('mine/:id')
+    mineDetail(@Param('id') id: string, @CurrentUser() user: any) {
+        return this.commissions.getPayout(id, user.id);
     }
 
     @Get('payouts')
