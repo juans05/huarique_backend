@@ -50,11 +50,23 @@ export class PlatformAccessService {
         return profiles.map((p) => ({ ...p, usersCount: counts.find((c) => c.id === p.id)?.n ?? 0 }));
     }
 
-    async saveProfile(id: string | null, dto: { name: string; description?: string | null; permissions: string[] }) {
+    /** Quien no tiene acceso total solo maneja perfiles que no superan sus permisos, y nunca el suyo. */
+    private async assertCanEditProfile(actor: { id: string; perms: string[] }, current: PlatformProfile | null, next: string[]) {
+        if (actor.perms.includes('*')) return;
+        const within = (keys: string[]) => keys.every((k) => actor.perms.includes(k));
+        if (!within(next) || (current && !within(current.permissions))) throw new ForbiddenException('No puedes manejar permisos que tú no tienes');
+        if (current) {
+            const me = await this.usersRepo.findOne({ where: { id: actor.id }, select: ['id', 'platformProfileId'] as any });
+            if ((me as any)?.platformProfileId === current.id) throw new ForbiddenException('No puedes editar tu propio perfil');
+        }
+    }
+
+    async saveProfile(id: string | null, dto: { name: string; description?: string | null; permissions: string[] }, actor: { id: string; perms: string[] }) {
         const current = id ? await this.profilesRepo.findOne({ where: { id } }) : null;
         if (id && !current) throw new NotFoundException('Perfil no encontrado');
         if (current?.isSystem && current.permissions.includes('*')) throw new BadRequestException('El perfil Administrador no se puede editar');
         const permissions = [...new Set(dto.permissions)].filter((p) => PERMISSION_KEYS.includes(p));
+        await this.assertCanEditProfile(actor, current, permissions);
         if (!permissions.length) throw new BadRequestException('Elige al menos un permiso');
         try {
             const saved = await this.profilesRepo.save({ ...(current ?? { isSystem: false }), name: dto.name.trim(), description: dto.description?.trim() || null, permissions });
@@ -66,9 +78,10 @@ export class PlatformAccessService {
         }
     }
 
-    async deleteProfile(id: string) {
+    async deleteProfile(id: string, actor: { id: string; perms: string[] }) {
         const profile = await this.profilesRepo.findOne({ where: { id } });
         if (!profile) throw new NotFoundException('Perfil no encontrado');
+        await this.assertCanEditProfile(actor, profile, []);
         if (profile.isSystem) throw new BadRequestException('Los perfiles de fábrica no se borran');
         // Sin perfil, sus usuarios se quedarían sin acceso: primero hay que reasignarlos.
         const assigned = await this.usersRepo.count({ where: { platformProfileId: id } as any });
