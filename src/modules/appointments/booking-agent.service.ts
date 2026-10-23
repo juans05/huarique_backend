@@ -50,7 +50,7 @@ export class BookingAgentService {
         ], undefined, 400);
         const parsed = parseAgentJson<Action>(raw);
         if (!parsed) {
-            this.logger.warn(`Respuesta de IA no parseable: ${raw.slice(0, 200)}`);
+            this.logger.warn(`Respuesta de IA no parseable (local ${input.placeId}, ${raw.length} caracteres)`);
             return { handled: true, reply: '¿Me repites qué servicio quieres y para qué día?' };
         }
 
