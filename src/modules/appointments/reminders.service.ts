@@ -12,7 +12,7 @@ import type { CreateTemplateInput } from '../messaging/whatsapp-templates.util';
 import { dayLabel, limaDate, limaTime, timeLabel } from './appointments.rules';
 
 /** Plantillas que el sistema crea en el WhatsApp del local (Meta debe aprobarlas antes de usarlas). */
-export const SYSTEM_TEMPLATES: Record<'reminder' | 'vehicleReady', CreateTemplateInput> = {
+export const SYSTEM_TEMPLATES: Record<'reminder' | 'vehicleReady' | 'petReady', CreateTemplateInput> = {
     reminder: {
         name: 'recordatorio_cita', language: 'es', category: 'UTILITY',
         body: 'Hola {{1}}, te recordamos tu cita de {{2}} con {{3}} el {{4}} a las {{5}} en {{6}}. Si no puedes asistir, cancélala aquí: {{7}} ¡Te esperamos!',
@@ -23,7 +23,15 @@ export const SYSTEM_TEMPLATES: Record<'reminder' | 'vehicleReady', CreateTemplat
         body: 'Hola {{1}}, tu vehículo {{2}} ya está listo para recoger en {{3}}. ¡Gracias por tu preferencia!',
         bodyExamples: ['Luis', 'ABC-123', 'Taller El Rápido'],
     },
+    petReady: {
+        name: 'mascota_lista', language: 'es', category: 'UTILITY',
+        body: 'Hola {{1}}, {{2}} ya está listo para recoger en {{3}}. ¡Gracias por confiar en nosotros!',
+        bodyExamples: ['María', 'Firulais', 'Huellitas Spa'],
+    },
 };
+
+/** Plantilla de "listo para recoger" según la ficha del rubro. */
+export const READY_TEMPLATE = { PET: 'petReady', VEHICLE: 'vehicleReady' } as const;
 type TemplateKey = keyof typeof SYSTEM_TEMPLATES;
 export type TemplateStatus = 'NO_WHATSAPP' | 'NOT_CREATED' | 'PENDING' | 'APPROVED' | 'REJECTED';
 
@@ -31,6 +39,13 @@ export type TemplateStatus = 'NO_WHATSAPP' | 'NOT_CREATED' | 'PENDING' | 'APPROV
 export function safeName(name: string | null): string {
     const clean = (name ?? '').replace(/https?:\/\/\S+|www\.\S+/gi, '').replace(/[^\p{L}\s]/gu, '').replace(/\s+/g, ' ').trim().slice(0, 40);
     return clean.length >= 2 ? clean : 'cliente';
+}
+
+/** Nombre de la mascota (como safeName) o placa (solo letras, números y guion) para la plantilla: sin enlaces ni texto libre. */
+export function safeAssetName(kind: 'PET' | 'VEHICLE', name: string): string {
+    if (kind === 'PET') { const n = safeName(name); return n === 'cliente' ? 'tu mascota' : n; }
+    const plate = name.toUpperCase().replace(/[^A-Z0-9-]/g, '').slice(0, 10);
+    return plate.length >= 3 ? plate : 'tu vehículo';
 }
 
 /** Recordatorios de citas por WhatsApp: 24 h y 2 h antes, desde el número del local, con plantilla aprobada. */
@@ -55,6 +70,13 @@ export class RemindersService {
         const place = await this.placesRepo.findOne({ where: { id: placeId } });
         const enabled = place?.metadata?.reminders?.enabled !== false;
         return { enabled, template: await this.templateStatus(placeId, key, true) };
+    }
+
+    /** Crea las plantillas que usa el local: el recordatorio y, si atiende mascotas o vehículos, la de "listo para recoger". */
+    async ensureTemplates(placeId: string, assetKind: 'PET' | 'VEHICLE' | null) {
+        const result = await this.ensureTemplate(placeId, 'reminder');
+        if (assetKind) await this.ensureTemplate(placeId, READY_TEMPLATE[assetKind]).catch((err) => this.logger.warn(`Plantilla listo: ${(err as Error).message}`));
+        return result;
     }
 
     /** Crea en Meta la plantilla del sistema si no existe y devuelve su estado. */

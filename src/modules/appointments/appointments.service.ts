@@ -4,7 +4,7 @@ import { Between, DataSource, EntityManager, In, Not, Repository } from 'typeorm
 import { Professional } from './entities/professional.entity';
 import { Appointment, AppointmentSource } from './entities/appointment.entity';
 import { AssetKind, CustomerAsset } from './entities/customer-asset.entity';
-import { RemindersService, safeName } from './reminders.service';
+import { RemindersService, safeName, READY_TEMPLATE, safeAssetName } from './reminders.service';
 import { Dish } from '../places/entities/dish.entity';
 import { Place } from '../places/entities/place.entity';
 import { newPublicToken, normalizePhone, toCents } from '../orders/order-rules';
@@ -164,9 +164,11 @@ export class AppointmentsService {
         const fresh = (await this.apptRepo.findOne({ where: { id: appt.id } }))!;
         const asset = fresh.assetId ? await this.assetsRepo.findOne({ where: { id: fresh.assetId } }) : null;
         let notified: boolean | undefined;
-        if (dto.status === 'LISTO' && appt.status !== 'LISTO' && asset?.kind === 'VEHICLE' && fresh.customerPhone) {
+        // Listo para recoger: aviso por WhatsApp con la plantilla del rubro (vehículo o mascota).
+        if (dto.status === 'LISTO' && appt.status !== 'LISTO' && asset && fresh.customerPhone) {
             const place = await this.placesRepo.findOne({ where: { id: placeId }, select: ['id', 'name'] });
-            notified = await this.reminders.sendSystemTemplate(placeId, 'vehicleReady', fresh.customerPhone, [safeName(fresh.customerName), asset.name, place?.name ?? 'el taller']).catch(() => false);
+            notified = await this.reminders.sendSystemTemplate(placeId, READY_TEMPLATE[asset.kind], fresh.customerPhone,
+                [safeName(fresh.customerName), safeAssetName(asset.kind, asset.name), place?.name ?? 'el local']).catch(() => false);
         }
         return { ...this.view(fresh, await this.prosRepo.findOne({ where: { id: fresh.professionalId } }), asset), notified };
     }
