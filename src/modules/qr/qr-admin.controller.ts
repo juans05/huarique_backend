@@ -8,9 +8,11 @@ import { QrService } from './qr.service';
 import { GenerateBatchDto } from './dto/generate-batch.dto';
 import { AssignQrDto } from './dto/assign-qr.dto';
 import { QrCodeStatus } from './entities/qr-code.entity';
+import { RequirePermission } from '../../common/decorators/require-permission.decorator';
 
 @ApiTags('admin-qr')
 @ApiBearerAuth()
+@RequirePermission('qr.gestionar')
 @Controller('admin/qr-codes')
 @UseGuards(JwtAuthGuard, RolesGuard)
 @Roles('admin')

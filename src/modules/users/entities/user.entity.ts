@@ -102,6 +102,10 @@ export class User {
     @Column({ name: 'is_verified', default: false })
     isVerified: boolean;
 
+    /** Perfil del equipo de Wuarikes (permisos del panel admin). Null = admin con acceso total / comercial por defecto. */
+    @Column({ name: 'platform_profile_id', type: 'uuid', nullable: true })
+    platformProfileId: string | null;
+
     @Column({ name: 'is_banned', default: false })
     isBanned: boolean;
 

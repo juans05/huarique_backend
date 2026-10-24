@@ -5,12 +5,14 @@ import { RolesGuard } from '../../common/guards/roles.guard';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { PayoutsService } from './payouts.service';
 import { AdminCommissionDto } from './dto/order-settings.dto';
+import { RequirePermission } from '../../common/decorators/require-permission.decorator';
 
 class GeneratePayoutsDto { @Matches(/^\d{4}-\d{2}$/) period: string }
 class PayPayoutDto { @IsString() @MaxLength(120) reference: string }
 
 @UseGuards(JwtAuthGuard, RolesGuard)
 @Roles('admin')
+@RequirePermission('liquidaciones.gestionar')
 @Controller('admin/order-payouts')
 export class AdminPayoutsController {
     constructor(private payouts: PayoutsService) { }

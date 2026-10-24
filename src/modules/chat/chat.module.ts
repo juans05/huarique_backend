@@ -10,6 +10,7 @@ import { WhatsAppNumber } from '../whatsapp/entities/whatsapp-number.entity';
 import { Place } from '../places/entities/place.entity';
 import { OrdersModule } from '../orders/orders.module';
 import { ContactsModule } from '../contacts/contacts.module';
+import { AppointmentsModule } from '../appointments/appointments.module';
 import { ChatProcessorService } from './chat-processor.service';
 import { PlazBotWebhookController } from './plazbot-webhook.controller';
 import { DemoChatController } from './demo-chat.controller';
@@ -23,6 +24,7 @@ import { DemoChatController } from './demo-chat.controller';
     PlazbotConfigModule,  // provee PlaceBotConfigService
     OrdersModule,  // provee OrderAgentService (pedidos por WhatsApp)
     ContactsModule,  // provee ContactsService (cliente único)
+    AppointmentsModule,  // provee BookingAgentService (citas por WhatsApp)
   ],
   providers: [ChatProcessorService],
   exports: [ChatProcessorService],

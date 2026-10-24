@@ -19,6 +19,7 @@ import { User } from '../users/entities/user.entity';
 import { GoogleReview } from '../places/entities/google-review.entity';
 import { FavoritePlace } from '../places/entities/favorite-place.entity';
 import { WuarikesHereRequest } from '../places/entities/wuarikes-here-request.entity';
+import { PlatformAccessController } from '../platform-access/platform-access.controller';
 
 @Module({
     imports: [
@@ -41,7 +42,7 @@ import { WuarikesHereRequest } from '../places/entities/wuarikes-here-request.en
         UsersModule,
         GamificationModule,
     ],
-    controllers: [AdminController],
+    controllers: [AdminController, PlatformAccessController],
     providers: [AdminService],
 })
 export class AdminModule { }

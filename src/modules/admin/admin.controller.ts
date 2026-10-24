@@ -1,10 +1,12 @@
 import {
+    ForbiddenException,
     Controller,
     Get,
     Post,
     Body,
     Param,
     UseGuards,
+    Req,
     HttpCode,
     Query,
     Patch,
@@ -19,6 +21,9 @@ import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { AdminUpdatePlaceDto } from './dto/update-place.dto';
 import { ImportScrapedPlacesDto } from './dto/import-scraped-place.dto';
 import { ImportScrapedReviewsDto } from './dto/import-scraped-reviews.dto';
+import { RequirePermission } from '../../common/decorators/require-permission.decorator';
+import { hasPermission } from '../platform-access/permissions';
+import { PlatformAccessService } from '../platform-access/platform-access.service';
 
 @ApiTags('admin')
 @Controller('admin')
@@ -26,28 +31,47 @@ import { ImportScrapedReviewsDto } from './dto/import-scraped-reviews.dto';
 @Roles('admin')
 @ApiBearerAuth()
 export class AdminController {
-    constructor(private readonly adminService: AdminService) { }
+    constructor(private readonly adminService: AdminService, private readonly access: PlatformAccessService) { }
+
+    @RequirePermission('oportunidades.todas', 'oportunidades.propias')
 
     @Get('opportunities')
     @ApiOperation({ summary: 'Restaurantes sin reclamar rankeados por actividad — oportunidades comerciales' })
     @ApiQuery({ name: 'status', required: false, type: String })
-    async getOpportunities(@Query('status') status?: string) {
-        return this.adminService.getOpportunities(status);
+    async getOpportunities(@Query('status') status: string | undefined, @CurrentUser() user: any, @Req() req: any) {
+        // Con "propias" (comercial) solo ve los locales asignados a él.
+        const mine = !hasPermission(req.platformPermissions ?? [], ['oportunidades.todas']);
+        return this.adminService.getOpportunities(status, mine ? user.id : undefined);
     }
+
+    @RequirePermission('oportunidades.todas', 'oportunidades.propias')
+    @Get('my-clients')
+    @ApiOperation({ summary: 'Locales asignados al comercial (o a todos con oportunidades.todas), con su suscripción' })
+    async myClients(@CurrentUser() user: any, @Req() req: any) {
+        const all = hasPermission(req.platformPermissions ?? [], ['oportunidades.todas']);
+        return this.adminService.salesClients(all ? undefined : user.id);
+    }
+
+    @RequirePermission('oportunidades.todas', 'oportunidades.propias')
 
     @Patch('opportunities/:placeId')
     @ApiOperation({ summary: 'Actualizar el estado comercial de un local (nuevo/contactado/reunion/negociacion/afiliado/no_interesado)' })
     @ApiParam({ name: 'placeId', description: 'Place UUID' })
-    async updateOpportunityStatus(@Param('placeId') placeId: string, @Body('status') status: string) {
+    async updateOpportunityStatus(@Param('placeId') placeId: string, @Body('status') status: string, @CurrentUser() user: any, @Req() req: any) {
+        if (!hasPermission(req.platformPermissions ?? [], ['oportunidades.todas'])) await this.adminService.assertAssignedTo(placeId, user.id);
         await this.adminService.updateOpportunityStatus(placeId, status);
         return { message: 'Estado actualizado' };
     }
+
+    @RequirePermission('oportunidades.todas')
 
     @Get('sales-users')
     @ApiOperation({ summary: 'Usuarios con rol comercial (para asignar locales)' })
     async listSalesUsers() {
         return this.adminService.listSalesUsers();
     }
+
+    @RequirePermission('oportunidades.todas')
 
     @Patch('places/:placeId/sales-user')
     @ApiOperation({ summary: 'Asignar, reasignar o liberar el comercial de un local' })
@@ -56,12 +80,16 @@ export class AdminController {
         return this.adminService.assignSalesUser(placeId, salesUserId || null);
     }
 
+    @RequirePermission('locales.ver')
+
     @Get('wuarikes-here-requests')
     @ApiOperation({ summary: 'Solicitudes de "Quiero Wuarikes aquí"' })
     @ApiQuery({ name: 'status', required: false, type: String })
     async getWuarikesHereRequests(@Query('status') status?: string) {
         return this.adminService.getWuarikesHereRequests(status);
     }
+
+    @RequirePermission('locales.gestionar')
 
     @Patch('wuarikes-here-requests/:id')
     @ApiOperation({ summary: 'Actualizar el estado de una solicitud de "Quiero Wuarikes aquí"' })
@@ -71,6 +99,8 @@ export class AdminController {
         return { message: 'Estado actualizado' };
     }
 
+    @RequirePermission('locales.ver')
+
     @Get('submissions')
     @ApiOperation({ summary: 'List pending place submissions' })
     @ApiResponse({ status: 200, description: 'Array of pending place submissions.' })
@@ -79,6 +109,8 @@ export class AdminController {
     async getPendingSubmissions() {
         return this.adminService.getPendingSubmissions();
     }
+
+    @RequirePermission('locales.gestionar')
 
     @Post('submissions/:id/approve')
     @HttpCode(200)
@@ -91,6 +123,8 @@ export class AdminController {
     async approveSubmission(@Param('id') id: string, @CurrentUser() admin: any) {
         return this.adminService.approveSubmission(id, admin.id);
     }
+
+    @RequirePermission('locales.gestionar')
 
     @Post('submissions/:id/reject')
     @HttpCode(200)
@@ -109,6 +143,8 @@ export class AdminController {
         return this.adminService.rejectSubmission(id, admin.id, reason);
     }
 
+    @RequirePermission('locales.ver')
+
     @Get('claims')
     @ApiOperation({ summary: 'List pending business claims' })
     @ApiResponse({ status: 200, description: 'Array of pending business claims.' })
@@ -118,6 +154,8 @@ export class AdminController {
         return this.adminService.getPendingClaims();
     }
 
+    @RequirePermission('locales.ver')
+
     @Get('stats')
     @ApiOperation({ summary: 'Get dashboard statistics' })
     @ApiResponse({ status: 200, description: 'Dashboard stats: users, places, checkins, etc.' })
@@ -126,6 +164,8 @@ export class AdminController {
     async getStats() {
         return this.adminService.getDashboardStats();
     }
+
+    @RequirePermission('locales.gestionar')
 
     @Post('generate-description')
     @HttpCode(200)
@@ -156,6 +196,8 @@ export class AdminController {
         };
     }
 
+    @RequirePermission('locales.gestionar')
+
     @Post('claims/:id/verify')
     @HttpCode(200)
     @ApiOperation({ summary: 'Verify a business claim' })
@@ -167,6 +209,8 @@ export class AdminController {
     async verifyClaim(@Param('id') id: string, @CurrentUser() admin: any) {
         return this.adminService.verifyClaim(id, admin.id);
     }
+
+    @RequirePermission('locales.gestionar')
 
     @Post('claims/:id/reject')
     @HttpCode(200)
@@ -180,6 +224,8 @@ export class AdminController {
         return this.adminService.rejectClaim(id, admin.id);
     }
 
+    @RequirePermission('reclamaciones.gestionar')
+
     @Get('complaints')
     @ApiOperation({ summary: 'List Libro de Reclamaciones entries' })
     @ApiResponse({ status: 200, description: 'Array of complaint book entries.' })
@@ -188,6 +234,8 @@ export class AdminController {
     async getComplaints() {
         return this.adminService.getComplaints();
     }
+
+    @RequirePermission('reclamaciones.gestionar')
 
     @Post('complaints/:id/resolve')
     @HttpCode(200)
@@ -207,6 +255,8 @@ export class AdminController {
     }
 
     // --- Users ---
+
+    @RequirePermission('usuarios.ver', 'usuarios.gestionar')
 
     @Get('users')
     @ApiOperation({ summary: 'List users with pagination and search' })
@@ -228,15 +278,23 @@ export class AdminController {
         return this.adminService.getUsers(pageNum, limitNum, search);
     }
 
+    @RequirePermission('usuarios.gestionar')
+
     @Post('users')
     @ApiOperation({ summary: 'Create a new user (admin)' })
     @ApiResponse({ status: 201, description: 'User created.' })
     @ApiResponse({ status: 400, description: 'Validation error.' })
     @ApiResponse({ status: 401, description: 'Not authenticated.' })
     @ApiResponse({ status: 403, description: 'Forbidden — admin role required.' })
-    async createUser(@Body() createUserDto: any) {
+    async createUser(@Body() createUserDto: any, @Req() req: any) {
+        // Las cuentas del equipo se crean en admin/access/staff, con perfil; aquí solo el Administrador.
+        if (['admin', 'sales'].includes(createUserDto?.role) && !(req.platformPermissions ?? []).includes('*')) {
+            throw new ForbiddenException('Los usuarios del equipo se crean desde Equipo Wuarikes');
+        }
         return this.adminService.createUser(createUserDto);
     }
+
+    @RequirePermission('usuarios.gestionar')
 
     @Patch('users/:id/ban')
     @ApiOperation({ summary: 'Ban a user' })
@@ -245,9 +303,14 @@ export class AdminController {
     @ApiResponse({ status: 401, description: 'Not authenticated.' })
     @ApiResponse({ status: 403, description: 'Forbidden — admin role required.' })
     @ApiResponse({ status: 404, description: 'User not found.' })
-    async banUser(@Param('id') id: string) {
-        return this.adminService.banUser(id);
+    async banUser(@Param('id') id: string, @Req() req: any) {
+        await this.access.assertCanManage(req.platformPermissions ?? [], id);
+        const result = await this.adminService.banUser(id);
+        this.access.invalidate(id);
+        return result;
     }
+
+    @RequirePermission('usuarios.gestionar')
 
     @Patch('users/:id/activate')
     @ApiOperation({ summary: 'Activate a user' })
@@ -256,9 +319,14 @@ export class AdminController {
     @ApiResponse({ status: 401, description: 'Not authenticated.' })
     @ApiResponse({ status: 403, description: 'Forbidden — admin role required.' })
     @ApiResponse({ status: 404, description: 'User not found.' })
-    async activateUser(@Param('id') id: string) {
-        return this.adminService.activateUser(id);
+    async activateUser(@Param('id') id: string, @Req() req: any) {
+        await this.access.assertCanManage(req.platformPermissions ?? [], id);
+        const result = await this.adminService.activateUser(id);
+        this.access.invalidate(id);
+        return result;
     }
+
+    @RequirePermission('usuarios.gestionar')
 
     @Post('users/:id/send-access-email')
     @HttpCode(200)
@@ -266,11 +334,14 @@ export class AdminController {
     @ApiParam({ name: 'id', description: 'User UUID' })
     @ApiResponse({ status: 200, description: 'Email sent.' })
     @ApiResponse({ status: 404, description: 'User not found.' })
-    async sendAccessEmail(@Param('id') id: string) {
+    async sendAccessEmail(@Param('id') id: string, @Req() req: any) {
+        await this.access.assertCanManage(req.platformPermissions ?? [], id);
         return this.adminService.sendAccessEmail(id);
     }
 
     // --- Places ---
+
+    @RequirePermission('locales.ver')
 
     @Get('places')
     @ApiOperation({ summary: 'List places for administration' })
@@ -280,8 +351,11 @@ export class AdminController {
         @Query('page') page: number = 1,
         @Query('search') search?: string,
     ) {
-        return this.adminService.getPlaces(page, 10, search);
+        // Sin ?page, la transformación global lo convierte en NaN: se normaliza a 1.
+        return this.adminService.getPlaces(Math.max(1, Number(page) || 1), 10, search);
     }
+
+    @RequirePermission('locales.gestionar')
 
     @Patch('places/:id')
     @ApiOperation({ summary: 'Update a place (status, verification, etc.)' })
@@ -290,6 +364,8 @@ export class AdminController {
         return this.adminService.updatePlace(id, updateData);
     }
 
+    @RequirePermission('locales.gestionar')
+
     @Patch('places/:id/business-type')
     @ApiOperation({ summary: 'Fijar el tipo de negocio de un local (p. ej. scrapeado o sin dueño)' })
     @ApiParam({ name: 'id', description: 'Place UUID' })
@@ -297,12 +373,16 @@ export class AdminController {
         return this.adminService.setBusinessType(id, businessType);
     }
 
+    @RequirePermission('locales.gestionar')
+
     @Post('places/import')
     @ApiOperation({ summary: 'Bulk create restaurants from the Google Maps scraper CSV' })
     @ApiResponse({ status: 201, description: 'Returns { imported, skipped, failed, errors }.' })
     async importScrapedPlaces(@Body() dto: ImportScrapedPlacesDto, @CurrentUser() admin: any) {
         return this.adminService.importScrapedPlaces(dto.places, admin.id);
     }
+
+    @RequirePermission('locales.gestionar')
 
     @Post('reviews/import')
     @ApiOperation({ summary: 'Bulk import Google reviews into google_reviews table' })

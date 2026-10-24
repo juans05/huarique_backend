@@ -9,6 +9,7 @@ import { Roles } from '../../common/decorators/roles.decorator';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Place } from '../places/entities/place.entity';
+import { RequirePermission } from '../../common/decorators/require-permission.decorator';
 
 @ApiTags('credits')
 @UseGuards(JwtAuthGuard)
@@ -66,6 +67,7 @@ export class CreditsController {
 
     // Solo admin: un dueño podía regalarse créditos (y mensajes de WhatsApp pagados por Wuarikes).
     @Post('add')
+    @RequirePermission('plataforma.config')
     @UseGuards(RolesGuard)
     @Roles('admin')
     @ApiOperation({ summary: 'Add credits (purchase/bonus/refund) — admin only' })

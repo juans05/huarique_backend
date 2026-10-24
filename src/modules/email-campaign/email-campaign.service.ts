@@ -1,4 +1,4 @@
-import { Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { LessThanOrEqual, Repository } from 'typeorm';
 import { Queue } from 'bullmq';
@@ -118,6 +118,11 @@ export class EmailCampaignService {
         }
 
         const customers = await this.getCustomersWithConsent(campaign.placeId, campaign.audienceSources || ['feedback']);
+        if (!customers.length) {
+            // Sin destinatarios no se "envía" (antes quedaba como enviada a 0 personas). Una programada vuelve a borrador.
+            if (campaign.status === 'SCHEDULED') await this.campaignRepo.update(campaign.id, { status: 'DRAFT', scheduledAt: null as any });
+            throw new BadRequestException('Ninguno de tus clientes tiene correo y aceptó recibir promociones. Agrega correos con consentimiento en Clientes antes de enviar.');
+        }
 
         campaign.status = 'SENDING';
         campaign.totalRecipients = customers.length;
