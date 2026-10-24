@@ -37,6 +37,10 @@ export class PlaceTeamMember {
     @Column({ default: 'agente' })
     role: PlaceTeamRole;
 
+    /** Perfil del negocio (nivel base + secciones). Null = ve todo lo que su nivel permite. */
+    @Column({ name: 'profile_id', type: 'uuid', nullable: true })
+    profileId: string | null;
+
     @Column({ name: 'invited_by_user_id', nullable: true })
     invitedByUserId: string | null;
 

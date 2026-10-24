@@ -33,7 +33,10 @@ export type ModuleKey =
     | 'reportes'
     | 'equipo'
     | 'broadcasts'
-    | 'ia';
+    | 'ia'
+    | 'agenda'
+    | 'caja'
+    | 'inventario';
 
 export interface VerticalConfig {
     label: string;
@@ -42,14 +45,18 @@ export interface VerticalConfig {
     catalogKind: 'producto' | 'servicio' | 'mixto';
     teamRoles: PlaceTeamRole[];
     botPersona: string;
+    /** Ficha que se atiende en la cita: mascota (veterinaria, grooming) o vehículo (taller, lavadero). */
+    assetKind?: 'PET' | 'VEHICLE';
 }
 
 const ALL_MODULES: ModuleKey[] = [
     'reputacion', 'social', 'carta', 'pedidos', 'cocina', 'mesas', 'fidelizacion', 'clientes',
-    'email-marketing', 'whatsapp', 'plazbot', 'chat', 'reportes', 'equipo', 'broadcasts', 'ia',
+    'email-marketing', 'whatsapp', 'plazbot', 'chat', 'reportes', 'equipo', 'broadcasts', 'ia', 'caja', 'inventario',
 ];
+// Pedidos, cocina y mesas son de gastronomía; la agenda de citas, de los rubros que atienden con cita.
 // Solo gastronomía opera pedidos, cocina y mesas.
 const CORE_MODULES = ALL_MODULES.filter((m) => m !== 'pedidos' && m !== 'cocina' && m !== 'mesas');
+const BOOKING_MODULES: ModuleKey[] = [...CORE_MODULES, 'agenda'];
 const TEAM_ROLES: PlaceTeamRole[] = ['admin', 'supervisor', 'agente'];
 
 export const BUSINESS_TYPES: Record<string, { label: string; vertical: Vertical }> = {
@@ -102,7 +109,7 @@ export const VERTICALS: Record<Vertical, VerticalConfig> = {
     },
     belleza: {
         label: 'Belleza',
-        modules: CORE_MODULES,
+        modules: BOOKING_MODULES,
         labels: { catalog: 'Servicios', catalogItem: 'Servicio', customer: 'Cliente' },
         catalogKind: 'servicio',
         teamRoles: TEAM_ROLES,
@@ -110,7 +117,7 @@ export const VERTICALS: Record<Vertical, VerticalConfig> = {
     },
     salud: {
         label: 'Salud',
-        modules: CORE_MODULES,
+        modules: BOOKING_MODULES,
         labels: { catalog: 'Servicios', catalogItem: 'Servicio', customer: 'Paciente' },
         catalogKind: 'servicio',
         teamRoles: TEAM_ROLES,
@@ -118,23 +125,25 @@ export const VERTICALS: Record<Vertical, VerticalConfig> = {
     },
     mascotas: {
         label: 'Mascotas',
-        modules: CORE_MODULES,
+        modules: BOOKING_MODULES,
         labels: { catalog: 'Catálogo', catalogItem: 'Producto o servicio', customer: 'Tutor' },
         catalogKind: 'mixto',
         teamRoles: TEAM_ROLES,
         botPersona: 'asistente de un negocio para mascotas',
+        assetKind: 'PET',
     },
     automotriz: {
         label: 'Automotriz',
-        modules: CORE_MODULES,
+        modules: BOOKING_MODULES,
         labels: { catalog: 'Servicios', catalogItem: 'Servicio', customer: 'Cliente' },
         catalogKind: 'servicio',
         teamRoles: TEAM_ROLES,
         botPersona: 'asesor de servicio de un taller automotriz',
+        assetKind: 'VEHICLE',
     },
     servicios: {
         label: 'Servicios',
-        modules: CORE_MODULES,
+        modules: BOOKING_MODULES,
         labels: { catalog: 'Servicios', catalogItem: 'Servicio', customer: 'Cliente' },
         catalogKind: 'servicio',
         teamRoles: TEAM_ROLES,

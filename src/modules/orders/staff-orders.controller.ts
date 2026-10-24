@@ -1,4 +1,5 @@
 import { BadRequestException, Body, Controller, ForbiddenException, Get, Param, Patch, Post, Query, Req, UseGuards } from '@nestjs/common';
+import { DataSource } from 'typeorm';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { PlaceRoleGuard } from '../../common/guards/place-role.guard';
 import { RequiresPlaceRole } from '../../common/decorators/requires-place-role.decorator';
@@ -7,7 +8,7 @@ import { OrdersService } from './orders.service';
 import { OrderSettingsService } from './order-settings.service';
 import { PaymentsService } from './payments.service';
 import { CashService } from './cash.service';
-import { ChargeDto, CloseCashDto, OpenCashDto, PrecuentaDto } from './dto/cash.dto';
+import { ChargeDto, CloseCashDto, OpenCashDto, PrecuentaDto, SaleDto } from './dto/cash.dto';
 import { AssignWaiterDto, ChangeStatusDto, ManualPaymentDto, StaffOrderDto } from './dto/orders.dto';
 import { BulkTablesDto, TableDto, UpdateOrderSettingsDto, UpdateTableDto } from './dto/order-settings.dto';
 import { OrderChannel, OrderStatus } from './entities/order.entity';
@@ -15,12 +16,17 @@ import { OrderChannel, OrderStatus } from './entities/order.entity';
 @UseGuards(JwtAuthGuard, PlaceRoleGuard)
 @Controller('business/places/:placeId/orders')
 export class StaffOrdersController {
-    constructor(private orders: OrdersService, private settings: OrderSettingsService, private payments: PaymentsService, private cash: CashService) { }
+    constructor(private orders: OrdersService, private settings: OrderSettingsService, private payments: PaymentsService, private cash: CashService, private dataSource: DataSource) { }
 
     @Get('me')
     @RequiresPlaceRole('cocina')
-    me(@Req() req: any) {
-        return { role: req.placeTeamMember.role };
+    async me(@Req() req: any) {
+        // modules = null: sin perfil, ve lo que su nivel permite. Con perfil, solo esas secciones.
+        const member = req.placeTeamMember;
+        const [profile] = member.profileId
+            ? await this.dataSource.query('SELECT name, modules FROM wuarike_db.place_team_profiles WHERE id = $1', [member.profileId])
+            : [];
+        return { role: member.role, profileName: profile?.name ?? null, modules: profile?.modules ?? null };
     }
 
     @Get()
@@ -107,6 +113,12 @@ export class StaffOrdersController {
     @RequiresPlaceRole('agente')
     cashCharge(@Param('placeId') placeId: string, @Body() dto: ChargeDto, @CurrentUser() user: any) {
         return this.cash.charge(placeId, user.id, dto);
+    }
+
+    @Post('cash/sale')
+    @RequiresPlaceRole('agente')
+    cashSale(@Param('placeId') placeId: string, @Body() dto: SaleDto, @CurrentUser() user: any) {
+        return this.cash.sell(placeId, user.id, dto);
     }
 
     @Post('cash/close')
