@@ -26,7 +26,7 @@ export class StaffAgendaController {
     @RequiresPlaceRole('supervisor')
     async createReminderTemplate(@Param('placeId') placeId: string) {
         await this.agenda.assertEnabled(placeId);
-        return this.reminders.ensureTemplate(placeId);
+        return this.reminders.ensureTemplates(placeId, await this.agenda.assetKind(placeId));
     }
 
     @Patch('reminders')

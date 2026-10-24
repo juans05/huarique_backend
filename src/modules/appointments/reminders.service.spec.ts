@@ -1,4 +1,4 @@
-import { SYSTEM_TEMPLATES, safeName } from './reminders.service';
+import { SYSTEM_TEMPLATES, safeAssetName, safeName } from './reminders.service';
 import { buildCreateTemplatePayload, validateTemplateInput } from '../messaging/whatsapp-templates.util';
 
 describe('plantillas del sistema', () => {
@@ -15,5 +15,15 @@ describe('safeName', () => {
         expect(safeName('https://estafa.com')).toBe('cliente');
         expect(safeName('123')).toBe('cliente');
         expect(safeName('A'.repeat(80)).length).toBe(40);
+    });
+});
+
+describe('safeAssetName', () => {
+    it('mascota como nombre limpio; placa solo con letras, números y guion', () => {
+        expect(safeAssetName('PET', 'Firulais')).toBe('Firulais');
+        expect(safeAssetName('PET', 'https://estafa.com')).toBe('tu mascota');
+        expect(safeAssetName('VEHICLE', 'abc-123')).toBe('ABC-123');
+        expect(safeAssetName('VEHICLE', 'WWW.ESTAFA.COM/PAGA')).toBe('WWWESTAFAC');
+        expect(safeAssetName('VEHICLE', '!!')).toBe('tu vehículo');
     });
 });
