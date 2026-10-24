@@ -18,7 +18,8 @@ import { isOptOutMessage, revokeMarketingConsent } from './marketing-opt-out.uti
 import { OrderAgentService } from '../orders/order-agent.service';
 import { ContactsService } from '../contacts/contacts.service';
 import { Place } from '../places/entities/place.entity';
-import { DEFAULT_BUSINESS_TYPE, verticalOf } from '../places/business-types';
+import { DEFAULT_BUSINESS_TYPE, getVerticalConfig, verticalOf } from '../places/business-types';
+import { BookingAgentService } from '../appointments/booking-agent.service';
 import { buildSystemPrompt } from './system-prompt';
 
 @Injectable()
@@ -46,6 +47,7 @@ export class ChatProcessorService {
     @InjectRepository(Message)
     private messageRepo: Repository<Message>,
     private orderAgent: OrderAgentService,
+    private bookingAgent: BookingAgentService,
     private contactsService: ContactsService,
     @InjectRepository(Place)
     private placeRepo: Repository<Place>,
@@ -238,6 +240,22 @@ export class ChatProcessorService {
         }
       } catch (err) {
         this.logger.error(`Agente de pedidos falló, sigue el bot normal: ${(err as Error).message}`);
+      }
+    }
+
+    // 3c. Citas por WhatsApp: en los rubros con agenda (barbería, spa, veterinaria...) el agente de reservas
+    // ofrece horarios libres reales y agenda. Si falla, sigue el bot normal.
+    if (!gastronomia && getVerticalConfig(businessType).modules.includes('agenda')) {
+      try {
+        const recent = await this.messageRepo.find({ where: { conversationId: conversation.id }, order: { createdAt: 'DESC' }, take: 11 });
+        const history = recent.reverse().slice(0, -1).map((m) => ({ role: m.messageType === 'INCOMING' ? ('user' as const) : ('assistant' as const), content: m.messageBody }));
+        const agent = await this.bookingAgent.handle({ placeId, customerName: contact.name, customerPhone: contact.phone, message: messageBody, history });
+        if (agent.handled) {
+          await this.sendAndLogText(conversation, agent.reply);
+          return { success: true };
+        }
+      } catch (err) {
+        this.logger.error(`Agente de reservas falló, sigue el bot normal: ${(err as Error).message}`);
       }
     }
 

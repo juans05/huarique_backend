@@ -14,6 +14,7 @@ import { SubscriptionsService } from './subscriptions.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../../common/guards/roles.guard';
 import { Roles } from '../../common/decorators/roles.decorator';
+import { RequirePermission } from '../../common/decorators/require-permission.decorator';
 
 // Las rutas para suscribirse/ver/cancelar el plan de UNA sede viven en
 // business-places.controller.ts (business/places/:id/subscription/*) — la
@@ -49,6 +50,8 @@ export class SubscriptionsController {
         return { received: true };
     }
 
+    @RequirePermission('suscripciones.ver')
+
     @UseGuards(JwtAuthGuard, RolesGuard)
     @Roles('admin')
     @Get('admin/all')
@@ -58,6 +61,8 @@ export class SubscriptionsController {
     ) {
         return this.service.getAllSubscriptions(+page, +limit);
     }
+
+    @RequirePermission('suscripciones.ver')
 
     @UseGuards(JwtAuthGuard, RolesGuard)
     @Roles('admin')
