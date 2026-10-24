@@ -213,6 +213,8 @@ export class AppointmentsService {
 
     async assets(placeId: string, phone?: string) {
         const normalized = phone ? normalizePhone(phone) : null;
+        // Un teléfono que no se puede leer no debe traer las fichas de todo el local.
+        if (phone && !normalized) return [];
         return this.assetsRepo.find({ where: { placeId, ...(normalized ? { customerPhone: normalized } : {}) }, order: { name: 'ASC' }, take: 200 });
     }
 
