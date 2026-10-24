@@ -1,4 +1,4 @@
-import { BadRequestException, Body, Controller, ForbiddenException, Get, Param, Patch, Post, Query, Req, UseGuards } from '@nestjs/common';
+import { BadRequestException, Body, Controller, ForbiddenException, Get, Param, ParseUUIDPipe, Patch, Post, Query, Req, UseGuards } from '@nestjs/common';
 import { DataSource } from 'typeorm';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { PlaceRoleGuard } from '../../common/guards/place-role.guard';
@@ -101,6 +101,12 @@ export class StaffOrdersController {
     @RequiresPlaceRole('agente')
     cashCurrent(@Param('placeId') placeId: string) {
         return this.cash.current(placeId);
+    }
+
+    @Get('cash/receipts/:receiptId')
+    @RequiresPlaceRole('agente')
+    receiptForPrint(@Param('placeId') placeId: string, @Param('receiptId', ParseUUIDPipe) receiptId: string) {
+        return this.cash.receiptForPrint(placeId, receiptId);
     }
 
     @Post('cash/open')
