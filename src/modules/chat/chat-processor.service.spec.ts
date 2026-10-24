@@ -31,6 +31,7 @@ const build = (
   };
   const menuOptionService = { findByPlaceId: jest.fn(async () => opts.menuOptions ?? []) };
   const orderAgent = { handle: jest.fn(async () => ({ handled: false, reply: '' })) };
+  const bookingAgent = { handle: jest.fn(async () => ({ handled: false, reply: '' })) };
   // businessType: undefined = restaurante, null = el local no existe; placeName: undefined = 'Mi Local'
   const placeRepo = {
     findOne: jest.fn(async () =>
@@ -41,7 +42,7 @@ const build = (
   };
   const svc = new ChatProcessorService(
     sender as any, vector as any, menuFormatter as any, botConfigService as any, menuOptionService as any, emitter as any,
-    conversationRepo as any, messageRepo as any, orderAgent as any, contacts as any, placeRepo as any,
+    conversationRepo as any, messageRepo as any, orderAgent as any, bookingAgent as any, contacts as any, placeRepo as any,
   );
   // Nunca se llama a un proveedor de IA real: se simula que hay uno configurado y se intercepta generateReply.
   (svc as any).anthropic = {};

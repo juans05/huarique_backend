@@ -10,6 +10,7 @@ import { RequiresTier } from '../../common/decorators/requires-tier.decorator';
 import { PlaceTeamService } from '../team/place-team.service';
 import { RolesGuard } from '../../common/guards/roles.guard';
 import { Roles } from '../../common/decorators/roles.decorator';
+import { RequirePermission } from '../../common/decorators/require-permission.decorator';
 
 // `config`/`configure` son por sede — el plan se resuelve vía la sede (dueño o
 // equipo), no vía el guard genérico. El resto de las rutas de este controller
@@ -118,6 +119,7 @@ export class PlazbotConfigController {
 
   @UseGuards(RolesGuard)
   @Roles('admin')
+  @RequirePermission('whatsapp.gestionar')
   @Post('template')
   async createTemplate(
     @Body() dto: {
@@ -137,6 +139,7 @@ export class PlazbotConfigController {
 
   @UseGuards(RolesGuard)
   @Roles('admin')
+  @RequirePermission('whatsapp.gestionar')
   @Post('templates/:id/resend')
   async resendTemplate(@Param('id') id: string) {
     return this.templateService.resend(id);
@@ -144,6 +147,7 @@ export class PlazbotConfigController {
 
   @UseGuards(RolesGuard)
   @Roles('admin')
+  @RequirePermission('whatsapp.gestionar')
   @Post('templates/sync')
   async syncTemplates() {
     return this.templateService.syncStatuses();
@@ -151,6 +155,7 @@ export class PlazbotConfigController {
 
   @UseGuards(RolesGuard)
   @Roles('admin')
+  @RequirePermission('whatsapp.gestionar')
   @Delete('templates/:id')
   @HttpCode(204)
   async deleteTemplate(@Param('id') id: string) {
@@ -159,6 +164,7 @@ export class PlazbotConfigController {
 
   @UseGuards(RolesGuard)
   @Roles('admin')
+  @RequirePermission('whatsapp.gestionar')
   @Post('templates/:id/toggle')
   async toggleTemplate(@Param('id') id: string) {
     return this.templateService.toggle(id);
@@ -166,6 +172,7 @@ export class PlazbotConfigController {
 
   @UseGuards(RolesGuard)
   @Roles('admin')
+  @RequirePermission('whatsapp.gestionar')
   @Put('templates/:id')
   async updateTemplate(
     @Param('id') id: string,
@@ -189,6 +196,7 @@ export class PlazbotConfigController {
 
   @UseGuards(RolesGuard)
   @Roles('admin')
+  @RequirePermission('whatsapp.gestionar')
   @Post('send-template')
   async sendTemplate(
     @Body() dto: { template: string; destination: string; variablesBody?: { variable: string; value: string }[] },
@@ -199,6 +207,7 @@ export class PlazbotConfigController {
 
   @UseGuards(RolesGuard)
   @Roles('admin')
+  @RequirePermission('whatsapp.gestionar')
   @Post('campaign')
   async createCampaign(
     @Body() dto: { name: string; templateId: string; contacts: string[] },

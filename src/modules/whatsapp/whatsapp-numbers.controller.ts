@@ -10,6 +10,7 @@ import { Roles } from '../../common/decorators/roles.decorator';
 import { WhatsAppCloudService } from '../messaging/whatsapp-cloud.service';
 import { MetaConnectService } from './meta-connect.service';
 import { plazbotWebhookUrl } from '../plazbot/plazbot-webhook.util';
+import { RequirePermission } from '../../common/decorators/require-permission.decorator';
 
 // PlazBot no expone un endpoint REST para registrar webhooks (confirmado en
 // docs/plazbot-pendientes.md tras revisar su openapi.json completo — solo existe
@@ -107,6 +108,7 @@ export class WhatsAppNumbersController {
  */
 @UseGuards(JwtAuthGuard, RolesGuard)
 @Roles('admin')
+@RequirePermission('whatsapp.gestionar')
 @Controller('admin/whatsapp-numbers')
 export class AdminWhatsAppNumbersController {
     constructor(
