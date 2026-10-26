@@ -38,6 +38,13 @@ export class BroadcastController {
         return await this.assertBroadcastAccess(broadcastId, user.id);
     }
 
+    /** Últimos envíos de una campaña de recordatorio (para la vista "Ver"). */
+    @Get(':broadcastId/reminder-sends')
+    async reminderSends(@Param('broadcastId') broadcastId: string, @CurrentUser() user: any) {
+        await this.assertBroadcastAccess(broadcastId, user.id);
+        return this.broadcastService.reminderSends(broadcastId);
+    }
+
     @Post(':broadcastId/send')
     @HttpCode(HttpStatus.ACCEPTED)
     async sendBroadcast(@Param('broadcastId') broadcastId: string, @CurrentUser() user: any) {

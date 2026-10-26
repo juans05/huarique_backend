@@ -110,8 +110,10 @@ export class RemindersService {
                -- Solo números verificados: el que escribió por WhatsApp (bot), el que cargó el personal (panel) o, desde el
                -- link público, un número que ya le escribió antes al negocio. Así nadie usa el WhatsApp del local contra un tercero.
                AND (a.source IN ('BOT', 'PANEL') OR EXISTS (
-                 SELECT 1 FROM wuarike_db.conversations c WHERE c.place_id = a.place_id AND regexp_replace(c.customer_phone, '\D', '', 'g') = a.customer_phone))
+                 SELECT 1 FROM wuarike_db.conversations c WHERE c.place_id = a.place_id AND regexp_replace(c.customer_phone, '\\D', '', 'g') = a.customer_phone))
                AND COALESCE(pl.metadata->'reminders'->>'enabled', 'true') <> 'false'
+               -- Si el local tiene una campaña de recordatorio activa, esa reemplaza a este (no llegan dos).
+               AND NOT EXISTS (SELECT 1 FROM wuarike_db.broadcasts b WHERE b.place_id = a.place_id AND b.kind = 'reminder' AND b.status = 'SCHEDULED')
              LIMIT 200`,
         );
         const dashboard = this.config.get<string>('DASHBOARD_URL') || 'https://admin.wuarikes.com';
