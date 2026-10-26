@@ -6,10 +6,15 @@ import { Place } from '../places/entities/place.entity';
 import { PublicFeedback } from '../checkins/entities/public-feedback.entity';
 import axios from 'axios';
 import * as crypto from 'crypto';
+import { type InsightPreset, mapInsights } from './meta-ads-insights.util';
+
+const INSIGHTS_TTL_MS = 15 * 60_000;
 
 @Injectable()
 export class MetaAdsService {
   private readonly logger = new Logger(MetaAdsService.name);
+  /** Meta limita las llamadas a /insights: se guarda 15 min por local y periodo. */
+  private insightsCache = new Map<string, { at: number; value: ReturnType<typeof mapInsights> }>();
 
   constructor(
     @InjectRepository(Place)
@@ -125,6 +130,41 @@ export class MetaAdsService {
     } catch (error) {
       this.logger.error('Error fetching Facebook Ad Accounts:', error.response?.data || error.message);
       throw new BadRequestException('No se pudieron recuperar las cuentas publicitarias de Facebook. Verifica el Access Token.');
+    }
+  }
+
+  /** Cuánto va gastando el local en anuncios: totales, gasto por día y por campaña, en la moneda de la cuenta. */
+  async getInsights(placeId: string, preset: InsightPreset) {
+    const place = await this.placeRepo.findOneBy({ id: placeId });
+    if (!place) throw new NotFoundException('Restaurante no encontrado');
+    const { metaAccessToken: token, metaAdAccountId: account } = place.metadata || {};
+    if (!token || !account) throw new BadRequestException('Conecta Meta Ads para ver tu gasto.');
+
+    const key = `${placeId}:${preset}`;
+    const hit = this.insightsCache.get(key);
+    if (hit && Date.now() - hit.at < INSIGHTS_TTL_MS) return hit.value;
+
+    const base = `https://graph.facebook.com/v20.0/${account}`;
+    const get = (path: string, params: Record<string, string | number>) =>
+      axios.get(`${base}${path}`, { params: { access_token: token, ...params }, timeout: 20000 }).then((r) => r.data);
+    try {
+      const [daily, campaigns, total, info] = await Promise.all([
+        get('/insights', { level: 'account', time_increment: 1, date_preset: preset, fields: 'spend', limit: 100 }),
+        get('/insights', { level: 'campaign', date_preset: preset, fields: 'campaign_name,spend,impressions,reach,clicks,cpc,ctr,actions', limit: 200 }),
+        get('/insights', { level: 'account', date_preset: preset, fields: 'spend,impressions,reach,clicks,actions' }),
+        get('', { fields: 'currency,spend_cap,amount_spent' }),
+      ]);
+      const value = mapInsights({ daily: daily?.data ?? [], campaigns: campaigns?.data ?? [], total: total?.data?.[0], account: info ?? {} });
+      this.insightsCache.set(key, { at: Date.now(), value });
+      return value;
+    } catch (err: any) {
+      // Nunca se devuelve el error crudo de Meta (puede traer el token o datos de la cuenta).
+      const code = err?.response?.data?.error?.code;
+      this.logger.warn(`Insights de Meta Ads (local ${placeId}): ${err?.response?.data?.error?.message || err?.message}`);
+      if (code === 190 || code === 200 || code === 10 || err?.response?.status === 401 || err?.response?.status === 403) {
+        throw new BadRequestException('Vuelve a conectar Meta Ads: el acceso venció o no tiene permiso para leer el gasto.');
+      }
+      throw new BadRequestException('Meta no respondió con tu gasto. Intenta de nuevo en unos minutos.');
     }
   }
 
