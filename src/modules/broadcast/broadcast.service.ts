@@ -12,7 +12,7 @@ import { dedupeRecipients, finalStatus } from '../messaging/whatsapp-templates.u
 import { isMetaEnabled } from '../messaging/meta-flag';
 import { LoyaltyCard } from '../loyalty/entities/loyalty-card.entity';
 import { segmentRecipients } from './broadcast-segment.util';
-import { CreditsService } from '../credits/credits.service';
+import { chargesCredits, CreditsService } from '../credits/credits.service';
 import { Place } from '../places/entities/place.entity';
 import { WhatsAppCloudService, buildBodyComponents } from '../messaging/whatsapp-cloud.service';
 import { dayLabel, limaDate, limaTime, timeLabel } from '../appointments/appointments.rules';
@@ -150,9 +150,9 @@ export class BroadcastService {
             customers = dedupeRecipients<{ phone?: string | null; name?: string | null; contactId?: string | null }>(
                 segmentRecipients(filter, await this.getCustomersForBroadcast(broadcast, filter.type === 'excel'), cards),
             );
-            // Cada mensaje cuesta 1 crédito: si no alcanza, la campaña no sale (el saldo nunca queda en negativo).
-            const balance = await this.creditsService.getBalance(broadcast.placeId);
-            if (balance.balance < customers.length) {
+            // Con el número de Wuarikes cada mensaje cuesta 1 crédito: si no alcanza, la campaña no sale.
+            const balance = chargesCredits(broadcast.whatsappNumber) ? await this.creditsService.getBalance(broadcast.placeId) : null;
+            if (balance && balance.balance < customers.length) {
                 throw new Error(`Créditos insuficientes: la campaña llega a ${customers.length} personas y tienes ${balance.balance} créditos.`);
             }
             broadcast.status = customers.length === 0 ? 'FAILED' : 'SENDING';
@@ -336,8 +336,9 @@ export class BroadcastService {
             date: dayLabel(limaDate(start)), time: timeLabel(limaTime(start)), place: b.place.name,
             link: `${dashboard}/reservar/cita/${a.public_token}`,
         });
-        // Igual que una campaña: 1 crédito por mensaje, cobrado antes y devuelto si Meta lo rechaza.
-        const charged = await this.creditsService.deductIfEnough(b.placeId, 1, 'broadcast', b.id, `Recordatorio a ${a.customer_phone}`);
+        // Igual que una campaña: con el número de Wuarikes, 1 crédito por mensaje, cobrado antes y devuelto si Meta lo rechaza.
+        const paid = chargesCredits(b.whatsappNumber);
+        const charged = !paid || await this.creditsService.deductIfEnough(b.placeId, 1, 'broadcast', b.id, `Recordatorio a ${a.customer_phone}`);
         if (!charged) {
             this.logger.warn(`Recordatorio ${b.id}: sin créditos, no se envía a la cita ${a.id}`);
             return false;
@@ -346,7 +347,7 @@ export class BroadcastService {
             await this.cloud.sendTemplate(b.whatsappNumber, a.customer_phone, b.templateName!, b.templateLanguage, buildBodyComponents(values));
             return true;
         } catch (err) {
-            await this.creditsService.add(b.placeId, 1, 'refund', `Devolución: falló el recordatorio a ${a.customer_phone}`);
+            if (paid) await this.creditsService.add(b.placeId, 1, 'refund', `Devolución: falló el recordatorio a ${a.customer_phone}`);
             this.logger.warn(`Recordatorio ${b.id}, cita ${a.id}: ${(err as Error).message}`);
             return false;
         }

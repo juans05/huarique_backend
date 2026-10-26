@@ -209,3 +209,22 @@ describe('BroadcastService.updateBroadcast', () => {
         await expect(build({ ...reminder }).svc.updateBroadcast('b1', { reminderOffsetMin: 5 })).rejects.toThrow(/15 minutos/);
     });
 });
+
+describe('Créditos según el dueño del número', () => {
+    it('con su propio número (otra WABA) el recordatorio sale sin descontar créditos; con el de Wuarikes, sí', async () => {
+        const appt = { id: 'a1', customer_name: 'Ana', customer_phone: '51900111222', service_name: 'Corte', starts_at: '2026-10-26T21:00:00Z', public_token: 't', pro: null };
+        const run = async (wabaId: string | null) => {
+            const b = { id: 'b1', placeId: 'p1', kind: 'reminder', templateName: 'r', reminderOffsetMin: 60, status: 'SCHEDULED', bodyVariables: [], whatsappNumber: { ...meta, wabaId }, place: { ...on, name: 'X' } };
+            const ctx = build(b);
+            ctx.broadcastRepo.find.mockResolvedValue([b]);
+            ctx.broadcastRepo.query.mockImplementation(async (sql: string) => (sql.includes('FROM wuarike_db.appointments') ? [appt] : sql.startsWith('INSERT') ? [{ appointment_id: 'a1' }] : []));
+            await ctx.svc.processReminderCampaigns();
+            return ctx;
+        };
+        const own = await run('999-propia');
+        expect(own.cloud.sendTemplate).toHaveBeenCalled();
+        expect(own.credits.deductIfEnough).not.toHaveBeenCalled();
+        const platform = await run('1036831432246105');
+        expect(platform.credits.deductIfEnough).toHaveBeenCalled();
+    });
+});

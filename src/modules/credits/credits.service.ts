@@ -6,6 +6,15 @@ import { CreditTransaction } from './entities/credit-transaction.entity';
 import { QueryTransactionDto } from './dto/query-transaction.dto';
 import { PaginatedResponse } from '../../common/dto/pagination.dto';
 
+/**
+ * Los créditos cubren lo que Meta le cobra a Wuarikes: solo se descuentan si el número es de la cuenta (WABA) de
+ * Wuarikes. Un local con su propio número paga a Meta directo con su tarjeta; cobrarle créditos sería cobrar dos veces.
+ */
+export function chargesCredits(number: { wabaId?: string | null } | null | undefined): boolean {
+    const platformWaba = process.env.WHATSAPP_WABA_ID || '1036831432246105';
+    return !number?.wabaId || number.wabaId === platformWaba;
+}
+
 @Injectable()
 export class CreditsService {
     private readonly logger = new Logger(CreditsService.name);
