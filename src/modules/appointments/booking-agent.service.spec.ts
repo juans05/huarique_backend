@@ -8,13 +8,14 @@ const SERVICE = { id: 's1', name: 'Corte clásico', price: 2500, durationMin: 30
 const PEDRO = { id: 'p2', name: 'Pedro', station: 'Silla 2', serviceIds: [] };
 const JUAN = { id: 'p1', name: 'Juan', station: 'Silla 1', serviceIds: [] };
 
-function build(aiActions: any[][], slots: string[] = ['16:00', '16:30', '17:00', '17:30']) {
+function build(aiActions: any[][], slots: string[] = ['16:00', '16:30', '17:00', '17:30'], recallServiceId: string | null = null) {
     const drafts: any[] = [];
     const draftsRepo = {
         findOne: jest.fn(async () => drafts.find((d) => d.status === 'ARMANDO') ?? null),
         create: jest.fn((d) => ({ ...d })),
         save: jest.fn(async (d) => { if (!drafts.includes(d)) drafts.push(d); d.updatedAt = new Date(); return d; }),
         update: jest.fn(async () => ({})),
+        query: jest.fn(async () => (recallServiceId ? [{ service_id: recallServiceId }] : [])),
     };
     const appointments = {
         services: jest.fn(async () => [SERVICE]),
@@ -28,8 +29,8 @@ function build(aiActions: any[][], slots: string[] = ['16:00', '16:30', '17:00',
     const team = { assertPlaceTier: jest.fn(async () => undefined) };
     const config = { get: () => 'https://panel.test' };
     const svc = new BookingAgentService(draftsRepo as any, appointments as any, ai as any, team as any, config as any);
-    const say = (message: string) => svc.handle({ placeId: 'pl', customerName: 'Luis', customerPhone: '51999', message, history: [] });
-    return { say, appointments };
+    const say = (message: string, customerPhone = '51999') => svc.handle({ placeId: 'pl', customerName: 'Luis', customerPhone, message, history: [] });
+    return { say, appointments, ai };
 }
 
 describe('BookingAgentService', () => {
@@ -68,5 +69,18 @@ describe('BookingAgentService', () => {
         const { say } = build([[{ type: 'set_service', serviceId: 's1' }]]);
         const r: any = await say('quiero agendar un corte');
         expect(r.reply).toMatch(/¿Con quién.*Juan \(Silla 1\).*Pedro \(Silla 2\).*Cualquiera/s);
+    });
+
+    it('una respuesta al aviso de rutina ("sí, el sábado") se toma como reserva de ese servicio', async () => {
+        const { say, ai } = build([[{ type: 'set_date', date: DAY }]], undefined, 's1');
+        const r: any = await say('sí, mañana', '51987654321');
+        expect(r.handled).toBe(true);
+        expect((ai.chat.mock.calls as any[])[0][0][0].content).toMatch(/servicio=s1/);
+        expect(r.reply).toMatch(/¿Con quién/);
+    });
+
+    it('sin aviso de rutina pendiente, el mismo mensaje no se toma', async () => {
+        const { say } = build([]);
+        expect(await say('sí, mañana', '51987654321')).toEqual({ handled: false });
     });
 });

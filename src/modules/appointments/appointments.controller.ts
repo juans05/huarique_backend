@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Patch, Post, Query, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Param, ParseUUIDPipe, Patch, Post, Query, UseGuards } from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { PlaceRoleGuard } from '../../common/guards/place-role.guard';
@@ -6,13 +6,14 @@ import { RequiresPlaceRole } from '../../common/decorators/requires-place-role.d
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { AppointmentsService } from './appointments.service';
 import { RemindersService } from './reminders.service';
-import { AssetDto, AvailabilityQueryDto, BookDto, DayQueryDto, ProfessionalDto, PublicBookDto, UpdateAppointmentDto } from './dto/appointments.dto';
+import { RecallService } from './recall.service';
+import { AssetDto, AvailabilityQueryDto, BookDto, DayQueryDto, ProfessionalDto, PublicBookDto, RangeQueryDto, RecallSettingsDto, RemindersSettingsDto, UpdateAppointmentDto } from './dto/appointments.dto';
 
 /** Agenda vista por el personal del local (recepción, dueño). La Agenda es del plan base. */
 @UseGuards(JwtAuthGuard, PlaceRoleGuard)
 @Controller('business/places/:placeId/agenda')
 export class StaffAgendaController {
-    constructor(private agenda: AppointmentsService, private reminders: RemindersService) { }
+    constructor(private agenda: AppointmentsService, private reminders: RemindersService, private recall: RecallService) { }
 
     // ── Recordatorios por WhatsApp ──
     @Get('reminders')
@@ -31,9 +32,46 @@ export class StaffAgendaController {
 
     @Patch('reminders')
     @RequiresPlaceRole('supervisor')
-    async setReminders(@Param('placeId') placeId: string, @Body('enabled') enabled: boolean) {
+    async setReminders(@Param('placeId') placeId: string, @Body() dto: RemindersSettingsDto) {
         await this.agenda.assertEnabled(placeId);
-        return this.reminders.setEnabled(placeId, enabled !== false);
+        return this.reminders.setSettings(placeId, dto);
+    }
+
+    // ── Aviso de rutina ("ya se acerca tu próximo corte") ──
+    @Get('recall')
+    @RequiresPlaceRole('agente')
+    async recallSettings(@Param('placeId') placeId: string) {
+        await this.agenda.assertEnabled(placeId);
+        return this.recall.settings(placeId);
+    }
+
+    @Patch('recall')
+    @RequiresPlaceRole('supervisor')
+    async setRecall(@Param('placeId') placeId: string, @Body() dto: RecallSettingsDto) {
+        await this.agenda.assertEnabled(placeId);
+        return this.recall.setEnabled(placeId, dto.enabled);
+    }
+
+    @Post('recall/template')
+    @RequiresPlaceRole('supervisor')
+    async createRecallTemplate(@Param('placeId') placeId: string) {
+        await this.agenda.assertEnabled(placeId);
+        return this.recall.ensureTemplate(placeId);
+    }
+
+    @Get('recall/upcoming')
+    @RequiresPlaceRole('agente')
+    async recallUpcoming(@Param('placeId') placeId: string) {
+        await this.agenda.assertEnabled(placeId);
+        return this.recall.upcoming(placeId);
+    }
+
+    @Post('recall/:appointmentId/notify')
+    @RequiresPlaceRole('agente')
+    @Throttle({ default: { ttl: 60000, limit: 30 } })
+    async recallNotify(@Param('placeId') placeId: string, @Param('appointmentId', ParseUUIDPipe) appointmentId: string) {
+        await this.agenda.assertEnabled(placeId);
+        return this.recall.notifyNow(placeId, appointmentId);
     }
 
     @Get('day')
@@ -62,6 +100,21 @@ export class StaffAgendaController {
     async book(@Param('placeId') placeId: string, @Body() dto: BookDto, @CurrentUser() user: any) {
         await this.agenda.assertEnabled(placeId);
         return this.agenda.book(placeId, dto, 'PANEL', user.id);
+    }
+
+    @Get('range')
+    @RequiresPlaceRole('agente')
+    async range(@Param('placeId') placeId: string, @Query() q: RangeQueryDto) {
+        await this.agenda.assertEnabled(placeId);
+        const [range, recallDue] = await Promise.all([this.agenda.range(placeId, q.from, q.to), this.recall.dueByDay(placeId, q.from, q.to)]);
+        return { ...range, recallDue };
+    }
+
+    @Get('appointments/:id')
+    @RequiresPlaceRole('agente')
+    async one(@Param('placeId') placeId: string, @Param('id', ParseUUIDPipe) id: string) {
+        await this.agenda.assertEnabled(placeId);
+        return this.agenda.one(placeId, id);
     }
 
     @Patch('appointments/:id')

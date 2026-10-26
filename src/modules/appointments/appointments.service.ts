@@ -19,6 +19,8 @@ const ASSET_FIELDS = ['species', 'breed', 'birthDate', 'sex', 'weight', 'vaccine
 const MAX_DAYS_AHEAD = 60;
 /** Citas futuras activas que un mismo teléfono puede tener en un local (link público y bot). */
 const MAX_ACTIVE_PER_PHONE = 3;
+/** Rango máximo de la vista Semana/Mes (6 semanas = un mes completo con sus bordes). */
+const MAX_RANGE_DAYS = 42;
 
 /** Agenda por profesional: cada cita ocupa a una persona; dos citas de la misma persona nunca se cruzan. */
 @Injectable()
@@ -141,6 +143,39 @@ export class AppointmentsService {
             }),
             appointments: appts.map((a) => this.view(a, pros.find((p) => p.id === a.professionalId), assets.find((x) => x.id === a.assetId))),
         };
+    }
+
+    /** Semana o mes: citas resumidas del rango (fechas de Lima) y cuántas hay por día. */
+    async range(placeId: string, from: string, to: string) {
+        if (to < from) throw new BadRequestException('La fecha final debe ser después de la inicial');
+        if (limaInstant(to, '12:00').getTime() - limaInstant(from, '12:00').getTime() > (MAX_RANGE_DAYS - 1) * 86400_000) throw new BadRequestException(`El rango máximo es de ${MAX_RANGE_DAYS} días`);
+        const appts = await this.apptRepo.createQueryBuilder('a')
+            .where('a.place_id = :placeId AND a.starts_at BETWEEN :from AND :to', { placeId, from: limaInstant(from, '00:00'), to: limaInstant(to, '23:59') })
+            .orderBy('a.starts_at', 'ASC').getMany();
+        const pros = await this.professionals(placeId);
+        const byDay: Record<string, { reserved: number; attended: number; total: number }> = {};
+        const appointments = appts.map((a) => {
+            const date = limaDate(a.startsAt);
+            const day = (byDay[date] ??= { reserved: 0, attended: 0, total: 0 });
+            if (a.status !== 'CANCELADA') day.total++;
+            if (a.status === 'RESERVADA' || a.status === 'LISTO') day.reserved++;
+            if (a.status === 'ATENDIDA') day.attended++;
+            const pro = pros.find((p) => p.id === a.professionalId);
+            return {
+                id: a.id, date, time: limaTime(a.startsAt), endTime: limaTime(a.endsAt), durationMin: a.durationMin, status: a.status,
+                professionalId: a.professionalId, professional: pro ? { id: pro.id, name: pro.name } : null,
+                serviceName: a.serviceName, customerName: a.customerName,
+            };
+        });
+        return { from, to, appointments, byDay };
+    }
+
+    /** Cita completa (la vista Semana/Mes trae un resumen; al abrirla se pide entera). */
+    async one(placeId: string, id: string) {
+        const appt = await this.apptRepo.findOne({ where: { id, placeId } });
+        if (!appt) throw new NotFoundException('Cita no encontrada');
+        const asset = appt.assetId ? await this.assetsRepo.findOne({ where: { id: appt.assetId } }) : null;
+        return this.view(appt, await this.prosRepo.findOne({ where: { id: appt.professionalId } }), asset);
     }
 
     async update(placeId: string, id: string, dto: UpdateAppointmentDto) {
