@@ -275,9 +275,9 @@ export class BroadcastService {
     }
 
     /**
-     * Cada 5 min: por cada recordatorio activo, las citas reservadas que entran en su ventana (faltan ≤ X min). Se
-     * salta la cita creada después de la hora en que tocaba avisar (quien reserva para dentro de 20 min no necesita
-     * recordatorio de 1 h) y los teléfonos no verificados, igual que los recordatorios del sistema.
+     * Cada 5 min: por cada recordatorio activo, las citas reservadas que entran en su ventana (faltan ≤ X min). La cita
+     * reservada ya dentro de la ventana recibe el aviso en la siguiente pasada; el dueño activó la campaña, así que
+     * van todas las fuentes (panel, bot y link), una vez por cita.
      */
     @Cron('*/5 * * * *')
     async processReminderCampaigns() {
@@ -305,9 +305,6 @@ export class BroadcastService {
              LEFT JOIN wuarike_db.place_professionals p ON p.id = a.professional_id
              WHERE a.place_id = $1 AND a.status = 'RESERVADA' AND a.customer_phone IS NOT NULL
                AND a.starts_at > now() AND a.starts_at <= now() + make_interval(mins => $2)
-               AND a.created_at < a.starts_at - make_interval(mins => $2)
-               AND (a.source IN ('BOT', 'PANEL') OR EXISTS (
-                 SELECT 1 FROM wuarike_db.conversations c WHERE c.place_id = a.place_id AND regexp_replace(c.customer_phone, '\\D', '', 'g') = a.customer_phone))
                AND NOT EXISTS (SELECT 1 FROM wuarike_db.broadcast_reminder_sends s WHERE s.broadcast_id = $3 AND s.appointment_id = a.id)
              ORDER BY a.starts_at LIMIT 200`,
             [b.placeId, b.reminderOffsetMin, b.id],
