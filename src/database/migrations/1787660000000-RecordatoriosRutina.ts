@@ -48,6 +48,18 @@ export class RecordatoriosRutina1787660000000 implements MigrationInterface {
         PRIMARY KEY (place_id, phone9)
       )
     `);
+    // Las bajas anteriores a esta tabla: todo mensaje entrante que fue un BAJA (misma expresión que isOptOutMessage).
+    await queryRunner.query(`
+      INSERT INTO wuarike_db.whatsapp_opt_outs (place_id, phone9, created_at)
+      SELECT c.place_id, right(regexp_replace(c.customer_phone, '\\D', '', 'g'), 9), min(m.created_at)
+      FROM wuarike_db.messages m
+      JOIN wuarike_db.conversations c ON c.id = m.conversation_id
+      WHERE m.message_type = 'INCOMING'
+        AND m.message_body ~* '^\\s*(baja|stop|darme de baja|no (quiero )?(m[aá]s )?(promociones|mensajes))\\s*[.!]*\\s*$'
+        AND length(regexp_replace(c.customer_phone, '\\D', '', 'g')) >= 9
+      GROUP BY 1, 2
+      ON CONFLICT DO NOTHING
+    `);
     await queryRunner.query(`CREATE INDEX IF NOT EXISTS idx_appointment_recalls_place ON wuarike_db.appointment_recalls (place_id, sent_at)`);
     await queryRunner.query(`CREATE INDEX IF NOT EXISTS idx_appointments_recall ON wuarike_db.appointments (place_id, service_id, customer_phone, starts_at) WHERE status = 'ATENDIDA'`);
   }

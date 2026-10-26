@@ -174,9 +174,10 @@ export class RecallService {
                     EXISTS (SELECT 1 FROM wuarike_db.appointments f WHERE f.place_id = l.place_id AND f.status = 'RESERVADA'
                             AND f.starts_at > now() AND ${phone9('f.customer_phone')} = l.phone9) AS has_future,
                     EXISTS (SELECT 1 FROM wuarike_db.whatsapp_opt_outs o WHERE o.place_id = l.place_id AND o.phone9 = l.phone9) AS opted_out,
-                    -- Mismo criterio que los recordatorios: número del bot o del panel, o uno que ya le escribió al negocio.
+                    -- Mismo criterio que los recordatorios: número del bot o del panel, o uno que ya le escribió al negocio
+                    -- (número completo, no los últimos 9: el aviso sale a l.customer_phone y debe ser ese mismo).
                     (l.source IN ('BOT', 'PANEL') OR EXISTS (SELECT 1 FROM wuarike_db.conversations c
-                            WHERE c.place_id = l.place_id AND ${phone9('c.customer_phone')} = l.phone9)) AS verified
+                            WHERE c.place_id = l.place_id AND regexp_replace(c.customer_phone, '\\D', '', 'g') = regexp_replace(l.customer_phone, '\\D', '', 'g'))) AS verified
              FROM last l
              JOIN wuarike_db.dishes d ON d.id = l.service_id AND d.place_id = l.place_id AND d.recall_days IS NOT NULL
              JOIN wuarike_db.places pl ON pl.id = l.place_id
