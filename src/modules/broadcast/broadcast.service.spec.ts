@@ -162,7 +162,8 @@ describe('Campaña de recordatorio de cita', () => {
         await svc.processReminderCampaigns();
         const due = broadcastRepo.query.mock.calls.find((c: any[]) => c[0].includes('FROM wuarike_db.appointments'));
         expect(due[1]).toEqual(['p1', 60, 'b1']);
-        expect(due[0]).toContain("'\\D'"); // la regex llega a Postgres como \D, no como D
+        // Sin filtros que descarten citas reservadas a última hora o por link.
+        expect(due[0]).not.toMatch(/created_at|a\.source/);
         expect(credits.deductIfEnough).toHaveBeenCalledWith('p1', 1, 'broadcast', 'b1', expect.any(String));
         expect(cloud.sendTemplate.mock.calls[0][1]).toBe('51987654321');
         expect(cloud.sendTemplate.mock.calls[0][2]).toBe('recordatorio');
