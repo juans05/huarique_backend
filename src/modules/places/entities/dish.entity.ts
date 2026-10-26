@@ -42,6 +42,14 @@ export class Dish {
     @Column({ name: 'duration_min', type: 'int', nullable: true })
     durationMin: number | null;
 
+    /** Servicio de rutina: cada cuántos días suele volver el cliente (ej. corte cada 20). null = sin aviso. */
+    @Column({ name: 'recall_days', type: 'int', nullable: true })
+    recallDays: number | null;
+
+    /** Cuántos días antes de que le toque se le avisa (null = 2). */
+    @Column({ name: 'recall_notice_days', type: 'int', nullable: true })
+    recallNoticeDays: number | null;
+
     @Column({ name: 'is_vegetarian', default: false })
     isVegetarian: boolean;
 

@@ -13,11 +13,11 @@ describe('marketing opt-out', () => {
         }
     });
 
-    it('retira el consentimiento en las tres tablas usando los últimos 9 dígitos', async () => {
+    it('retira el consentimiento en las tres tablas y registra la baja, usando los últimos 9 dígitos', async () => {
         const manager = { query: jest.fn(async () => []) };
         await revokeMarketingConsent(manager as any, 'p1', '+51 987 654 321');
-        expect(manager.query).toHaveBeenCalledTimes(3);
-        expect(manager.query.mock.calls.map((c: any[]) => c[0].match(/UPDATE wuarike_db\.(\w+)/)[1])).toEqual(['loyalty_cards', 'contacts', 'public_feedback']);
+        expect(manager.query).toHaveBeenCalledTimes(4);
+        expect(manager.query.mock.calls.map((c: any[]) => c[0].match(/(?:UPDATE|INSERT INTO) wuarike_db\.(\w+)/)[1])).toEqual(['loyalty_cards', 'contacts', 'public_feedback', 'whatsapp_opt_outs']);
         manager.query.mock.calls.forEach((c: any[]) => expect(c[1]).toEqual(['p1', '987654321']));
     });
 

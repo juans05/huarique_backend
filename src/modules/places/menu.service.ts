@@ -38,6 +38,9 @@ export interface CreateDishDto {
     kind?: DishKind;
     /** Minutos, entero >= 0; null para quitarla. */
     durationMin?: number | null;
+    /** Aviso de rutina: cada cuántos días (1–365) y cuántos días antes (0–30); null para quitarlo. */
+    recallDays?: number | null;
+    recallNoticeDays?: number | null;
 }
 
 export interface UpdateDishDto {
@@ -56,6 +59,9 @@ export interface UpdateDishDto {
     kind?: DishKind;
     /** Minutos, entero >= 0; null para quitarla. */
     durationMin?: number | null;
+    /** Aviso de rutina: cada cuántos días (1–365) y cuántos días antes (0–30); null para quitarlo. */
+    recallDays?: number | null;
+    recallNoticeDays?: number | null;
 }
 
 @Injectable()
@@ -159,6 +165,8 @@ export class MenuService {
             displayOrder: dto.displayOrder ?? 0,
             kind: dto.kind ?? 'producto',
             durationMin: dto.durationMin ?? null,
+            recallDays: dto.recallDays ?? null,
+            recallNoticeDays: dto.recallNoticeDays ?? null,
         });
         return this.dishRepo.save(dish);
     }
@@ -182,6 +190,8 @@ export class MenuService {
         if (dto.displayOrder !== undefined) dish.displayOrder = dto.displayOrder;
         if (dto.kind !== undefined) dish.kind = dto.kind;
         if (dto.durationMin !== undefined) dish.durationMin = dto.durationMin;
+        if (dto.recallDays !== undefined) dish.recallDays = dto.recallDays;
+        if (dto.recallNoticeDays !== undefined) dish.recallNoticeDays = dto.recallNoticeDays;
 
         return this.dishRepo.save(dish);
     }
@@ -192,7 +202,7 @@ export class MenuService {
         await this.dishRepo.remove(dish);
     }
 
-    private assertKindFields(dto: { kind?: unknown; durationMin?: unknown }): void {
+    private assertKindFields(dto: { kind?: unknown; durationMin?: unknown; recallDays?: unknown; recallNoticeDays?: unknown }): void {
         if (dto.kind !== undefined && !DISH_KINDS.includes(dto.kind as DishKind)) {
             throw new BadRequestException('El tipo debe ser "producto" o "servicio"');
         }
@@ -200,6 +210,9 @@ export class MenuService {
         if (d !== undefined && d !== null && (typeof d !== 'number' || !Number.isInteger(d) || d < 0)) {
             throw new BadRequestException('La duración debe ser un número entero de minutos (0 o más)');
         }
+        const intIn = (v: unknown, min: number, max: number) => v === undefined || v === null || (typeof v === 'number' && Number.isInteger(v) && v >= min && v <= max);
+        if (!intIn(dto.recallDays, 1, 365)) throw new BadRequestException('"Repetir cada" debe ser de 1 a 365 días');
+        if (!intIn(dto.recallNoticeDays, 0, 30)) throw new BadRequestException('"Avisar antes" debe ser de 0 a 30 días');
     }
 
     // Un plato no puede colgar de la categoría de otro local.
