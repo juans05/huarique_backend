@@ -7,6 +7,7 @@ import { WhatsAppCloudService } from '../messaging/whatsapp-cloud.service';
 import { parseMetaWebhook, parseTemplateAlerts } from './meta-webhook.util';
 import { MailService } from '../../common/services/mail.service';
 import { isMetaEnabled } from '../messaging/meta-flag';
+import { WhatsAppBillingService } from '../messaging/whatsapp-billing.service';
 
 @Injectable()
 export class WhatsappService {
@@ -18,6 +19,7 @@ export class WhatsappService {
         private chatProcessor: ChatProcessorService,
         private cloud: WhatsAppCloudService,
         private mail: MailService,
+        private billing: WhatsAppBillingService,
     ) {}
 
     /**
@@ -26,6 +28,8 @@ export class WhatsappService {
      */
     async processWebhookPayload(payload: any) {
         await this.notifyTemplateAlerts(payload);
+        // Estados de entrega: categoría y costo de cada mensaje, y aviso si Meta no entrega por falta de pago.
+        await this.billing.applyStatuses(payload);
         for (const msg of parseMetaWebhook(payload)) {
             const number = await this.whatsappNumberRepo.findOne({
                 where: { phoneNumberId: msg.phoneNumberId, isActive: true },

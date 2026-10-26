@@ -8,6 +8,7 @@ import { WhatsAppNumber } from '../whatsapp/entities/whatsapp-number.entity';
 import { WhatsAppTemplatesService } from '../messaging/whatsapp-templates.service';
 import { WhatsAppCloudService, buildBodyComponents } from '../messaging/whatsapp-cloud.service';
 import { isMetaEnabled } from '../messaging/meta-flag';
+import { paymentBlockedToday } from '../messaging/whatsapp-billing.service';
 import type { CreateTemplateInput } from '../messaging/whatsapp-templates.util';
 import { dayLabel, limaDate, limaTime, timeLabel } from './appointments.rules';
 
@@ -136,10 +137,13 @@ export class RemindersService {
     /** Envía una plantilla del sistema al cliente desde el número del local (lo usa también "vehículo listo"). */
     async sendSystemTemplate(placeId: string, key: TemplateKey, to: string, values: string[]): Promise<boolean> {
         if ((await this.templateStatus(placeId, key)) !== 'APPROVED') return false;
+        const place = await this.placesRepo.findOne({ where: { id: placeId }, select: ['id', 'metadata'] });
+        // Hoy Meta ya rechazó un envío por falta de método de pago: no se insiste hasta mañana.
+        if (paymentBlockedToday(place?.metadata?.whatsappBilling)) return false;
         const number = await this.metaNumber(placeId);
         if (!number) return false;
         const t = SYSTEM_TEMPLATES[key];
-        await this.cloud.sendTemplate(number, to, t.name, t.language, buildBodyComponents(values));
+        await this.cloud.sendTemplate(number, to, t.name, t.language, buildBodyComponents(values), key === 'reminder' ? 'reminder' : key === 'recall' ? 'recall' : 'ready');
         return true;
     }
 

@@ -207,7 +207,7 @@ export class ConversationsController {
         });
         await this.messageRepo.save(message);
 
-        await this.sender.sendText(conversation.whatsappNumberId, conversation.customerPhone, body.text);
+        await this.sender.sendText(conversation.whatsappNumberId, conversation.customerPhone, body.text, 'agent');
 
         this.eventEmitter.emit('whatsapp.message.received', {
             placeId: conversation.placeId,

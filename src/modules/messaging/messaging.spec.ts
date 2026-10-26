@@ -39,7 +39,7 @@ describe('WhatsAppSenderService: proveedor por número', () => {
     it('número "meta" → API de WhatsApp Cloud, sin tocar PlazBot', async () => {
         const { svc, plazbot, cloud } = build({ id: 'n1', provider: 'meta', isActive: true, phoneNumberId: 'PN1' });
         await svc.sendText('n1', '51987', 'Hola');
-        expect(cloud.sendText).toHaveBeenCalledWith(expect.objectContaining({ id: 'n1' }), '51987', 'Hola');
+        expect(cloud.sendText).toHaveBeenCalledWith(expect.objectContaining({ id: 'n1' }), '51987', 'Hola', 'bot');
         expect(plazbot.sendMessage).not.toHaveBeenCalled();
     });
 
