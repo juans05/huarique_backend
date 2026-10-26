@@ -73,6 +73,13 @@ export class Broadcast {
     @Column({ default: 'America/Lima' })
     timezone: string;
 
+    /** mass = envío único a un segmento; reminder = activa (SCHEDULED) y le escribe a cada cita X min antes. */
+    @Column({ type: 'varchar', length: 16, default: 'mass' })
+    kind: 'mass' | 'reminder';
+
+    @Column({ name: 'reminder_offset_min', type: 'int', nullable: true })
+    reminderOffsetMin: number | null;
+
     @CreateDateColumn({ name: 'created_at' })
     createdAt: Date;
 }
