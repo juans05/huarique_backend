@@ -86,14 +86,17 @@ export class WhatsAppCloudService {
         return this.post(number, buildTemplatePayload(to, name, language, components));
     }
 
-    /** Marca como leído (doble check azul) un mensaje entrante. No es crítico: si falla, solo se registra. */
+    /**
+     * Marca como leído (doble check azul) un mensaje entrante y muestra "escribiendo…" al cliente mientras se arma la
+     * respuesta: Meta lo quita al enviar el mensaje o a los 25 s. No es crítico: si falla, solo se registra.
+     */
     async markAsRead(number: CloudNumber, messageId: string): Promise<void> {
         const token = number.whatsappApiToken || process.env.WHATSAPP_API_TOKEN;
         if (!token) return;
         try {
             await axios.post(
                 `${this.baseUrl}/${number.phoneNumberId}/messages`,
-                { messaging_product: 'whatsapp', status: 'read', message_id: messageId },
+                { messaging_product: 'whatsapp', status: 'read', message_id: messageId, typing_indicator: { type: 'text' } },
                 { headers: { Authorization: `Bearer ${token}` }, timeout: 10000 },
             );
         } catch (err: any) {
