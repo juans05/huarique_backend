@@ -1,9 +1,14 @@
 import { hasMultimodal, toGeminiRequest } from './gemini-request.util';
 
 const mockGenerate = jest.fn();
+const mockGetModel = jest.fn();
 jest.mock('@google/generative-ai', () => ({
-    GoogleGenerativeAI: jest.fn().mockImplementation(() => ({ getGenerativeModel: () => ({ generateContent: mockGenerate }) })),
+    GoogleGenerativeAI: jest.fn().mockImplementation(() => ({
+        getGenerativeModel: (...args: any[]) => { mockGetModel(...args); return { generateContent: mockGenerate }; },
+    })),
 }));
+const mockClaude = jest.fn();
+jest.mock('@anthropic-ai/sdk', () => ({ __esModule: true, default: jest.fn().mockImplementation(() => ({ messages: { create: mockClaude } })) }));
 const mockCreate = jest.fn();
 jest.mock('openai', () => ({ __esModule: true, default: jest.fn().mockImplementation(() => ({ chat: { completions: { create: mockCreate } } })) }));
 
@@ -39,6 +44,8 @@ describe('toGeminiRequest', () => {
 describe('AiService.chat', () => {
     beforeEach(() => {
         mockGenerate.mockReset();
+        mockGetModel.mockReset();
+        mockClaude.mockReset();
         mockCreate.mockReset();
         mockCreate.mockResolvedValue({ choices: [{ message: { content: 'de OpenRouter' } }] });
     });
@@ -51,11 +58,38 @@ describe('AiService.chat', () => {
         expect(mockGenerate.mock.calls[0][0].generationConfig.maxOutputTokens).toBe(1024);
     });
 
-    it('si Gemini falla (503, vacío) cae a OpenRouter', async () => {
-        mockGenerate.mockRejectedValueOnce(new Error('503 high demand'));
+    it('si Gemini falla (503, vacío) en todos sus modelos cae a OpenRouter', async () => {
+        mockGenerate.mockRejectedValue(new Error('503 high demand'));
         expect(await new AiService(cfg({ GEMINI_API_KEY: 'k' })).chat(msgs)).toBe('de OpenRouter');
-        mockGenerate.mockResolvedValueOnce(ok('   '));
+        mockGenerate.mockResolvedValue(ok('   '));
         expect(await new AiService(cfg({ GEMINI_API_KEY: 'k' })).chat(msgs)).toBe('de OpenRouter');
+    });
+
+    it('prueba los modelos de Gemini en orden; a los Flash-Lite no les manda thinkingBudget', async () => {
+        mockGenerate.mockRejectedValueOnce(new Error('503')).mockResolvedValueOnce(ok('del segundo'));
+        expect(await new AiService(cfg({ GEMINI_API_KEY: 'k' })).chat(msgs)).toBe('del segundo');
+        expect(mockGetModel.mock.calls.map((c) => c[0].model)).toEqual(['gemini-3.1-flash-lite', 'gemini-flash-latest']);
+        expect(mockGenerate.mock.calls[0][0].generationConfig.thinkingConfig).toBeUndefined();
+        expect(mockGenerate.mock.calls[1][0].generationConfig.thinkingConfig).toEqual({ thinkingBudget: 0 });
+    });
+
+    it('si Gemini falla usa Claude (otra empresa) antes que OpenRouter, con system aparte y roles alternados', async () => {
+        mockGenerate.mockRejectedValue(new Error('503'));
+        mockClaude.mockResolvedValue({ content: [{ type: 'text', text: 'de Claude' }] });
+        const chat = [{ role: 'system', content: 'Eres el bot' }, { role: 'user', content: 'hola' }, { role: 'assistant', content: 'hola!' }, { role: 'user', content: 'precio?' }] as any;
+        expect(await new AiService(cfg({ GEMINI_API_KEY: 'k', ANTHROPIC_API_KEY: 'a' })).chat(chat)).toBe('de Claude');
+        expect(mockCreate).not.toHaveBeenCalled();
+        expect(mockClaude.mock.calls[0][0]).toMatchObject({
+            system: 'Eres el bot',
+            messages: [{ role: 'user', content: 'hola' }, { role: 'assistant', content: 'hola!' }, { role: 'user', content: 'precio?' }],
+        });
+    });
+
+    it('si fallan todos los proveedores responde 503 con un mensaje claro, no un 500', async () => {
+        mockGenerate.mockRejectedValue(new Error('503'));
+        mockClaude.mockRejectedValue(new Error('529 overloaded'));
+        mockCreate.mockRejectedValue(new Error('401 User not found.'));
+        await expect(new AiService(cfg({ GEMINI_API_KEY: 'k', ANTHROPIC_API_KEY: 'a' })).chat(msgs)).rejects.toMatchObject({ status: 503 });
     });
 
     it('sin clave de Gemini, con imágenes o con modelo explícito → OpenRouter directo', async () => {
@@ -64,6 +98,7 @@ describe('AiService.chat', () => {
         await svc.chat([{ role: 'user', content: [{ type: 'image_url', image_url: { url: 'u' } }] }] as any);
         await svc.chat(msgs, 'google/gemini-2.5-flash', 8192);
         expect(mockGenerate).not.toHaveBeenCalled();
+        expect(mockClaude).not.toHaveBeenCalled();
         expect(mockCreate).toHaveBeenCalledTimes(3);
         expect(mockCreate.mock.calls[2][0]).toMatchObject({ model: 'google/gemini-2.5-flash', max_tokens: 8192 });
     });
