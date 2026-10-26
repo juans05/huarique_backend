@@ -49,7 +49,7 @@ export class WhatsappService {
                 continue;
             }
 
-            // Doble check azul para el cliente; no es crítico.
+            // Doble check azul y "escribiendo…" mientras responde el bot; no es crítico.
             this.cloud.markAsRead(number, msg.messageId).catch(() => undefined);
 
             await this.chatProcessor.processIncomingMessage(
