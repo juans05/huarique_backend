@@ -8,6 +8,7 @@ import { MenuImportService } from './menu-import.service';
 import { PromotionsService } from './promotions.service';
 import { TikTokSearchService } from './tiktok-search.service';
 import { MenuFormatterService } from './menu-formatter.service';
+import { BotPromptService } from './bot-prompt.service';
 import { PlacesController } from './places.controller';
 import { BusinessPlacesController } from './business-places.controller';
 import { Place } from './entities/place.entity';
@@ -78,7 +79,7 @@ import { Order } from '../orders/entities/order.entity';
     ],
 
     controllers: [PlacesController, BusinessPlacesController, GoogleCallbackController],
-    providers: [PlacesService, MenuService, MenuAssistantService, MenuImportService, MenuFormatterService, PromotionsService, TikTokSearchService, GeolocationService, RarityCalculatorService, GoogleMapsService, GoogleBusinessService, WeeklyReportService, ReviewAutoService, TodayService],
+    providers: [PlacesService, MenuService, MenuAssistantService, MenuImportService, MenuFormatterService, BotPromptService, PromotionsService, TikTokSearchService, GeolocationService, RarityCalculatorService, GoogleMapsService, GoogleBusinessService, WeeklyReportService, ReviewAutoService, TodayService],
     exports: [PlacesService, MenuService, MenuFormatterService, GeolocationService, GoogleMapsService],
 })
 export class PlacesModule { }
