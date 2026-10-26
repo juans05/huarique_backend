@@ -5,7 +5,7 @@ import { Repository } from 'typeorm';
 import { Broadcast } from './entities/broadcast.entity';
 import { Contact } from '../contacts/entities/contact.entity';
 import { WhatsappService } from '../whatsapp/whatsapp.service';
-import { CreditsService } from '../credits/credits.service';
+import { chargesCredits, CreditsService } from '../credits/credits.service';
 import { BroadcastService } from './broadcast.service';
 import { WhatsAppCloudService, buildBodyComponents } from '../messaging/whatsapp-cloud.service';
 import { renderVariables } from '../messaging/whatsapp-templates.util';
@@ -48,7 +48,8 @@ export class BroadcastProcessor extends WorkerHost {
                 const values = renderVariables(broadcast.bodyVariables, { name: contactName });
                 // Se cobra ANTES de enviar: el chequeo de saldo al lanzar no reserva nada, así que dos campañas
                 // simultáneas pasarían ambas. Sin saldo, el mensaje no sale.
-                const charged = await this.creditsService.deductIfEnough(broadcast.placeId, 1, 'broadcast', broadcastId, `Mensaje enviado a ${customerPhone}`);
+                const paid = chargesCredits(broadcast.whatsappNumber);
+                const charged = !paid || await this.creditsService.deductIfEnough(broadcast.placeId, 1, 'broadcast', broadcastId, `Mensaje enviado a ${customerPhone}`);
                 if (!charged) {
                     console.warn(`[Broadcast] ${broadcastId}: sin saldo, no se envía a ${customerPhone}`);
                     await this.broadcastService.recordResult(broadcastId, false);
@@ -58,7 +59,7 @@ export class BroadcastProcessor extends WorkerHost {
                     await this.cloud.sendTemplate(broadcast.whatsappNumber, customerPhone, broadcast.templateName, broadcast.templateLanguage, buildBodyComponents(values));
                 } catch (err) {
                     // El envío falló: se devuelve el crédito (el reintento de BullMQ vuelve a cobrar).
-                    await this.creditsService.add(broadcast.placeId, 1, 'refund', `Devolución: falló el envío a ${customerPhone}`);
+                    if (paid) await this.creditsService.add(broadcast.placeId, 1, 'refund', `Devolución: falló el envío a ${customerPhone}`);
                     throw err;
                 }
                 await this.broadcastService.recordResult(broadcastId, true);

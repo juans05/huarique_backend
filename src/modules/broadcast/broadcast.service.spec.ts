@@ -162,6 +162,8 @@ describe('Campaña de recordatorio de cita', () => {
         await svc.processReminderCampaigns();
         const due = broadcastRepo.query.mock.calls.find((c: any[]) => c[0].includes('FROM wuarike_db.appointments'));
         expect(due[1]).toEqual(['p1', 60, 'b1']);
+        // La cita reservada a última hora también recibe aviso; la de link, solo con teléfono verificado.
+        expect(due[0]).not.toContain('created_at');
         expect(due[0]).toContain("'\\D'"); // la regex llega a Postgres como \D, no como D
         expect(credits.deductIfEnough).toHaveBeenCalledWith('p1', 1, 'broadcast', 'b1', expect.any(String));
         expect(cloud.sendTemplate.mock.calls[0][1]).toBe('51987654321');
@@ -205,5 +207,24 @@ describe('BroadcastService.updateBroadcast', () => {
         const reminder = { id: 'b1', placeId: 'p1', kind: 'reminder', status: 'SCHEDULED', templateName: 'r', reminderOffsetMin: 60, whatsappNumberId: 'n1' };
         expect(await build({ ...reminder }).svc.updateBroadcast('b1', { reminderOffsetMin: 120 })).toMatchObject({ reminderOffsetMin: 120, status: 'SCHEDULED' });
         await expect(build({ ...reminder }).svc.updateBroadcast('b1', { reminderOffsetMin: 5 })).rejects.toThrow(/15 minutos/);
+    });
+});
+
+describe('Créditos según el dueño del número', () => {
+    it('con su propio número (otra WABA) el recordatorio sale sin descontar créditos; con el de Wuarikes, sí', async () => {
+        const appt = { id: 'a1', customer_name: 'Ana', customer_phone: '51900111222', service_name: 'Corte', starts_at: '2026-10-26T21:00:00Z', public_token: 't', pro: null };
+        const run = async (wabaId: string | null) => {
+            const b = { id: 'b1', placeId: 'p1', kind: 'reminder', templateName: 'r', reminderOffsetMin: 60, status: 'SCHEDULED', bodyVariables: [], whatsappNumber: { ...meta, wabaId }, place: { ...on, name: 'X' } };
+            const ctx = build(b);
+            ctx.broadcastRepo.find.mockResolvedValue([b]);
+            ctx.broadcastRepo.query.mockImplementation(async (sql: string) => (sql.includes('FROM wuarike_db.appointments') ? [appt] : sql.startsWith('INSERT') ? [{ appointment_id: 'a1' }] : []));
+            await ctx.svc.processReminderCampaigns();
+            return ctx;
+        };
+        const own = await run('999-propia');
+        expect(own.cloud.sendTemplate).toHaveBeenCalled();
+        expect(own.credits.deductIfEnough).not.toHaveBeenCalled();
+        const platform = await run('1036831432246105');
+        expect(platform.credits.deductIfEnough).toHaveBeenCalled();
     });
 });
