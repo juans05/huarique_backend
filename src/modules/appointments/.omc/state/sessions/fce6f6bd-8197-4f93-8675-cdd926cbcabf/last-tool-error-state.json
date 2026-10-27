@@ -1,0 +1,7 @@
+{
+  "tool_name": "Bash",
+  "tool_input_preview": "{\"command\":\"cd /d/Github/wuarikes/huarique_backend/src/modules/appointments; cat > /c/Users/HP/AppData/Local/Temp/claude/D--Github-wuarikes/fce6f6bd-8197-4f93-8675-cdd926cbcabf/scratchpad/e2.py <<'PYE...",
+  "error": "Exit code 2\n/usr/bin/bash: -c: line 137: unexpected EOF while looking for matching `''",
+  "timestamp": "2026-10-26T04:55:53.561Z",
+  "retry_count": 1
+}

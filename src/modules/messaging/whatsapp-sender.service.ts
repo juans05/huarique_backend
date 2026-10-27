@@ -6,6 +6,7 @@ import { Place } from '../places/entities/place.entity';
 import { isMetaEnabled } from './meta-flag';
 import { PlazBotService } from '../plazbot/plazbot.service';
 import { WhatsAppCloudService } from './whatsapp-cloud.service';
+import type { MessageSource } from './whatsapp-billing.service';
 
 /**
  * Punto único para enviar por WhatsApp. Cada número elige su proveedor ('meta' = API de
@@ -36,10 +37,10 @@ export class WhatsAppSenderService {
         return { apiKey: process.env.PLAZBOT_API_KEY || '', workspaceId: process.env.PLAZBOT_WORKSPACE_ID || '' };
     }
 
-    async sendText(whatsappNumberId: string | null, to: string, text: string): Promise<void> {
+    async sendText(whatsappNumberId: string | null, to: string, text: string, source: MessageSource = 'bot'): Promise<void> {
         const meta = await this.metaNumber(whatsappNumberId);
         if (meta) {
-            await this.cloud.sendText(meta, to, text);
+            await this.cloud.sendText(meta, to, text, source);
             return;
         }
         const { apiKey, workspaceId } = this.plazbotAuth;
@@ -76,7 +77,7 @@ export class WhatsAppSenderService {
     ): Promise<void> {
         const meta = await this.metaNumber(whatsappNumberId);
         if (meta) {
-            await this.cloud.sendMediaByUrl(meta, to, uploadedUrl, file.mimetype, caption);
+            await this.cloud.sendMediaByUrl(meta, to, uploadedUrl, file.mimetype, caption, 'agent');
             return;
         }
         const { apiKey, workspaceId } = this.plazbotAuth;

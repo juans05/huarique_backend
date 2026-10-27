@@ -1,10 +1,14 @@
 import { BadGatewayException, Injectable, Logger } from '@nestjs/common';
 import axios from 'axios';
+import { WhatsAppBillingService, type MessageSource } from './whatsapp-billing.service';
+import { PAYMENT_ERROR_CODE } from './whatsapp-pricing.util';
 
-/** Lo mínimo que hace falta de un número para hablar con la API de WhatsApp Cloud. */
+/** Lo mínimo que hace falta de un número para hablar con la API de WhatsApp Cloud (placeId/wabaId: para su consumo). */
 export interface CloudNumber {
     phoneNumberId: string;
     whatsappApiToken?: string | null;
+    placeId?: string;
+    wabaId?: string | null;
 }
 
 export type CloudMediaKind = 'image' | 'video' | 'audio' | 'document';
@@ -51,11 +55,14 @@ export function buildTemplatePayload(to: string, name: string, language: string,
 export class WhatsAppCloudService {
     private readonly logger = new Logger(WhatsAppCloudService.name);
 
+    constructor(private readonly billing: WhatsAppBillingService) { }
+
     private get baseUrl() {
         return `https://graph.facebook.com/${process.env.WHATSAPP_API_VERSION || 'v20.0'}`;
     }
 
-    private async post(number: CloudNumber, body: Record<string, unknown>): Promise<string | null> {
+    /** Único punto de salida: cada mensaje aceptado queda registrado para el consumo del local. */
+    private async post(number: CloudNumber, body: Record<string, unknown> & { to: string }, source: MessageSource): Promise<string | null> {
         const token = number.whatsappApiToken || process.env.WHATSAPP_API_TOKEN;
         if (!token) throw new BadGatewayException('WhatsApp no está configurado: falta el token de acceso.');
 
@@ -65,25 +72,28 @@ export class WhatsAppCloudService {
                 { messaging_product: 'whatsapp', recipient_type: 'individual', ...body },
                 { headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }, timeout: 20000 },
             );
-            return data?.messages?.[0]?.id ?? null;
+            const wamid: string | null = data?.messages?.[0]?.id ?? null;
+            await this.billing.recordSent(number, body.to, wamid, source);
+            return wamid;
         } catch (err: any) {
             const detail = err?.response?.data?.error?.message || err?.message;
+            if (err?.response?.data?.error?.code === PAYMENT_ERROR_CODE && number.placeId) await this.billing.markPaymentIssue(number.placeId);
             this.logger.error(`[WhatsApp Cloud] Falló el envío: ${detail}`);
             throw new BadGatewayException(`No se pudo enviar por WhatsApp: ${detail}`);
         }
     }
 
-    sendText(number: CloudNumber, to: string, text: string) {
-        return this.post(number, buildTextPayload(to, text));
+    sendText(number: CloudNumber, to: string, text: string, source: MessageSource = 'bot') {
+        return this.post(number, buildTextPayload(to, text), source);
     }
 
-    sendMediaByUrl(number: CloudNumber, to: string, url: string, mime: string, caption?: string) {
-        return this.post(number, buildMediaPayload(to, url, mime, caption));
+    sendMediaByUrl(number: CloudNumber, to: string, url: string, mime: string, caption?: string, source: MessageSource = 'bot') {
+        return this.post(number, buildMediaPayload(to, url, mime, caption), source);
     }
 
     /** Único tipo de mensaje permitido fuera de la ventana de 24 h: una plantilla aprobada. */
-    sendTemplate(number: CloudNumber, to: string, name: string, language: string, components: unknown[] = []) {
-        return this.post(number, buildTemplatePayload(to, name, language, components));
+    sendTemplate(number: CloudNumber, to: string, name: string, language: string, components: unknown[] = [], source: MessageSource = 'broadcast') {
+        return this.post(number, buildTemplatePayload(to, name, language, components), source);
     }
 
     /**

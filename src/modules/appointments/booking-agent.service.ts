@@ -35,12 +35,15 @@ export class BookingAgentService {
             await this.draftsRepo.update({ id: draft.id }, { status: 'EXPIRADO' });
             draft = null;
         }
-        if (!draft && !looksLikeBookingIntent(input.message)) return { handled: false };
+        // Respuesta a un aviso de rutina ("sí, el sábado"): no trae palabras de reserva, pero viene a agendar ese servicio.
+        const recallServiceId = draft ? null : await this.pendingRecallService(input.placeId, input.customerPhone);
+        if (!draft && !recallServiceId && !looksLikeBookingIntent(input.message)) return { handled: false };
         if (!(await this.team.assertPlaceTier(input.placeId, 'ia_total').then(() => true, () => false))) return { handled: false };
 
         const [services, pros] = await Promise.all([this.appointments.services(input.placeId), this.appointments.professionals(input.placeId, true)]);
         if (!services.length || !pros.length) return { handled: false };
-        draft ??= this.draftsRepo.create({ placeId: input.placeId, customerPhone: input.customerPhone, serviceId: null, professionalId: null, date: null, time: null, status: 'ARMANDO' });
+        const preset = services.some((s) => s.id === recallServiceId) ? recallServiceId : null;
+        draft ??= this.draftsRepo.create({ placeId: input.placeId, customerPhone: input.customerPhone, serviceId: preset, professionalId: null, date: null, time: null, status: 'ARMANDO' });
         const today = limaDate(new Date());
 
         const raw = await this.ai.chat([
@@ -122,6 +125,26 @@ export class BookingAgentService {
             draft.time = null;
             return `${err.message} ¿Te muestro otros horarios?`;
         }
+    }
+
+    /**
+     * Servicio del aviso de rutina que se le mandó en los últimos 3 días, si todavía no conversó para reservar desde
+     * entonces (un borrador posterior al aviso) ni tiene una cita reservada.
+     */
+    private async pendingRecallService(placeId: string, phone: string): Promise<string | null> {
+        const digits = phone.replace(/\D/g, '').slice(-9);
+        if (digits.length < 9) return null;
+        const [row] = await this.draftsRepo.query(
+            `SELECT r.service_id FROM wuarike_db.appointment_recalls r
+             WHERE r.place_id = $1 AND right(regexp_replace(r.customer_phone, '\\D', '', 'g'), 9) = $2 AND r.sent_at > now() - interval '3 days'
+               AND NOT EXISTS (SELECT 1 FROM wuarike_db.appointment_drafts d WHERE d.place_id = r.place_id
+                               AND right(regexp_replace(d.customer_phone, '\\D', '', 'g'), 9) = $2 AND d.updated_at > r.sent_at)
+               AND NOT EXISTS (SELECT 1 FROM wuarike_db.appointments a WHERE a.place_id = r.place_id AND a.status = 'RESERVADA'
+                               AND a.starts_at > now() AND right(regexp_replace(a.customer_phone, '\\D', '', 'g'), 9) = $2)
+             ORDER BY r.sent_at DESC LIMIT 1`,
+            [placeId, digits],
+        );
+        return row?.service_id ?? null;
     }
 
     private async nextDayWithSlots(placeId: string, serviceId: string, proId: string | null, from: string) {

@@ -1,5 +1,5 @@
 import { Type } from 'class-transformer';
-import { ArrayMaxSize, IsArray, IsBoolean, IsIn, IsInt, IsObject, IsOptional, IsString, IsUUID, Matches, MaxLength, Min, MinLength, ValidateNested } from 'class-validator';
+import { ArrayMaxSize, ArrayMinSize, IsArray, IsBoolean, IsIn, IsInt, IsObject, IsOptional, IsString, IsUUID, Matches, Max, MaxLength, Min, MinLength, ValidateNested } from 'class-validator';
 
 const DATE = /^\d{4}-\d{2}-\d{2}$/;
 const TIME = /^([01]\d|2[0-3]):[0-5]\d$/;
@@ -59,6 +59,21 @@ export class UpdateAppointmentDto {
 
 export class DayQueryDto {
     @Matches(DATE) date: string;
+}
+
+export class RangeQueryDto {
+    @Matches(DATE, { message: 'Fecha en formato AAAA-MM-DD' }) from: string;
+    @Matches(DATE, { message: 'Fecha en formato AAAA-MM-DD' }) to: string;
+}
+
+/** Tiempos de recordatorio en minutos antes de la cita (30 min a 7 días, hasta 3). */
+export class RemindersSettingsDto {
+    @IsOptional() @IsBoolean() enabled?: boolean;
+    @IsOptional() @IsArray() @ArrayMinSize(1) @ArrayMaxSize(3) @IsInt({ each: true }) @Min(30, { each: true }) @Max(10080, { each: true }) offsetsMin?: number[];
+}
+
+export class RecallSettingsDto {
+    @IsBoolean() enabled: boolean;
 }
 
 /** Ficha de mascota o vehículo de un cliente. */

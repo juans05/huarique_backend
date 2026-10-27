@@ -22,4 +22,6 @@ export async function revokeMarketingConsent(manager: EntityManager, placeId: st
     await manager.query(`UPDATE wuarike_db.loyalty_cards SET marketing_consent = false WHERE place_id::text = $1 AND ${samePhone('customer_phone')}`, [placeId, digits]);
     await manager.query(`UPDATE wuarike_db.contacts SET marketing_consent = false WHERE place_id::text = $1 AND ${samePhone('phone')}`, [placeId, digits]);
     await manager.query(`UPDATE wuarike_db.public_feedback SET marketing_consent = false WHERE place_id::text = $1 AND ${samePhone('customer_contact')}`, [placeId, digits]);
+    // Registro explícito de la baja: lo usan los avisos de rutina de la agenda.
+    await manager.query(`INSERT INTO wuarike_db.whatsapp_opt_outs (place_id, phone9) VALUES ($1, $2) ON CONFLICT DO NOTHING`, [placeId, digits]);
 }
