@@ -21,8 +21,8 @@ export class PushService {
         return this.devices.upsert({ userId, token, platform }, ['token']);
     }
 
-    unregister(userId: string, token: string) {
-        return this.devices.delete({ userId, token });
+    unregister(token: string) {
+        return this.devices.delete({ token });
     }
 
     async sendToUsers(userIds: string[], msg: PushMessage): Promise<void> {
