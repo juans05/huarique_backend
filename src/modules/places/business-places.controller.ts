@@ -259,9 +259,12 @@ export class BusinessPlacesController {
 
         return [...ownedPlaces, ...teamPlaces].map(p => {
             const verticalConfig = getVerticalConfig(p.businessType);
+            const independent = p.metadata?.independent === true;
             return {
                 id: p.id,
                 name: p.name,
+                independent,
+                nickname: independent ? p.slug : null,
                 coverImageUrl: p.coverImageUrl,
                 category: p.category,
                 status: p.status,
