@@ -38,6 +38,8 @@ import { Amenity } from './entities/amenity.entity';
 import { Repository, ILike, IsNull, In } from 'typeorm';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { CreateOnboardingPlaceDto } from './dto/create-onboarding-place.dto';
+import { CreateIndependentDto } from './dto/create-independent.dto';
+import { IndependentOnboardingService } from './independent-onboarding.service';
 import { PlaceTeamMember } from '../team/entities/place-team-member.entity';
 import { PlaceTeamService } from '../team/place-team.service';
 import { SubscriptionsService } from '../subscriptions/subscriptions.service';
@@ -69,6 +71,7 @@ export class BusinessPlacesController {
         private readonly menuService: MenuService,
         private readonly promotionsService: PromotionsService,
         private readonly todayService: TodayService,
+        private readonly independentOnboarding: IndependentOnboardingService,
         @InjectRepository(Place)
         private placesRepo: Repository<Place>,
         @InjectRepository(Amenity)
@@ -217,6 +220,21 @@ export class BusinessPlacesController {
         const saved = await this.placesRepo.save(newPlace);
         this.notifyPendingPlace(saved, user);
         return { message: 'Local creado con éxito', placeId: saved.id };
+    }
+
+    @Post('onboarding/independent')
+    @ApiOperation({ summary: 'Register an independent barber (one-person place with a unique nickname)' })
+    async createIndependent(@Body() dto: CreateIndependentDto, @CurrentUser() user: any) {
+        const created = await this.independentOnboarding.create(user.id, dto);
+        const place = await this.placesRepo.findOne({ where: { id: created.placeId } });
+        if (place) this.notifyPendingPlace(place, user);
+        return { message: 'Perfil creado', ...created };
+    }
+
+    @Get('onboarding/nickname')
+    @ApiOperation({ summary: 'Check whether an independent barber nickname is valid and free' })
+    checkNickname(@Query('value') value: string) {
+        return this.independentOnboarding.checkNickname(value);
     }
 
     @Get('my-places')
