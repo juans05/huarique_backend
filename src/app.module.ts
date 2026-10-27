@@ -45,6 +45,7 @@ import { CommissionsModule } from './modules/commissions/commissions.module';
 import { OrdersModule } from './modules/orders/orders.module';
 import { PlatformAccessModule } from './modules/platform-access/platform-access.module';
 import { AppointmentsModule } from './modules/appointments/appointments.module';
+import { PushModule } from './modules/push/push.module';
 import { InventoryModule } from './modules/inventory/inventory.module';
 import { OrdersNotificationsModule } from './modules/orders/orders-notifications.module';
 
@@ -129,6 +130,7 @@ import { OrdersNotificationsModule } from './modules/orders/orders-notifications
         PlatformAccessModule,
         OrdersModule,
         AppointmentsModule,
+        PushModule,
         InventoryModule,
         OrdersNotificationsModule,
     ],
