@@ -12,6 +12,7 @@ import { Order } from '../orders/entities/order.entity';
 import { normalizePhone } from '../orders/order-rules';
 import { Conversation } from '../whatsapp/entities/conversation.entity';
 import { LoyaltyCard } from '../loyalty/entities/loyalty-card.entity';
+import { Appointment } from '../appointments/entities/appointment.entity';
 import * as Papa from 'papaparse';
 import * as XLSX from 'xlsx';
 
@@ -19,7 +20,7 @@ export type ContactSource = Contact['source'];
 
 export interface TimelineEntry {
     at: string;
-    kind: 'order' | 'conversation' | 'loyalty';
+    kind: 'order' | 'conversation' | 'loyalty' | 'appointment';
     title: string;
     /** Solo en pedidos, en céntimos (igual que la API de pedidos). */
     amount?: number;
@@ -36,6 +37,9 @@ const CONVERSATION_STATUS_LABEL: Record<string, string> = { abierto: 'abierta', 
 const isEmpty = (v: unknown) => v === null || v === undefined || v === '' || (Array.isArray(v) && v.length === 0);
 const isUniqueViolation = (err: any) => (err?.code ?? err?.driverError?.code) === '23505';
 // El mismo número aparece con o sin prefijo 51 según de dónde venga, así que la ficha cruza por los últimos 9 dígitos.
+const APPOINTMENT_STATUS_LABEL: Record<string, string> = {
+    RESERVADA: 'Reservada', LISTO: 'Listo', ATENDIDA: 'Atendida', NO_ASISTIO: 'No asistió', CANCELADA: 'Anulada',
+};
 const lastNine = (phone: string | null | undefined) => (phone ?? '').replace(/\D/g, '').slice(-9);
 const samePhone = (column: string) => `right(regexp_replace(coalesce(${column}, ''), '\\D', '', 'g'), 9) = :last9`;
 
@@ -55,6 +59,8 @@ export class ContactsService {
         private conversationsRepo: Repository<Conversation>,
         @InjectRepository(LoyaltyCard)
         private cardsRepo: Repository<LoyaltyCard>,
+        @InjectRepository(Appointment)
+        private appointmentsRepo: Repository<Appointment>,
     ) {}
 
     /**
@@ -466,7 +472,7 @@ export class ContactsService {
         const last9 = lastNine(contact.phone);
         if (!last9) return { contact, loyaltyCard: null, timeline: [] };
 
-        const [orders, conversations, loyaltyCard] = await Promise.all([
+        const [orders, conversations, loyaltyCard, appointments] = await Promise.all([
             this.ordersRepo.createQueryBuilder('o')
                 .where('o.placeId = :placeId', { placeId }).andWhere(samePhone('o.customerPhone'), { last9 })
                 .orderBy('o.createdAt', 'DESC').take(TIMELINE_MAX).getMany(),
@@ -476,11 +482,15 @@ export class ContactsService {
             this.cardsRepo.createQueryBuilder('l')
                 .where('l.placeId = :placeId', { placeId }).andWhere(samePhone('l.customerPhone'), { last9 })
                 .orderBy('l.updatedAt', 'DESC').getOne(),
+            this.appointmentsRepo.createQueryBuilder('a')
+                .where('a.placeId = :placeId', { placeId }).andWhere(samePhone('a.customerPhone'), { last9 })
+                .orderBy('a.startsAt', 'DESC').take(TIMELINE_MAX).getMany(),
         ]);
 
         const timeline: TimelineEntry[] = [
             ...orders.map((o) => ({ at: o.createdAt.toISOString(), kind: 'order' as const, title: `Pedido #${o.number} · ${ORDER_STATUS_LABEL[o.status] ?? o.status}`, amount: o.total })),
             ...conversations.map((c) => ({ at: c.createdAt.toISOString(), kind: 'conversation' as const, title: `Conversación por WhatsApp · ${CONVERSATION_STATUS_LABEL[c.status] ?? c.status}` })),
+            ...appointments.map((a) => ({ at: a.startsAt.toISOString(), kind: 'appointment' as const, title: `Cita · ${a.serviceName} · ${APPOINTMENT_STATUS_LABEL[a.status] ?? a.status}`, amount: a.price })),
         ];
         if (loyaltyCard) {
             timeline.push({ at: loyaltyCard.createdAt.toISOString(), kind: 'loyalty', title: 'Se unió al programa de fidelización' });
