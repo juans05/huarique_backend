@@ -207,7 +207,12 @@ export class AppointmentsService {
             const place = await this.placesRepo.findOne({ where: { id: placeId }, select: ['id', 'openingHours'] });
             const ok = await this.dataSource.transaction(async (em) => {
                 if (!(await this.fits(em, pro, place?.openingHours ?? null, date, slot, appt.id))) return false;
-                await em.update(Appointment, { id: appt.id }, { professionalId: pro.id, startsAt: slot.start, endsAt: slot.end, status: dto.status ?? appt.status });
+                // Otra hora u otro barbero: el aviso "ya te toca" vuelve a quedar pendiente.
+                const moved = pro.id !== appt.professionalId || slot.start.getTime() !== appt.startsAt.getTime();
+                await em.update(Appointment, { id: appt.id }, {
+                    professionalId: pro.id, startsAt: slot.start, endsAt: slot.end, status: dto.status ?? appt.status,
+                    ...(moved ? { upcomingPushedAt: null } : {}),
+                });
                 return true;
             });
             if (!ok) throw new BadRequestException('Ese horario no está disponible para ese profesional');
