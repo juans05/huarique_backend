@@ -1,4 +1,4 @@
-import { Controller, Post, Get, Param, Body, UseGuards, HttpCode, HttpStatus, NotFoundException, ForbiddenException } from '@nestjs/common';
+import { Controller, Post, Get, Param, Body, Query, UseGuards, HttpCode, HttpStatus, NotFoundException, ForbiddenException, BadRequestException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Place } from '../places/entities/place.entity';
@@ -6,6 +6,7 @@ import { MetaAdsService } from './meta-ads.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
+import { INSIGHT_PRESETS, type InsightPreset } from './meta-ads-insights.util';
 
 @ApiTags('Business Meta Ads Integration')
 @ApiBearerAuth()
@@ -29,6 +30,15 @@ export class MetaAdsController {
   async getStatus(@CurrentUser() user: any, @Param('placeId') placeId: string) {
     await this.assertOwner(placeId, user.id);
     return await this.metaAdsService.getConnectionStatus(placeId);
+  }
+
+  @ApiOperation({ summary: 'Gasto en anuncios del periodo (totales, por día y por campaña)' })
+  @Get('place/:placeId/insights')
+  async getInsights(@CurrentUser() user: any, @Param('placeId') placeId: string, @Query('preset') preset?: string) {
+    await this.assertOwner(placeId, user.id);
+    const p = (preset ?? 'this_month') as InsightPreset;
+    if (!INSIGHT_PRESETS.includes(p)) throw new BadRequestException(`Periodo inválido: usa ${INSIGHT_PRESETS.join(', ')}`);
+    return this.metaAdsService.getInsights(placeId, p);
   }
 
   @ApiOperation({ summary: 'Conecta/vincula las credenciales de Facebook Ads para el local' })

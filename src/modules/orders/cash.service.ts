@@ -33,6 +33,28 @@ export class CashService {
         private emitter: EventEmitter2,
     ) { }
 
+    /**
+     * Comprobante listo para imprimir: datos del local, cabecera y líneas. El cobro de mesa no guarda líneas propias,
+     * así que salen de los pedidos de esa cuenta (sin los cancelados).
+     */
+    async receiptForPrint(placeId: string, receiptId: string) {
+        const receipt = await this.receiptsRepo.findOne({ where: { id: receiptId, placeId }, relations: ['items'] });
+        if (!receipt) throw new NotFoundException('Comprobante no encontrado');
+        let lines = (receipt.items ?? []).map((i) => ({ description: i.description, quantity: i.quantity, unitPrice: i.unitPrice, lineTotal: i.lineTotal }));
+        if (!lines.length && receipt.tabId) {
+            lines = await this.dataSource.query(
+                `SELECT i.dish_name_snapshot AS description, SUM(i.quantity)::int AS quantity, i.unit_price AS "unitPrice", SUM(i.line_total)::int AS "lineTotal"
+                 FROM wuarike_db.order_items i JOIN wuarike_db.orders o ON o.id = i.order_id
+                 WHERE o.tab_id = $1 AND o.place_id = $2 AND o.status <> 'CANCELADO'
+                 GROUP BY i.dish_name_snapshot, i.unit_price ORDER BY i.dish_name_snapshot`,
+                [receipt.tabId, placeId],
+            );
+        }
+        const [place] = await this.dataSource.query('SELECT name, address, phone FROM wuarike_db.places WHERE id = $1', [placeId]);
+        const { items, ...head } = receipt;
+        return { place: place ?? null, receipt: { ...head, code: receiptCode(receipt.series, receipt.number) }, lines };
+    }
+
     /** Estado de la caja: turno abierto (o null), totales, precuentas por cobrar y comprobantes del turno. */
     async current(placeId: string) {
         const session = await this.sessionsRepo.findOne({ where: { placeId, status: 'ABIERTA' } });

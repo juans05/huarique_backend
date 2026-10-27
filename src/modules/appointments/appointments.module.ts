@@ -13,12 +13,13 @@ import { CustomerAsset } from './entities/customer-asset.entity';
 import { AppointmentsService } from './appointments.service';
 import { BookingAgentService } from './booking-agent.service';
 import { RemindersService } from './reminders.service';
+import { RecallService } from './recall.service';
 import { PublicAgendaController, StaffAgendaController } from './appointments.controller';
 
 @Module({
     imports: [TypeOrmModule.forFeature([Professional, Appointment, AppointmentDraft, CustomerAsset, Dish, Place, WhatsAppNumber]), TeamModule, AuthModule, AiModule, MessagingModule],
     controllers: [StaffAgendaController, PublicAgendaController],
-    providers: [AppointmentsService, BookingAgentService, RemindersService],
+    providers: [AppointmentsService, BookingAgentService, RemindersService, RecallService],
     exports: [AppointmentsService, BookingAgentService, RemindersService],
 })
 export class AppointmentsModule { }

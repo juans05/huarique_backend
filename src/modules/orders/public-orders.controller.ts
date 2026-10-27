@@ -1,7 +1,9 @@
-import { BadRequestException, Body, Controller, Get, HttpCode, NotFoundException, Param, Post, Query, Req, Sse } from '@nestjs/common';
+import { BadRequestException, Body, Controller, Get, HttpCode, NotFoundException, Param, ParseUUIDPipe, Post, Query, Req, Sse } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Throttle } from '@nestjs/throttler';
-import { In, Repository } from 'typeorm';
+import { DataSource, In, Repository } from 'typeorm';
+import { ConfigService } from '@nestjs/config';
+import { getVerticalConfig } from '../places/business-types';
 import { Observable, from, switchMap } from 'rxjs';
 import { PlaceTable } from './entities/place-table.entity';
 import { Tab } from './entities/tab.entity';
@@ -29,7 +31,34 @@ export class PublicOrdersController {
         private orders: OrdersService,
         private payments: PaymentsService,
         private events: OrderEventsService,
+        private dataSource: DataSource,
+        private config: ConfigService,
     ) { }
+
+    /**
+     * Qué puede hacer el público con este local desde la web: reservar cita (link de la agenda) y pedir por WhatsApp
+     * (el bot toma recojo/delivery). Mismas reglas que el backend aplica al reservar o al atender el pedido.
+     */
+    @Get('places/:placeId/actions')
+    async placeActions(@Param('placeId', ParseUUIDPipe) placeId: string) {
+        const place = await this.placesRepo.findOne({ where: { id: placeId }, select: ['id', 'businessType', 'status'] });
+        if (!place) throw new NotFoundException('Local no encontrado');
+        if (place.status !== 'active') return { bookingUrl: null, orderWhatsapp: null };
+        const modules = getVerticalConfig(place.businessType).modules;
+        const [[pros], settings, [number]] = await Promise.all([
+            this.dataSource.query('SELECT count(*)::int AS n FROM wuarike_db.place_professionals WHERE place_id = $1 AND active', [placeId]),
+            this.orders.getSettings(placeId),
+            this.dataSource.query('SELECT phone_number FROM wuarike_db.whatsapp_numbers WHERE place_id = $1 AND is_active ORDER BY created_at LIMIT 1', [placeId]),
+        ]);
+        const booking = modules.includes('agenda') && pros.n > 0 && (await this.orders.hasPlan(placeId, 'reputacion'));
+        const ordering = modules.includes('pedidos') && settings.ordersEnabled && (settings.pickupEnabled || settings.deliveryEnabled)
+            && !!number && (await this.orders.hasPlan(placeId, 'ia_total'));
+        const dashboard = this.config.get<string>('DASHBOARD_URL') || 'https://admin.wuarikes.com';
+        return {
+            bookingUrl: booking ? `${dashboard}/reservar/${placeId}` : null,
+            orderWhatsapp: ordering ? String(number.phone_number).replace(/\D/g, '') : null,
+        };
+    }
 
     @Get('tables/:qrToken')
     async table(@Param('qrToken') qrToken: string) {
