@@ -16,6 +16,11 @@ import { AssetDto, AvailabilityQueryDto, BookDto, DayQueryDto, ProfessionalDto, 
 export class StaffAgendaController {
     constructor(private agenda: AppointmentsService, private reminders: RemindersService, private recall: RecallService) { }
 
+    /** Los clientes son del local: el barbero de barbería (alcance propio) no ve sus fichas ni rutinas. */
+    private async denyOwnScope(req: any) {
+        if ((await this.agenda.agendaScope(req.placeTeamMember)).scope === 'own') throw new ForbiddenException('Esto lo ve el local');
+    }
+
     // ── Recordatorios por WhatsApp ──
     @Get('reminders')
     @RequiresPlaceRole('agente')
@@ -62,16 +67,18 @@ export class StaffAgendaController {
 
     @Get('recall/upcoming')
     @RequiresPlaceRole('agente')
-    async recallUpcoming(@Param('placeId') placeId: string) {
+    async recallUpcoming(@Param('placeId') placeId: string, @Req() req: any) {
         await this.agenda.assertEnabled(placeId);
+        await this.denyOwnScope(req);
         return this.recall.upcoming(placeId);
     }
 
     @Post('recall/:appointmentId/notify')
     @RequiresPlaceRole('agente')
     @Throttle({ default: { ttl: 60000, limit: 30 } })
-    async recallNotify(@Param('placeId') placeId: string, @Param('appointmentId', ParseUUIDPipe) appointmentId: string) {
+    async recallNotify(@Param('placeId') placeId: string, @Param('appointmentId', ParseUUIDPipe) appointmentId: string, @Req() req: any) {
         await this.agenda.assertEnabled(placeId);
+        await this.denyOwnScope(req);
         return this.recall.notifyNow(placeId, appointmentId);
     }
 
@@ -118,7 +125,11 @@ export class StaffAgendaController {
     async range(@Param('placeId') placeId: string, @Query() q: RangeQueryDto, @Req() req: any) {
         await this.agenda.assertEnabled(placeId);
         const { professionalId } = await this.agenda.agendaScope(req.placeTeamMember);
-        const [range, recallDue] = await Promise.all([this.agenda.range(placeId, q.from, q.to, professionalId), this.recall.dueByDay(placeId, q.from, q.to)]);
+        // Rutinas por volver = clientes del local: el barbero de barbería no las ve.
+        const [range, recallDue] = await Promise.all([
+            this.agenda.range(placeId, q.from, q.to, professionalId),
+            professionalId ? {} : this.recall.dueByDay(placeId, q.from, q.to),
+        ]);
         return { ...range, recallDue };
     }
 
@@ -138,22 +149,25 @@ export class StaffAgendaController {
 
     @Get('assets')
     @RequiresPlaceRole('agente')
-    async assets(@Param('placeId') placeId: string, @Query('phone') phone?: string) {
+    async assets(@Param('placeId') placeId: string, @Req() req: any, @Query('phone') phone?: string) {
         await this.agenda.assertEnabled(placeId);
+        await this.denyOwnScope(req);
         return this.agenda.assets(placeId, phone);
     }
 
     @Post('assets')
     @RequiresPlaceRole('agente')
-    async createAsset(@Param('placeId') placeId: string, @Body() dto: AssetDto) {
+    async createAsset(@Param('placeId') placeId: string, @Body() dto: AssetDto, @Req() req: any) {
         await this.agenda.assertEnabled(placeId);
+        await this.denyOwnScope(req);
         return this.agenda.saveAsset(placeId, null, dto);
     }
 
     @Patch('assets/:id')
     @RequiresPlaceRole('agente')
-    async updateAsset(@Param('placeId') placeId: string, @Param('id') id: string, @Body() dto: AssetDto) {
+    async updateAsset(@Param('placeId') placeId: string, @Param('id') id: string, @Body() dto: AssetDto, @Req() req: any) {
         await this.agenda.assertEnabled(placeId);
+        await this.denyOwnScope(req);
         return this.agenda.saveAsset(placeId, id, dto);
     }
 
