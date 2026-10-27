@@ -14,12 +14,14 @@ import { AppointmentsService } from './appointments.service';
 import { BookingAgentService } from './booking-agent.service';
 import { RemindersService } from './reminders.service';
 import { RecallService } from './recall.service';
+import { AppointmentPush } from './appointment-push';
+import { PushModule } from '../push/push.module';
 import { PublicAgendaController, StaffAgendaController } from './appointments.controller';
 
 @Module({
-    imports: [TypeOrmModule.forFeature([Professional, Appointment, AppointmentDraft, CustomerAsset, Dish, Place, WhatsAppNumber]), TeamModule, AuthModule, AiModule, MessagingModule],
+    imports: [TypeOrmModule.forFeature([Professional, Appointment, AppointmentDraft, CustomerAsset, Dish, Place, WhatsAppNumber]), TeamModule, AuthModule, AiModule, MessagingModule, PushModule],
     controllers: [StaffAgendaController, PublicAgendaController],
-    providers: [AppointmentsService, BookingAgentService, RemindersService, RecallService],
+    providers: [AppointmentsService, BookingAgentService, RemindersService, RecallService, AppointmentPush],
     exports: [AppointmentsService, BookingAgentService, RemindersService],
 })
 export class AppointmentsModule { }
