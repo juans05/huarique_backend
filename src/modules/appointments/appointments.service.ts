@@ -1,6 +1,8 @@
 import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Between, DataSource, EntityManager, In, Not, Repository } from 'typeorm';
+import { assertOwnAppt, resolveAgendaScope } from './agenda-scope';
+import { PlaceTeamMember } from '../team/entities/place-team-member.entity';
 import { Professional } from './entities/professional.entity';
 import { Appointment, AppointmentSource } from './entities/appointment.entity';
 import { AssetKind, CustomerAsset } from './entities/customer-asset.entity';
@@ -125,13 +127,19 @@ export class AppointmentsService {
 
     // ── Calendario ───────────────────────────────────────────────────────
     /** Día del calendario: profesionales (con su horario de ese día) y sus citas. */
-    async day(placeId: string, date: string) {
+    /** Qué parte de la agenda ve este miembro del equipo (ver agenda-scope.ts). */
+    agendaScope(member: PlaceTeamMember) {
+        return resolveAgendaScope(member, this.prosRepo);
+    }
+
+    async day(placeId: string, date: string, scopeProId: string | null = null) {
         const place = await this.placesRepo.findOne({ where: { id: placeId }, select: ['id', 'openingHours'] });
-        const pros = await this.professionals(placeId, true);
+        const pros = (await this.professionals(placeId, true)).filter((p) => !scopeProId || p.id === scopeProId);
         const from = limaInstant(date, '00:00');
         const to = limaInstant(date, '23:59');
         const appts = await this.apptRepo.createQueryBuilder('a')
             .where('a.place_id = :placeId AND a.starts_at BETWEEN :from AND :to', { placeId, from, to })
+            .andWhere(scopeProId ? 'a.professional_id = :scopeProId' : '1=1', { scopeProId })
             .orderBy('a.starts_at', 'ASC').getMany();
         const assetIds = appts.map((a) => a.assetId).filter(Boolean) as string[];
         const assets = assetIds.length ? await this.assetsRepo.find({ where: { id: In(assetIds) } }) : [];
@@ -146,11 +154,12 @@ export class AppointmentsService {
     }
 
     /** Semana o mes: citas resumidas del rango (fechas de Lima) y cuántas hay por día. */
-    async range(placeId: string, from: string, to: string) {
+    async range(placeId: string, from: string, to: string, scopeProId: string | null = null) {
         if (to < from) throw new BadRequestException('La fecha final debe ser después de la inicial');
         if (limaInstant(to, '12:00').getTime() - limaInstant(from, '12:00').getTime() > (MAX_RANGE_DAYS - 1) * 86400_000) throw new BadRequestException(`El rango máximo es de ${MAX_RANGE_DAYS} días`);
         const appts = await this.apptRepo.createQueryBuilder('a')
             .where('a.place_id = :placeId AND a.starts_at BETWEEN :from AND :to', { placeId, from: limaInstant(from, '00:00'), to: limaInstant(to, '23:59') })
+            .andWhere(scopeProId ? 'a.professional_id = :scopeProId' : '1=1', { scopeProId })
             .orderBy('a.starts_at', 'ASC').getMany();
         const pros = await this.professionals(placeId);
         const byDay: Record<string, { reserved: number; attended: number; total: number }> = {};
@@ -171,16 +180,19 @@ export class AppointmentsService {
     }
 
     /** Cita completa (la vista Semana/Mes trae un resumen; al abrirla se pide entera). */
-    async one(placeId: string, id: string) {
+    async one(placeId: string, id: string, scopeProId: string | null = null) {
         const appt = await this.apptRepo.findOne({ where: { id, placeId } });
         if (!appt) throw new NotFoundException('Cita no encontrada');
+        assertOwnAppt(scopeProId, appt);
         const asset = appt.assetId ? await this.assetsRepo.findOne({ where: { id: appt.assetId } }) : null;
         return this.view(appt, await this.prosRepo.findOne({ where: { id: appt.professionalId } }), asset);
     }
 
-    async update(placeId: string, id: string, dto: UpdateAppointmentDto) {
+    async update(placeId: string, id: string, dto: UpdateAppointmentDto, scopeProId: string | null = null) {
         const appt = await this.apptRepo.findOne({ where: { id, placeId } });
         if (!appt) throw new NotFoundException('Cita no encontrada');
+        // Su propia cita: puede atenderla, anularla o traspasarla a un compañero (professionalId distinto).
+        assertOwnAppt(scopeProId, appt);
         if (dto.date || dto.time || dto.professionalId) {
             const pro = await this.prosRepo.findOne({ where: { id: dto.professionalId ?? appt.professionalId, placeId } });
             if (!pro) throw new NotFoundException('Profesional no encontrado');

@@ -1,4 +1,5 @@
-import { Body, Controller, Get, Param, ParseUUIDPipe, Patch, Post, Query, UseGuards } from '@nestjs/common';
+import { Body, Controller, ForbiddenException, Get, Param, ParseUUIDPipe, Patch, Post, Query, Req, UseGuards } from '@nestjs/common';
+import { canUseApp } from './agenda-scope';
 import { Throttle } from '@nestjs/throttler';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { PlaceRoleGuard } from '../../common/guards/place-role.guard';
@@ -74,11 +75,20 @@ export class StaffAgendaController {
         return this.recall.notifyNow(placeId, appointmentId);
     }
 
+    /** Qué ve este usuario en la agenda (la app del barbero arma sus pestañas con esto). */
+    @Get('me')
+    @RequiresPlaceRole('agente')
+    async me(@Req() req: any) {
+        const member = req.placeTeamMember;
+        const s = await this.agenda.agendaScope(member);
+        return { ...s, role: member.role, canUseApp: canUseApp(member.role, s) };
+    }
+
     @Get('day')
     @RequiresPlaceRole('agente')
-    async day(@Param('placeId') placeId: string, @Query() q: DayQueryDto) {
+    async day(@Param('placeId') placeId: string, @Query() q: DayQueryDto, @Req() req: any) {
         await this.agenda.assertEnabled(placeId);
-        return this.agenda.day(placeId, q.date);
+        return this.agenda.day(placeId, q.date, (await this.agenda.agendaScope(req.placeTeamMember)).professionalId);
     }
 
     @Get('services')
@@ -97,31 +107,33 @@ export class StaffAgendaController {
 
     @Post('appointments')
     @RequiresPlaceRole('agente')
-    async book(@Param('placeId') placeId: string, @Body() dto: BookDto, @CurrentUser() user: any) {
+    async book(@Param('placeId') placeId: string, @Body() dto: BookDto, @CurrentUser() user: any, @Req() req: any) {
         await this.agenda.assertEnabled(placeId);
+        if ((await this.agenda.agendaScope(req.placeTeamMember)).scope === 'own') throw new ForbiddenException('Solo el local puede crear citas');
         return this.agenda.book(placeId, dto, 'PANEL', user.id);
     }
 
     @Get('range')
     @RequiresPlaceRole('agente')
-    async range(@Param('placeId') placeId: string, @Query() q: RangeQueryDto) {
+    async range(@Param('placeId') placeId: string, @Query() q: RangeQueryDto, @Req() req: any) {
         await this.agenda.assertEnabled(placeId);
-        const [range, recallDue] = await Promise.all([this.agenda.range(placeId, q.from, q.to), this.recall.dueByDay(placeId, q.from, q.to)]);
+        const { professionalId } = await this.agenda.agendaScope(req.placeTeamMember);
+        const [range, recallDue] = await Promise.all([this.agenda.range(placeId, q.from, q.to, professionalId), this.recall.dueByDay(placeId, q.from, q.to)]);
         return { ...range, recallDue };
     }
 
     @Get('appointments/:id')
     @RequiresPlaceRole('agente')
-    async one(@Param('placeId') placeId: string, @Param('id', ParseUUIDPipe) id: string) {
+    async one(@Param('placeId') placeId: string, @Param('id', ParseUUIDPipe) id: string, @Req() req: any) {
         await this.agenda.assertEnabled(placeId);
-        return this.agenda.one(placeId, id);
+        return this.agenda.one(placeId, id, (await this.agenda.agendaScope(req.placeTeamMember)).professionalId);
     }
 
     @Patch('appointments/:id')
     @RequiresPlaceRole('agente')
-    async update(@Param('placeId') placeId: string, @Param('id') id: string, @Body() dto: UpdateAppointmentDto) {
+    async update(@Param('placeId') placeId: string, @Param('id') id: string, @Body() dto: UpdateAppointmentDto, @Req() req: any) {
         await this.agenda.assertEnabled(placeId);
-        return this.agenda.update(placeId, id, dto);
+        return this.agenda.update(placeId, id, dto, (await this.agenda.agendaScope(req.placeTeamMember)).professionalId);
     }
 
     @Get('assets')
