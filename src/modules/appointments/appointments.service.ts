@@ -2,6 +2,7 @@ import { BadRequestException, ForbiddenException, Injectable, NotFoundException 
 import { InjectRepository } from '@nestjs/typeorm';
 import { Between, DataSource, EntityManager, In, Not, Repository } from 'typeorm';
 import { assertOwnAppt, resolveAgendaScope } from './agenda-scope';
+import { AppointmentPush } from './appointment-push';
 import { PlaceTeamMember } from '../team/entities/place-team-member.entity';
 import { Professional } from './entities/professional.entity';
 import { Appointment, AppointmentSource } from './entities/appointment.entity';
@@ -36,6 +37,7 @@ export class AppointmentsService {
         private dataSource: DataSource,
         private team: PlaceTeamService,
         private reminders: RemindersService,
+        private apptPush: AppointmentPush,
     ) { }
 
     /** La agenda existe si el local tiene plan activo y su rubro atiende con cita. */
@@ -120,7 +122,10 @@ export class AppointmentsService {
                     notes: dto.notes?.trim() || null, status: 'RESERVADA', source, publicToken: newPublicToken(), createdByUserId: userId, assetId,
                 }));
             });
-            if (created) return this.view(created, pro, assetId ? await this.assetsRepo.findOne({ where: { id: assetId } }) : null);
+            if (created) {
+                void this.apptPush.onBooked(created, pro.teamUserId);
+                return this.view(created, pro, assetId ? await this.assetsRepo.findOne({ where: { id: assetId } }) : null);
+            }
         }
         throw new BadRequestException('Ese horario ya no está disponible. Elige otro.');
     }
@@ -193,6 +198,7 @@ export class AppointmentsService {
         if (!appt) throw new NotFoundException('Cita no encontrada');
         // Su propia cita: puede atenderla, anularla o traspasarla a un compañero (professionalId distinto).
         assertOwnAppt(scopeProId, appt);
+        let transferredTo: Professional | null = null;
         if (dto.date || dto.time || dto.professionalId) {
             const pro = await this.prosRepo.findOne({ where: { id: dto.professionalId ?? appt.professionalId, placeId } });
             if (!pro) throw new NotFoundException('Profesional no encontrado');
@@ -205,10 +211,12 @@ export class AppointmentsService {
                 return true;
             });
             if (!ok) throw new BadRequestException('Ese horario no está disponible para ese profesional');
+            if (pro.id !== appt.professionalId) transferredTo = pro;
         } else if (dto.status) {
             await this.apptRepo.update({ id: appt.id }, { status: dto.status });
         }
         const fresh = (await this.apptRepo.findOne({ where: { id: appt.id } }))!;
+        if (transferredTo) void this.apptPush.onTransferred(fresh, transferredTo.teamUserId);
         const asset = fresh.assetId ? await this.assetsRepo.findOne({ where: { id: fresh.assetId } }) : null;
         let notified: boolean | undefined;
         // Listo para recoger: aviso por WhatsApp con la plantilla del rubro (vehículo o mascota).
