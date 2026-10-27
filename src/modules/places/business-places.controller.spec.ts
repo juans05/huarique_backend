@@ -41,6 +41,19 @@ describe('CreateOnboardingPlaceDto', () => {
     });
 });
 
+describe('BusinessPlacesController.getMyPlaces', () => {
+    it('marca independent y nickname según metadata', async () => {
+        const { ctrl, placesRepo } = build();
+        placesRepo.find.mockResolvedValueOnce([
+            { id: 'a', name: 'Carlos', slug: 'carlos.fade', businessType: 'barberia', metadata: { independent: true } },
+            { id: 'b', name: 'Barber Kings', slug: 'barber-kings', businessType: 'barberia', metadata: null },
+        ]);
+        const res: any[] = await ctrl.getMyPlaces(user);
+        expect(res.map((p) => p.independent)).toEqual([true, false]);
+        expect(res.map((p) => p.nickname)).toEqual(['carlos.fade', null]);
+    });
+});
+
 describe('BusinessPlacesController.createPlace', () => {
     it('guarda el businessType elegido', async () => {
         const { ctrl, placesRepo } = build();
