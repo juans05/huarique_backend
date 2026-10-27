@@ -40,15 +40,16 @@ const qb = (result: any) => {
     return chain;
 };
 
-const build = (seed: any[] = [], extra: { orders?: any[]; conversations?: any[]; card?: any } = {}) => {
+const build = (seed: any[] = [], extra: { orders?: any[]; conversations?: any[]; card?: any; appointments?: any[] } = {}) => {
     const contacts = memContacts(seed);
     const imports = memImports();
     const audit = { log: jest.fn(async () => undefined) };
     const orders = { createQueryBuilder: jest.fn(() => qb(extra.orders ?? [])) };
     const conversations = { createQueryBuilder: jest.fn(() => qb(extra.conversations ?? [])) };
     const cards = { createQueryBuilder: jest.fn(() => qb(extra.card ?? null)) };
-    const svc = new ContactsService(contacts as any, imports as any, audit as any, orders as any, conversations as any, cards as any);
-    return { svc, contacts, imports, audit, orders, conversations, cards };
+    const appointments = { createQueryBuilder: jest.fn(() => qb(extra.appointments ?? [])) };
+    const svc = new ContactsService(contacts as any, imports as any, audit as any, orders as any, conversations as any, cards as any, appointments as any);
+    return { svc, contacts, imports, audit, orders, conversations, cards, appointments };
 };
 
 describe('ContactsService.upsertByPhone', () => {
@@ -285,6 +286,15 @@ describe('ContactsService.getProfile', () => {
         expect(profile.timeline[1]).toMatchObject({ kind: 'order', amount: 5000, title: expect.stringContaining('#7') });
         // cada fuente se busca por local y por los últimos 9 dígitos del teléfono
         for (const repo of [orders, conversations, cards]) expect(repo.createQueryBuilder).toHaveBeenCalledTimes(1);
+    });
+
+    it('las citas del mismo teléfono entran con su servicio, estado y precio', async () => {
+        const { svc, appointments } = build([{ placeId: 'p1', phone: '51999888777' }], {
+            appointments: [{ serviceName: 'Corte + barba', status: 'ATENDIDA', price: 3500, startsAt: new Date('2026-10-20T15:00:00Z') }],
+        });
+        const profile = await svc.getProfile('p1', 'c1');
+        expect(profile.timeline).toEqual([{ at: '2026-10-20T15:00:00.000Z', kind: 'appointment', title: 'Cita · Corte + barba · Atendida', amount: 3500 }]);
+        expect(appointments.createQueryBuilder).toHaveBeenCalledTimes(1);
     });
 
     it('la línea de tiempo tiene como máximo 100 entradas', async () => {
