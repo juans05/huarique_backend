@@ -24,6 +24,8 @@ export class Appointment {
     @Column({ default: 'RESERVADA' }) status: AppointmentStatus;
     @Column({ default: 'PANEL' }) source: AppointmentSource;
     @Column({ name: 'public_token', unique: true }) publicToken: string;
+    /** Cuándo se le avisó al barbero "ya te toca" (push de la app); null = aún no. */
+    @Column({ name: 'upcoming_pushed_at', type: 'timestamptz', nullable: true }) upcomingPushedAt: Date | null;
     @Column({ name: 'created_by_user_id', type: 'uuid', nullable: true }) createdByUserId: string | null;
     /** Comprobante con el que se cobró en caja (null = por cobrar). */
     @Column({ name: 'receipt_id', type: 'uuid', nullable: true }) receiptId: string | null;
