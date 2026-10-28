@@ -11,11 +11,12 @@ import { ConfigService } from '@nestjs/config';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { Subscription } from './entities/subscription.entity';
-import { CULQI_STATUS, decideSync, splitFullName } from './culqi-sync.util';
+import { CULQI_STATUS, decideSync } from './culqi-sync.util';
 import { User } from '../users/entities/user.entity';
 import { Payment } from './entities/payment.entity';
 import { Place } from '../places/entities/place.entity';
 import { MailService } from '../../common/services/mail.service';
+import { CreateSubscriptionDto } from './dto/create-subscription.dto';
 
 export type SubscriptionTier = 'reputacion' | 'fidelizacion' | 'ia_total' | 'barbero';
 
@@ -102,6 +103,9 @@ const TIER_DEFINITIONS: TierDefinition[] = [
         ],
     },
 ];
+
+/** Datos del titular que se mandan a Culqi al crear el cliente. */
+type CulqiBillingData = Pick<CreateSubscriptionDto, 'firstName' | 'lastName' | 'phone' | 'address' | 'city'>;
 
 type PlaceForPlans = Pick<Place, 'businessType' | 'metadata'> | null | undefined;
 
@@ -192,7 +196,7 @@ export class SubscriptionsService {
         return data;
     }
 
-    async createSubscription(placeId: string, userId: string, token: string, userEmail: string, tier: SubscriptionTier) {
+    async createSubscription(placeId: string, userId: string, token: string, userEmail: string, tier: SubscriptionTier, billing: CulqiBillingData) {
         const existing = await this.subscriptionsRepo.findOne({
             where: { placeId, status: In(['active', 'pending']) },
         });
@@ -220,7 +224,7 @@ export class SubscriptionsService {
         }
 
         // Flujo actual de Culqi (apidocs.culqi.com): cliente → tarjeta (con el token) → suscripción (con la tarjeta).
-        const customerId = await this.findOrCreateCulqiCustomer(placeId, userId, userEmail);
+        const customerId = await this.findOrCreateCulqiCustomer(userId, userEmail, billing);
         const card = await this.culqiRequest('POST', '/cards', { customer_id: customerId, token_id: token });
         if (card.action_code === 'REVIEW' || !card.id) {
             // ponytail: sin flujo 3DS en el checkout; si el banco lo exige, se pide otra tarjeta.
@@ -292,26 +296,21 @@ export class SubscriptionsService {
     }
 
     /** Culqi exige nombre, dirección y teléfono del cliente; se reusa si ya existe con ese correo. */
-    private async findOrCreateCulqiCustomer(placeId: string, userId: string, email: string): Promise<string> {
+    private async findOrCreateCulqiCustomer(userId: string, email: string, billing: CulqiBillingData): Promise<string> {
         const found = await this.culqiRequest('GET', `/customers?email=${encodeURIComponent(email)}`).catch(() => null);
         const existingId = found?.data?.[0]?.id;
         if (existingId) return existingId;
 
-        const [user, place] = await Promise.all([
-            this.usersRepo.findOne({ where: { id: userId } }),
-            this.placesRepo.findOne({ where: { id: placeId } }),
-        ]);
-        const phone = (user?.phone || place?.phone || '').replace(/\D/g, '').slice(-9);
-        if (phone.length < 9) {
-            throw new BadRequestException('Para suscribirte necesitamos un teléfono de 9 dígitos: agrégalo en Mi cuenta o en los datos del local.');
-        }
-        const { firstName, lastName } = splitFullName(user?.fullName, place?.name || 'Cliente');
+        const phone = billing.phone.replace(/\D/g, '').slice(-9);
+        // El celular escrito al pagar queda en la cuenta si no tenía uno, para no pedirlo otra vez.
+        const user = await this.usersRepo.findOne({ where: { id: userId } });
+        if (user && !user.phone) await this.usersRepo.update(user.id, { phone });
         const customer = await this.culqiRequest('POST', '/customers', {
-            first_name: firstName,
-            last_name: lastName,
+            first_name: billing.firstName.trim(),
+            last_name: billing.lastName.trim(),
             email,
-            address: place?.address || 'Lima',
-            address_city: 'Lima',
+            address: billing.address.trim(),
+            address_city: billing.city.trim(),
             country_code: 'PE',
             phone_number: phone,
         });

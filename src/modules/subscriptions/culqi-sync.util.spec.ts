@@ -1,4 +1,4 @@
-import { decideSync, splitFullName } from './culqi-sync.util';
+import { decideSync } from './culqi-sync.util';
 
 const now = new Date('2026-11-20T12:00:00Z');
 const secs = (iso: string) => Math.floor(new Date(iso).getTime() / 1000);
@@ -46,13 +46,5 @@ describe('decideSync (formato /v2/recurrent/subscriptions)', () => {
 
     it('respuesta sin fecha de cobro → no toca nada (no bloquea a quien paga)', () => {
         expect(decideSync(active('2026-11-01T00:00:00Z'), { status: 3 }, now)).toEqual({ kind: 'none' });
-    });
-});
-
-describe('splitFullName', () => {
-    it('separa nombre y apellidos', () => {
-        expect(splitFullName('Juan Pérez Soto', 'X')).toEqual({ firstName: 'Juan', lastName: 'Pérez Soto' });
-        expect(splitFullName('Juan', 'X')).toEqual({ firstName: 'Juan', lastName: 'Juan' });
-        expect(splitFullName('  ', 'Cevichería')).toEqual({ firstName: 'Cevichería', lastName: 'Cevichería' });
     });
 });
