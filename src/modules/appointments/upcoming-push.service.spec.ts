@@ -5,8 +5,9 @@ const row = { id: 'a1', place_id: 'pl1', customer_name: 'Juan Pérez', service_n
 
 const make = (rowsPerCall: any[][]) => {
     const ds = { query: jest.fn() };
-    rowsPerCall.forEach((rows) => ds.query.mockResolvedValueOnce(rows));
-    ds.query.mockResolvedValue([]);
+    // Como el driver de Postgres: UPDATE ... RETURNING devuelve [filas, cantidad].
+    rowsPerCall.forEach((rows) => ds.query.mockResolvedValueOnce([rows, rows.length]));
+    ds.query.mockResolvedValue([[], 0]);
     const push = { sendToUsers: jest.fn().mockResolvedValue(undefined) };
     return { svc: new UpcomingPushService(ds as any, push as any), ds, push };
 };
@@ -45,7 +46,7 @@ describe('UpcomingPushService.run', () => {
         const first = svc.run();
         await svc.run();
         expect(ds.query).toHaveBeenCalledTimes(1);
-        release([]);
+        release([[], 0]);
         await first;
     });
 

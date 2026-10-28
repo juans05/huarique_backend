@@ -18,7 +18,8 @@ export class UpcomingPushService {
         this.running = true;
         try {
             // Marca y selecciona en una sola sentencia: aunque corran dos instancias, cada cita se avisa una vez.
-            const rows: any[] = await this.dataSource.query(`
+            // En Postgres, un UPDATE ... RETURNING llega como [filas, cantidad].
+            const [rows]: [any[], number] = await this.dataSource.query(`
                 UPDATE wuarike_db.appointments a SET upcoming_pushed_at = now()
                 FROM wuarike_db.place_professionals p, wuarike_db.places pl
                 WHERE p.id = a.professional_id AND pl.id = a.place_id AND pl.business_type = 'barberia'
