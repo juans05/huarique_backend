@@ -4,6 +4,7 @@ import { DataSource, Repository } from 'typeorm';
 import { Place } from './entities/place.entity';
 import { Dish } from './entities/dish.entity';
 import { Professional } from '../appointments/entities/professional.entity';
+import { User } from '../users/entities/user.entity';
 import { CreateIndependentDto } from './dto/create-independent.dto';
 
 /** 3 a 30 caracteres: letras, números, punto y guion bajo; sin punto al inicio ni al final. */
@@ -49,6 +50,9 @@ export class IndependentOnboardingService {
                     daysOff: [],
                     displayOrder: 0,
                 }));
+                // Un barbero que se registró solo queda como 'user' y el panel web no lo deja entrar: pasa a dueño
+                // de negocio. Solo se sube desde 'user'; un admin o comercial conserva su rol.
+                await manager.update(User, { id: userId, role: 'user' }, { role: 'business' });
                 for (const [i, s] of dto.services.entries()) {
                     await manager.save(Dish, manager.create(Dish, {
                         placeId: place.id,

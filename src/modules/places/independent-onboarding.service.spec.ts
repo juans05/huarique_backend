@@ -7,6 +7,7 @@ import { CreateIndependentDto } from './dto/create-independent.dto';
 import { Place } from './entities/place.entity';
 import { Dish } from './entities/dish.entity';
 import { Professional } from '../appointments/entities/professional.entity';
+import { User } from '../users/entities/user.entity';
 
 const IDS = new Map<unknown, string>([[Place, 'place-1'], [Professional, 'pro-1'], [Dish, 'dish-1']]);
 
@@ -21,6 +22,7 @@ const build = () => {
     const manager = {
         create: jest.fn((_entity: unknown, data: any) => data),
         save: jest.fn(async (entity: unknown, data: any) => ({ id: IDS.get(entity), ...data })),
+        update: jest.fn().mockResolvedValue({ affected: 1 }),
     };
     const dataSource = { transaction: jest.fn((fn: (m: typeof manager) => unknown) => fn(manager)) };
     const placesRepo = { exists: jest.fn().mockResolvedValue(false) };
@@ -47,6 +49,12 @@ describe('IndependentOnboardingService.create', () => {
             placeId: res.placeId, name: 'Corte', price: 25, durationMin: 30, kind: 'servicio', isAvailable: true, displayOrder: 0,
         });
         expect(res).toEqual({ placeId: 'place-1', professionalId: 'pro-1', nickname: 'carlos.fade' });
+    });
+
+    it('pasa al barbero de user a business para que pueda entrar al panel web, sin tocar otros roles', async () => {
+        const { svc, manager } = build();
+        await svc.create('u1', base);
+        expect(manager.update).toHaveBeenCalledWith(User, { id: 'u1', role: 'user' }, { role: 'business' });
     });
 
     it('acepta el mismo nombre con distinto nickname (dos barberos "Carlos")', async () => {
