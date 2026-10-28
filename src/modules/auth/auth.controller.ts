@@ -10,6 +10,7 @@ import { VerifyEmailDto } from './dto/verify-email.dto';
 import { ResendCodeDto } from './dto/resend-code.dto';
 import { SocialLoginDto } from './dto/social-login.dto';
 import { RefreshTokenDto } from './dto/refresh-token.dto';
+import { RedeemHandoffDto } from './dto/handoff.dto';
 import { JwtAuthGuard } from './guards/jwt-auth.guard';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { ForgotPasswordDto } from './dto/forgot-password.dto';
@@ -130,6 +131,28 @@ export class AuthController {
             dto.photoUrl,
             req.headers['user-agent'],
         );
+    }
+
+    @UseGuards(JwtAuthGuard)
+    @Post('handoff')
+    @ApiBearerAuth()
+    @ApiOperation({ summary: 'Short-lived code to open the web panel already signed in from the app' })
+    createHandoff(@CurrentUser() user: any) {
+        return this.authService.createHandoffCode(user.id);
+    }
+
+    @Throttle({ default: { ttl: 60000, limit: 10 } })
+    @Post('handoff/redeem')
+    @HttpCode(200)
+    @ApiOperation({ summary: 'Exchange a handoff code for a session (same response as login)' })
+    async redeemHandoff(
+        @Body() dto: RedeemHandoffDto,
+        @Res({ passthrough: true }) res: Response,
+        @Req() req: any,
+    ) {
+        const result = await this.authService.redeemHandoffCode(dto.code, req.headers['user-agent']);
+        this.setTokenCookies(res, result.accessToken, result.refreshToken);
+        return result;
     }
 
     @Post('refresh')
