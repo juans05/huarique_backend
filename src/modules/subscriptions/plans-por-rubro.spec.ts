@@ -31,10 +31,12 @@ describe('Plan Barbero (solo barbero independiente)', () => {
         await expect(withPlan(null).assertPlanAllowsPlace('p', barberia)).resolves.toBeUndefined();
     });
 
-    it('abre lo básico y WhatsApp, pero no el resto de IA Total', () => {
+    it('abre lo básico, WhatsApp, campañas, reportes y base de IA, pero no el resto de IA Total', () => {
         const service = withPlace(null);
         expect(service.hasTierAccess('barbero', 'reputacion')).toBe(true);
-        expect(service.hasTierAccess('barbero', 'ia_total', 'whatsapp')).toBe(true);
+        for (const f of ['whatsapp', 'campanas', 'reportes', 'ia'] as const) {
+            expect(service.hasTierAccess('barbero', 'ia_total', f)).toBe(true);
+        }
         expect(service.hasTierAccess('barbero', 'ia_total')).toBe(false);
         expect(service.hasTierAccess('barbero', 'fidelizacion')).toBe(false);
         expect(service.hasTierAccess('ia_total', 'ia_total', 'whatsapp')).toBe(true);

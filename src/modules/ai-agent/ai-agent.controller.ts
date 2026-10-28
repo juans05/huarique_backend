@@ -72,7 +72,7 @@ export class AiAgentController {
         try {
             this.logger.log(`[upload] comienzo`);
 
-            await this.placeTeamService.assertAccess(user.id, placeId, 'ia_total');
+            await this.placeTeamService.assertAccess(user.id, placeId, 'ia_total', 'ia');
             if (!file) throw new BadRequestException('No se proporcionó archivo');
 
             const fileName = body.fileName || file.originalname;
@@ -106,7 +106,7 @@ export class AiAgentController {
 
     @Get(':placeId')
     async getKnowledgeBases(@CurrentUser() user: any, @Param('placeId') placeId: string) {
-        await this.placeTeamService.assertAccess(user.id, placeId, 'ia_total');
+        await this.placeTeamService.assertAccess(user.id, placeId, 'ia_total', 'ia');
         const bases = await this.aiAgentService.getKnowledgeBases(placeId);
         return { data: bases, total: bases.length };
     }
@@ -117,7 +117,7 @@ export class AiAgentController {
         @Param('placeId') placeId: string,
         @Body() body: { url: string; fileName?: string }
     ) {
-        await this.placeTeamService.assertAccess(user.id, placeId, 'ia_total');
+        await this.placeTeamService.assertAccess(user.id, placeId, 'ia_total', 'ia');
         if (!body.url) throw new BadRequestException('URL requerida');
 
         let url: URL;
@@ -174,7 +174,7 @@ export class AiAgentController {
         // borrar cualquier base de conocimiento de cualquier sede con solo saber el id.
         const kb = await this.knowledgeBaseRepo.findOne({ where: { id: kbId } });
         if (!kb) throw new NotFoundException('Base de conocimiento no encontrada');
-        await this.placeTeamService.assertAccess(user.id, kb.placeId, 'ia_total');
+        await this.placeTeamService.assertAccess(user.id, kb.placeId, 'ia_total', 'ia');
 
         await this.aiAgentService.deleteKnowledgeBase(kbId);
         return { message: 'Base de conocimiento eliminada' };
