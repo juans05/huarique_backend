@@ -4,7 +4,7 @@ import { Repository } from 'typeorm';
 import { WhatsAppNumber } from './entities/whatsapp-number.entity';
 import { ChatProcessorService } from '../chat/chat-processor.service';
 import { WhatsAppCloudService } from '../messaging/whatsapp-cloud.service';
-import { parseMetaWebhook, parseTemplateAlerts } from './meta-webhook.util';
+import { parseMessageEchoes, parseMetaWebhook, parsePartnerRemoved, parseTemplateAlerts } from './meta-webhook.util';
 import { MailService } from '../../common/services/mail.service';
 import { isMetaEnabled } from '../messaging/meta-flag';
 import { WhatsAppBillingService } from '../messaging/whatsapp-billing.service';
@@ -30,6 +30,7 @@ export class WhatsappService {
         await this.notifyTemplateAlerts(payload);
         // Estados de entrega: categoría y costo de cada mensaje, y aviso si Meta no entrega por falta de pago.
         await this.billing.applyStatuses(payload);
+        await this.applyBusinessAppEvents(payload);
         for (const msg of parseMetaWebhook(payload)) {
             const number = await this.whatsappNumberRepo.findOne({
                 where: { phoneNumberId: msg.phoneNumberId, isActive: true },
@@ -63,6 +64,19 @@ export class WhatsappService {
                 msg.body,
                 msg.messageId,
             );
+        }
+    }
+
+    /** Coexistencia: ecos de lo que el dueño envía desde su celular y desconexiones hechas desde la app. */
+    private async applyBusinessAppEvents(payload: any) {
+        for (const wabaId of parsePartnerRemoved(payload)) {
+            await this.whatsappNumberRepo.update({ wabaId, provider: 'meta' }, { isActive: false });
+            this.logger.warn(`Cuenta ${wabaId}: el dueño quitó la conexión desde la app de WhatsApp Business, número desactivado`);
+        }
+        for (const echo of parseMessageEchoes(payload)) {
+            const number = await this.whatsappNumberRepo.findOne({ where: { phoneNumberId: echo.phoneNumberId, isActive: true, provider: 'meta' } });
+            if (!number) continue;
+            await this.chatProcessor.recordBusinessAppEcho(number.placeId, number.id, echo.to, echo.body, echo.messageId);
         }
     }
 

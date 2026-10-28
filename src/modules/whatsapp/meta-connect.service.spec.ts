@@ -61,6 +61,23 @@ describe('MetaConnectService', () => {
         );
     });
 
+    it('coexistencia: busca el número en la cuenta y no lo vuelve a registrar', async () => {
+        request
+            .mockResolvedValueOnce({ data: { access_token: 'TOKEN' } }) // oauth
+            .mockResolvedValueOnce({ data: { data: [{ id: 'PN9' }] } }) // phone_numbers de la WABA
+            .mockResolvedValueOnce({ data: { success: true } }) // subscribed_apps
+            .mockResolvedValueOnce({ data: { display_phone_number: '51911222333', verified_name: 'Barbería Juan' } }); // info
+        const { svc, numbers } = build();
+
+        const res = await svc.complete('u1', { placeId: 'p1', code: 'CODE', wabaId: 'WABA1', coexistence: true });
+
+        expect(res.phoneNumber).toBe('51911222333');
+        const urls = request.mock.calls.map((c) => c[0].url as string);
+        expect(urls[1]).toContain('/WABA1/phone_numbers');
+        expect(urls.some((u) => u.includes('/register'))).toBe(false);
+        expect(numbers.save).toHaveBeenCalledWith(expect.objectContaining({ phoneNumberId: 'PN9', wabaId: 'WABA1', provider: 'meta', isActive: true }));
+    });
+
     it('si el registro del número falla (ya estaba registrado) igual guarda el número', async () => {
         request
             .mockResolvedValueOnce({ data: { access_token: 'TOKEN' } })

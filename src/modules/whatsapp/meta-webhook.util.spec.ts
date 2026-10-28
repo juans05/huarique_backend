@@ -1,5 +1,5 @@
 import * as crypto from 'crypto';
-import { parseMetaWebhook, parseTemplateAlerts, verifyMetaSignature } from './meta-webhook.util';
+import { parseMessageEchoes, parseMetaWebhook, parsePartnerRemoved, parseTemplateAlerts, verifyMetaSignature } from './meta-webhook.util';
 
 const sign = (body: Buffer, secret: string) => 'sha256=' + crypto.createHmac('sha256', secret).update(body).digest('hex');
 
@@ -66,5 +66,38 @@ describe('parseTemplateAlerts', () => {
         expect(parseTemplateAlerts(wrap('message_template_quality_update', { new_quality_score: 'GREEN', message_template_name: 'x' }))).toEqual([]);
         expect(parseTemplateAlerts(wrap('message_template_status_update', { event: 'PENDING_DELETION', message_template_name: 'x' }))).toEqual([]);
         expect(parseTemplateAlerts(wrap('messages', { messages: [] }))).toEqual([]);
+    });
+});
+
+describe('parseMessageEchoes', () => {
+    const echoes = (message_echoes: any[]) => ({
+        entry: [{ id: 'WABA1', changes: [{ field: 'smb_message_echoes', value: { metadata: { phone_number_id: 'PN1' }, message_echoes } }] }],
+    });
+
+    it('extrae lo que el negocio envió desde la app, con texto o el tipo si no es texto', () => {
+        const out = parseMessageEchoes(echoes([
+            { id: 'wamid.e1', from: '51999000111', to: '51987654321', type: 'text', text: { body: 'Te espero a las 4' } },
+            { id: 'wamid.e2', from: '51999000111', to: '51987654321', type: 'image' },
+        ]));
+        expect(out).toEqual([
+            { phoneNumberId: 'PN1', to: '51987654321', messageId: 'wamid.e1', body: 'Te espero a las 4' },
+            { phoneNumberId: 'PN1', to: '51987654321', messageId: 'wamid.e2', body: '[image]' },
+        ]);
+    });
+
+    it('ignora otros campos y los mensajes de clientes', () => {
+        const payload = { entry: [{ changes: [{ field: 'messages', value: { metadata: { phone_number_id: 'PN1' }, messages: [{ id: 'wamid.1', from: '519', text: { body: 'hola' } }] } }] }] };
+        expect(parseMessageEchoes(payload)).toEqual([]);
+        expect(parseMetaWebhook(echoes([{ id: 'wamid.e1', to: '519', text: { body: 'x' } }]))).toEqual([]);
+    });
+});
+
+describe('parsePartnerRemoved', () => {
+    it('devuelve la cuenta (WABA) que quitó la conexión desde la app', () => {
+        const payload = { entry: [
+            { id: 'WABA1', changes: [{ field: 'account_update', value: { phone_number: '51999000111', event: 'PARTNER_REMOVED' } }] },
+            { id: 'WABA2', changes: [{ field: 'account_update', value: { event: 'VERIFIED_ACCOUNT' } }] },
+        ] };
+        expect(parsePartnerRemoved(payload)).toEqual(['WABA1']);
     });
 });

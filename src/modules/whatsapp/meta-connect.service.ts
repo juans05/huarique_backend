@@ -17,7 +17,10 @@ export interface CompleteSignupDto {
     code: string;
     /** IDs que Meta manda al navegador en el evento WA_EMBEDDED_SIGNUP (mensaje FINISH). */
     wabaId: string;
-    phoneNumberId: string;
+    /** En coexistencia Meta puede no mandarlo: se busca en la cuenta (WABA). */
+    phoneNumberId?: string;
+    /** El número sigue en la app de WhatsApp Business del celular (evento FINISH_WHATSAPP_BUSINESS_APP_ONBOARDING). */
+    coexistence?: boolean;
 }
 
 /**
@@ -190,10 +193,8 @@ export class MetaConnectService {
         }
 
         // Un número solo puede pertenecer a un local: evita que alguien se "robe" uno ya conectado.
-        const existing = await this.numbers.findOne({ where: { phoneNumberId: dto.phoneNumberId } });
-        if (existing && existing.placeId !== dto.placeId) {
-            throw new ConflictException('Este número de WhatsApp ya está conectado a otro local.');
-        }
+        // Si ya se conoce el número se revisa antes de usar el código; en coexistencia, después de buscarlo.
+        if (dto.phoneNumberId) await this.assertNumberFree(dto.phoneNumberId, dto.placeId);
 
         // 1) Código → token de acceso del negocio
         const { access_token: token } = await this.call<{ access_token: string }>('get', '/oauth/access_token', undefined, undefined, {
@@ -203,19 +204,24 @@ export class MetaConnectService {
         });
         if (!token) throw new BadGatewayException('Meta no devolvió un token de acceso.');
 
+        const phoneNumberId = dto.phoneNumberId || (await this.firstPhoneNumberId(dto.wabaId, token));
+        const existing = await this.assertNumberFree(phoneNumberId, dto.placeId);
+
         // 2) Suscribir nuestra app a la cuenta de WhatsApp Business: así llegan sus mensajes a nuestro webhook.
         await this.call('post', `/${dto.wabaId}/subscribed_apps`, token);
 
-        // 3) Registrar el número en la Cloud API. Si Embedded Signup ya lo dejó registrado, Meta responde
-        //    con error y no es un problema, por eso solo se registra el aviso.
-        try {
-            await this.call('post', `/${dto.phoneNumberId}/register`, token, { messaging_product: 'whatsapp', pin: String(randomInt(100000, 1000000)) });
-        } catch (err: any) {
-            this.logger.warn(`[meta-connect] register omitido: ${err?.message}`);
+        // 3) Registrar el número en la Cloud API. En coexistencia ya viene registrado desde la app y no se toca.
+        //    Si Embedded Signup ya lo dejó registrado, Meta responde con error y no es un problema.
+        if (!dto.coexistence) {
+            try {
+                await this.call('post', `/${phoneNumberId}/register`, token, { messaging_product: 'whatsapp', pin: String(randomInt(100000, 1000000)) });
+            } catch (err: any) {
+                this.logger.warn(`[meta-connect] register omitido: ${err?.message}`);
+            }
         }
 
         // 4) Datos del número para mostrarlo en el panel
-        const info = await this.call<{ display_phone_number?: string; verified_name?: string }>('get', `/${dto.phoneNumberId}`, token, undefined, {
+        const info = await this.call<{ display_phone_number?: string; verified_name?: string }>('get', `/${phoneNumberId}`, token, undefined, {
             fields: 'display_phone_number,verified_name',
         });
         const phoneNumber = (info.display_phone_number || '').replace(/\D/g, '');
@@ -225,7 +231,7 @@ export class MetaConnectService {
                 ...(existing ?? {}),
                 placeId: dto.placeId,
                 phoneNumber,
-                phoneNumberId: dto.phoneNumberId,
+                phoneNumberId,
                 wabaId: dto.wabaId,
                 whatsappApiToken: token,
                 provider: 'meta',
@@ -235,5 +241,21 @@ export class MetaConnectService {
         );
 
         return { id: saved.id, phoneNumber: saved.phoneNumber, verifiedName: info.verified_name ?? null };
+    }
+
+    private async assertNumberFree(phoneNumberId: string, placeId: string) {
+        const existing = await this.numbers.findOne({ where: { phoneNumberId } });
+        if (existing && existing.placeId !== placeId) {
+            throw new ConflictException('Este número de WhatsApp ya está conectado a otro local.');
+        }
+        return existing;
+    }
+
+    /** La cuenta que trae la app de WhatsApp Business tiene un solo número: se toma ese. */
+    private async firstPhoneNumberId(wabaId: string, token: string): Promise<string> {
+        const res = await this.call<{ data?: { id: string }[] }>('get', `/${wabaId}/phone_numbers`, token, undefined, { fields: 'id' });
+        const id = res.data?.[0]?.id;
+        if (!id) throw new BadGatewayException('Meta no devolvió el número de la cuenta de WhatsApp Business.');
+        return id;
     }
 }

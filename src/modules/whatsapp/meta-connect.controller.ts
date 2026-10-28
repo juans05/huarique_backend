@@ -38,10 +38,11 @@ export class MetaConnectController {
     /** Se llama cuando el dueño termina el flujo de Facebook: canjea el código, suscribe la app y guarda el número. */
     @Post('complete')
     complete(@CurrentUser() user: any, @Body() body: Partial<CompleteSignupDto>) {
-        const { placeId, code, wabaId, phoneNumberId } = body ?? {};
-        if (!placeId || !code || !wabaId || !phoneNumberId) {
+        const { placeId, code, wabaId, phoneNumberId, coexistence } = body ?? {};
+        // En coexistencia Meta puede no mandar phoneNumberId: el servicio lo busca en la cuenta.
+        if (!placeId || !code || !wabaId || (!phoneNumberId && !coexistence)) {
             throw new BadRequestException('placeId, code, wabaId y phoneNumberId son requeridos');
         }
-        return this.metaConnect.complete(user.id, { placeId, code, wabaId, phoneNumberId });
+        return this.metaConnect.complete(user.id, { placeId, code, wabaId, phoneNumberId, coexistence: coexistence === true });
     }
 }
