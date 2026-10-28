@@ -338,7 +338,7 @@ export class BusinessPlacesController {
         @Body() dto: CreateSubscriptionDto,
     ) {
         await this.assertPlaceAdmin(id, user.id);
-        return this.subscriptionsService.createSubscription(id, user.id, dto.token, user.email, dto.tier);
+        return this.subscriptionsService.createSubscription(id, user.id, dto.token, user.email, dto.tier, dto);
     }
 
     @Delete('places/:id/subscription')

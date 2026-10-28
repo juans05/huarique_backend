@@ -48,11 +48,3 @@ export function decideSync(local: LocalSubState, remote: CulqiSubLike, now = new
     }
     return { kind: 'none' };
 }
-
-/** Separa "Juan Pérez Soto" en nombre y apellidos, como pide Culqi al crear el cliente. */
-export function splitFullName(fullName: string | null | undefined, fallback: string): { firstName: string; lastName: string } {
-    const parts = (fullName || '').trim().split(/\s+/).filter(Boolean);
-    if (parts.length === 0) return { firstName: fallback, lastName: fallback };
-    if (parts.length === 1) return { firstName: parts[0], lastName: parts[0] };
-    return { firstName: parts[0], lastName: parts.slice(1).join(' ') };
-}
