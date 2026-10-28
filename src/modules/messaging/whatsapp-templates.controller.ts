@@ -17,7 +17,7 @@ export class WhatsAppTemplatesController {
     @Get()
     async list(@CurrentUser() user: any, @Query('placeId') placeId: string) {
         if (!placeId) throw new BadRequestException('placeId es requerido');
-        await this.team.assertAccess(user.id, placeId, 'ia_total');
+        await this.team.assertAccess(user.id, placeId, 'ia_total', 'whatsapp');
         return { data: await this.templates.list(placeId) };
     }
 
@@ -25,7 +25,7 @@ export class WhatsAppTemplatesController {
     @Post()
     async create(@CurrentUser() user: any, @Body() body: Partial<CreateTemplateInput> & { placeId?: string }) {
         if (!body?.placeId) throw new BadRequestException('placeId es requerido');
-        await this.team.assertAccess(user.id, body.placeId, 'ia_total');
+        await this.team.assertAccess(user.id, body.placeId, 'ia_total', 'whatsapp');
         const { placeId, ...input } = body;
         return this.templates.create(placeId, {
             name: input.name ?? '',

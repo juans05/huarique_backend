@@ -376,7 +376,7 @@ export class BusinessPlacesController {
         if (data.businessType !== undefined || data.categoryId !== undefined) {
             const newType = data.businessType !== undefined ? requireBusinessType(data.businessType) : place.businessType;
             const typeChanged = newType !== place.businessType;
-            if (typeChanged) await this.subscriptionsService.assertPlanAllowsBusinessType(place.id, newType);
+            if (typeChanged) await this.subscriptionsService.assertPlanAllowsPlace(place.id, { businessType: newType, metadata: place.metadata });
             if (data.categoryId !== undefined) {
                 // Categoría enviada: solo se valida si ella o el tipo cambian respecto de lo guardado.
                 if (data.categoryId && (typeChanged || data.categoryId !== place.categoryId)) {
@@ -395,7 +395,11 @@ export class BusinessPlacesController {
         if (data.districtId !== undefined) place.districtId = data.districtId;
         if (data.openHoursText !== undefined) place.openHoursText = data.openHoursText;
         if (data.openingHours !== undefined) place.openingHours = data.openingHours;
-        if (data.metadata !== undefined) place.metadata = { ...place.metadata, ...data.metadata };
+        if (data.metadata !== undefined) {
+            // `independent` solo lo pone el registro del barbero: decide qué plan se le ofrece y cobra.
+            const { independent: _ignored, ...metadata } = data.metadata;
+            place.metadata = { ...place.metadata, ...metadata };
+        }
         if (data.priceMin !== undefined) place.priceMin = data.priceMin;
         if (data.coverImageUrl !== undefined) place.coverImageUrl = data.coverImageUrl;
         if (data.menuImageUrl !== undefined) place.menuImageUrl = data.menuImageUrl;

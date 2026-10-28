@@ -55,7 +55,7 @@ export class ConversationsController {
         @CurrentUser() user: any,
         @Req() req: any,
     ) {
-        await this.placeTeamService.assertPlaceTier(placeId, 'ia_total');
+        await this.placeTeamService.assertPlaceTier(placeId, 'ia_total', 'whatsapp');
 
         const pageNum = parseInt(page) || 1;
         const limitNum = parseInt(limit) || 20;
@@ -131,7 +131,7 @@ export class ConversationsController {
         const member = await this.placeTeamService.getMembership(userId, conversation.placeId);
         if (!member) throw new ForbiddenException('No tenés acceso a esta sede');
 
-        await this.placeTeamService.assertPlaceTier(conversation.placeId, 'ia_total');
+        await this.placeTeamService.assertPlaceTier(conversation.placeId, 'ia_total', 'whatsapp');
 
         if (!(member.role in ROLE_RANK) || ROLE_RANK[member.role] < ROLE_RANK[minRole]) {
             throw new ForbiddenException('No tenés el rol necesario para esta acción');
@@ -335,7 +335,7 @@ export class ConversationsController {
     // Sync existing PlazBot conversations into wuarikes DB
     @Post('sync-plazbot/:placeId')
     async syncFromPlazbot(@CurrentUser() user: any, @Param('placeId') placeId: string) {
-        await this.placeTeamService.assertAccess(user.id, placeId, 'ia_total');
+        await this.placeTeamService.assertAccess(user.id, placeId, 'ia_total', 'whatsapp');
         const apiKey = process.env.PLAZBOT_API_KEY || '';
         const workspaceId = process.env.PLAZBOT_WORKSPACE_ID || '';
 

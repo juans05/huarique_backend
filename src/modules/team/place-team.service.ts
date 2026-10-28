@@ -4,7 +4,7 @@ import { Repository } from 'typeorm';
 import { PlaceTeamMember, ROLE_RANK } from './entities/place-team-member.entity';
 import { TeamMemberWhatsappAccess } from './entities/team-member-whatsapp-access.entity';
 import { Place } from '../places/entities/place.entity';
-import { SubscriptionsService, SubscriptionTier } from '../subscriptions/subscriptions.service';
+import { PlanFeature, SubscriptionsService, SubscriptionTier } from '../subscriptions/subscriptions.service';
 
 @Injectable()
 export class PlaceTeamService {
@@ -50,10 +50,10 @@ export class PlaceTeamService {
      * que ya resuelve la membresía por su cuenta y solo necesita la parte de
      * tier) debe llamar a este método en vez de reimplementarlo.
      */
-    async assertPlaceTier(placeId: string, requiredTier: SubscriptionTier): Promise<void> {
+    async assertPlaceTier(placeId: string, requiredTier: SubscriptionTier, feature?: PlanFeature): Promise<void> {
         const subscription = await this.subscriptionsService.getSubscriptionForPlace(placeId);
         const hasAccess = subscription?.status === 'active'
-            && this.subscriptionsService.hasTierAccess(subscription.tier, requiredTier);
+            && this.subscriptionsService.hasTierAccess(subscription.tier, requiredTier, feature);
         if (!hasAccess) {
             throw new ForbiddenException('Esta sede necesita una suscripción activa para usar esta función.');
         }
@@ -70,6 +70,7 @@ export class PlaceTeamService {
         userId: string,
         placeId: string,
         requiredTier?: SubscriptionTier,
+        feature?: PlanFeature,
     ): Promise<PlaceTeamMember> {
         const member = await this.getMembership(userId, placeId);
         if (!member) {
@@ -81,7 +82,7 @@ export class PlaceTeamService {
         }
 
         if (requiredTier) {
-            await this.assertPlaceTier(placeId, requiredTier);
+            await this.assertPlaceTier(placeId, requiredTier, feature);
         }
 
         return member;
