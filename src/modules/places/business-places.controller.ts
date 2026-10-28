@@ -376,6 +376,7 @@ export class BusinessPlacesController {
         if (data.businessType !== undefined || data.categoryId !== undefined) {
             const newType = data.businessType !== undefined ? requireBusinessType(data.businessType) : place.businessType;
             const typeChanged = newType !== place.businessType;
+            if (typeChanged) await this.subscriptionsService.assertPlanAllowsBusinessType(place.id, newType);
             if (data.categoryId !== undefined) {
                 // Categoría enviada: solo se valida si ella o el tipo cambian respecto de lo guardado.
                 if (data.categoryId && (typeChanged || data.categoryId !== place.categoryId)) {

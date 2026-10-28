@@ -501,6 +501,19 @@ export class SubscriptionsService {
         }
     }
 
+    /**
+     * Antes de cambiar el rubro de un local: su plan vigente debe seguir ofreciéndose al rubro nuevo.
+     * Si no, un restaurante podría pasar a barbería, comprar el plan Barbero (más barato) y volver.
+     */
+    async assertPlanAllowsBusinessType(placeId: string, businessType: string) {
+        const sub = await this.subscriptionsRepo.findOne({
+            where: { placeId, status: In(['active', 'pending', 'past_due']) },
+        });
+        if (sub && !plansForBusinessType(businessType).some((d) => d.tier === sub.tier)) {
+            throw new BadRequestException('Tu plan actual no aplica a ese tipo de negocio. Cancela tu suscripción antes de cambiarlo.');
+        }
+    }
+
     getPlans(businessType?: string) {
         return plansForBusinessType(businessType).map((def) => ({
             tier: def.tier,
