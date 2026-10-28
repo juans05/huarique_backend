@@ -360,6 +360,31 @@ export class AuthService {
         }
     }
 
+    // Secreto propio: un código de traspaso no sirve como access token aunque se firme con el mismo JWT_SECRET.
+    private handoffSecret() {
+        return `${this.configService.get('JWT_SECRET')}:handoff`;
+    }
+
+    /** Código para abrir el panel web desde la app ya con sesión. Viaja en el # de la URL y vence en 60 s. */
+    async createHandoffCode(userId: string) {
+        // ponytail: reutilizable dentro de esos 60 s; si hace falta un solo uso, marcar el jti en Redis al canjear.
+        const code = await this.jwtService.signAsync({ sub: userId }, { secret: this.handoffSecret(), expiresIn: 60 });
+        return { code };
+    }
+
+    async redeemHandoffCode(code: string, userAgent?: string) {
+        const payload = await this.jwtService.verifyAsync(code, { secret: this.handoffSecret() }).catch(() => null);
+        if (!payload?.sub) throw new UnauthorizedException('El enlace venció. Vuelve a abrirlo desde la app.');
+        const user = await this.usersService.findById(payload.sub).catch(() => null);
+        if (!user) throw new UnauthorizedException('El enlace venció. Vuelve a abrirlo desde la app.');
+
+        const tokens = await this.generateTokens(user.id, user.email, user.role, getDeviceLabel(userAgent));
+        return {
+            user: { id: user.id, email: user.email, fullName: user.fullName, role: user.role },
+            ...tokens,
+        };
+    }
+
     private async generateTokens(userId: string, email: string, role: string, deviceLabel?: string) {
         const [accessToken, refreshToken] = await Promise.all([
             this.jwtService.signAsync(
