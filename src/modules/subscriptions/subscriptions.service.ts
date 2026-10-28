@@ -11,7 +11,7 @@ import { ConfigService } from '@nestjs/config';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { Subscription } from './entities/subscription.entity';
-import { CULQI_STATUS, decideSync } from './culqi-sync.util';
+import { CULQI_STATUS, decideSync, latestChargeId } from './culqi-sync.util';
 import { User } from '../users/entities/user.entity';
 import { Payment } from './entities/payment.entity';
 import { Place } from '../places/entities/place.entity';
@@ -238,7 +238,7 @@ export class SubscriptionsService {
         });
         // La respuesta de crear no trae fechas ni cargos: se consulta la suscripción.
         const culqiSub = await this.culqiRequest('GET', `/recurrent/subscriptions/${created.id}`).catch(() => ({}) as any);
-        const firstChargeId: string | undefined = culqiSub.periods?.charges?.charge_id;
+        const firstChargeId = latestChargeId(culqiSub);
         const nextBilling = culqiSub.next_billing_date ? new Date(culqiSub.next_billing_date * 1000) : null;
 
         // El acceso solo se da con el primer cargo confirmado en Culqi (exitoso y por el monto del plan).
