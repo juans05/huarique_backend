@@ -17,19 +17,19 @@ export class BroadcastController {
     private async assertBroadcastAccess(broadcastId: string, userId: string) {
         const broadcast = await this.broadcastService.getBroadcast(broadcastId);
         if (!broadcast) throw new NotFoundException('Campaña no encontrada');
-        await this.placeTeamService.assertAccess(userId, broadcast.placeId, 'ia_total');
+        await this.placeTeamService.assertAccess(userId, broadcast.placeId, 'ia_total', 'campanas');
         return broadcast;
     }
 
     @Post()
     async createBroadcast(@Body() data: any, @CurrentUser() user: any) {
-        await this.placeTeamService.assertAccess(user.id, data.placeId, 'ia_total');
+        await this.placeTeamService.assertAccess(user.id, data.placeId, 'ia_total', 'campanas');
         return await this.broadcastService.createBroadcast(data);
     }
 
     @Get('place/:placeId')
     async getBroadcasts(@Param('placeId') placeId: string, @CurrentUser() user: any) {
-        await this.placeTeamService.assertAccess(user.id, placeId, 'ia_total');
+        await this.placeTeamService.assertAccess(user.id, placeId, 'ia_total', 'campanas');
         return await this.broadcastService.getBroadcastsByPlace(placeId);
     }
 

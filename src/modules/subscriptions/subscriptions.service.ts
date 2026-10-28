@@ -22,11 +22,11 @@ export type SubscriptionTier = 'reputacion' | 'fidelizacion' | 'ia_total' | 'bar
 export const TIER_ORDER: SubscriptionTier[] = ['reputacion', 'fidelizacion', 'ia_total'];
 
 /** Funciones que un plan fuera de la escalera abre por encima de su tier base. */
-export type PlanFeature = 'whatsapp';
+export type PlanFeature = 'whatsapp' | 'campanas' | 'reportes' | 'ia';
 
 // Planes fuera de la escalera: abren su tier base y solo las funciones listadas, no el tier entero.
 const PLAN_SCOPE: Partial<Record<SubscriptionTier, { base: SubscriptionTier; features: PlanFeature[] }>> = {
-    barbero: { base: 'reputacion', features: ['whatsapp'] },
+    barbero: { base: 'reputacion', features: ['whatsapp', 'campanas', 'reportes', 'ia'] },
 };
 
 interface TierDefinition {
@@ -95,6 +95,9 @@ const TIER_DEFINITIONS: TierDefinition[] = [
             'Revisión de tus citas del día, la semana y el mes',
             'Envío automático de recordatorios a tus clientes',
             'Creación de clientes con su historial de cortes',
+            'Campañas de WhatsApp para traer de vuelta a tus clientes',
+            'Base de IA: tu bot conoce tus precios, horarios y servicios',
+            'Reportes de tus citas y tus ingresos',
             'App en tu celular con aviso de cada reserva',
         ],
     },

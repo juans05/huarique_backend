@@ -25,7 +25,7 @@ export class ReportsController {
         @Query('agentId') agentId: string | undefined,
         @CurrentUser() user: any,
     ) {
-        await this.placeTeamService.assertAccess(user.id, placeId, 'ia_total');
+        await this.placeTeamService.assertAccess(user.id, placeId, 'ia_total', 'reportes');
         const statusList = statuses?.split(',').filter(Boolean) as ('attended' | 'unassigned' | 'pending' | 'resolved')[] | undefined;
         return await this.reportsService.getReport(placeId, from, to, statusList, agentId);
     }
