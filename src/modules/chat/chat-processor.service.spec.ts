@@ -201,3 +201,24 @@ describe('ChatProcessorService: los textos automáticos del bot se guardan como 
     expect(savedBot(messageRepo, 'Tu pedido está en camino')).toMatchObject({ isFromAi: true });
   });
 });
+
+describe('ChatProcessorService: coexistencia (respuesta desde la app del celular)', () => {
+  it('guarda el eco como mensaje del dueño, no del bot, y pasa la conversación a modo humano', async () => {
+    const conv = { id: 'conv0', placeId: 'p1', customerPhone: '51999888777', mode: 'bot', status: 'abierto' };
+    const { svc, messageRepo, conversationRepo, sender } = build(conv);
+    await svc.recordBusinessAppEcho('p1', 'wn1', '51999888777', 'Te espero a las 4', 'wamid.e1');
+    expect(conversationRepo.save).toHaveBeenCalledWith(expect.objectContaining({ id: 'conv0', mode: 'human' }));
+    expect(messageRepo.save).toHaveBeenCalledWith(
+      expect.objectContaining({ conversationId: 'conv0', messageType: 'OUTGOING', messageBody: 'Te espero a las 4', isFromAi: false, whatsappMessageId: 'wamid.e1' }),
+    );
+    expect(sender.sendText).not.toHaveBeenCalled();
+  });
+
+  it('un eco repetido por Meta no se guarda dos veces', async () => {
+    const { svc, messageRepo, conversationRepo } = build();
+    messageRepo.exist.mockResolvedValue(true);
+    await svc.recordBusinessAppEcho('p1', 'wn1', '51999888777', 'hola', 'wamid.e1');
+    expect(conversationRepo.save).not.toHaveBeenCalled();
+    expect(messageRepo.save).not.toHaveBeenCalled();
+  });
+});

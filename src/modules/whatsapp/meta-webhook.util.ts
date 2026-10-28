@@ -53,6 +53,45 @@ export function parseMetaWebhook(payload: any): MetaIncomingMessage[] {
     return out;
 }
 
+export interface MetaMessageEcho {
+    phoneNumberId: string;
+    /** Cliente al que el negocio le escribió desde la app de WhatsApp Business. */
+    to: string;
+    messageId: string;
+    body: string;
+}
+
+/**
+ * Coexistencia: lo que el dueño envía desde la app de WhatsApp Business del celular llega como eco
+ * (campo smb_message_echoes) para que el chat del panel muestre la conversación completa.
+ */
+export function parseMessageEchoes(payload: any): MetaMessageEcho[] {
+    const out: MetaMessageEcho[] = [];
+    for (const entry of payload?.entry ?? []) {
+        for (const change of entry?.changes ?? []) {
+            const value = change?.value;
+            const phoneNumberId = value?.metadata?.phone_number_id;
+            if (change?.field !== 'smb_message_echoes' || !phoneNumberId) continue;
+            for (const echo of value?.message_echoes ?? []) {
+                if (!echo?.id || !echo?.to) continue;
+                out.push({ phoneNumberId, to: echo.to, messageId: echo.id, body: echo.text?.body ?? `[${echo.type || 'mensaje'}]` });
+            }
+        }
+    }
+    return out;
+}
+
+/** Cuentas de WhatsApp (WABA) cuyo dueño quitó la conexión desde la app de WhatsApp Business. */
+export function parsePartnerRemoved(payload: any): string[] {
+    const out: string[] = [];
+    for (const entry of payload?.entry ?? []) {
+        for (const change of entry?.changes ?? []) {
+            if (change?.field === 'account_update' && change?.value?.event === 'PARTNER_REMOVED' && entry?.id) out.push(entry.id);
+        }
+    }
+    return out;
+}
+
 export interface MetaTemplateAlert {
     wabaId: string;
     templateName: string;

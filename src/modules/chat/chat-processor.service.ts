@@ -391,6 +391,37 @@ export class ChatProcessorService {
 
   // Texto automático del bot (menú, derivación, agente de pedidos, baja): isFromAi para que "Tu día" lo distinga de
   // lo que escribe una persona (ConversationsController guarda isFromAi: false).
+  /**
+   * Coexistencia: el dueño respondió desde la app de WhatsApp Business del celular. Se guarda en el chat
+   * y la conversación pasa a modo humano, para que el bot no le hable encima a su cliente.
+   */
+  async recordBusinessAppEcho(placeId: string, whatsappNumberId: string, customerPhone: string, messageBody: string, externalMessageId: string) {
+    if (await this.messageRepo.exist({ where: { whatsappMessageId: externalMessageId } })) return;
+
+    let conversation = await this.conversationRepo.findOne({
+      where: { placeId, customerPhone, status: Not('cerrado') as any },
+      order: { createdAt: 'DESC' },
+    });
+    if (!conversation) {
+      conversation = this.conversationRepo.create({ placeId, whatsappNumberId, customerPhone, customerName: customerPhone, mode: 'human', status: 'abierto' });
+    }
+    conversation.mode = 'human';
+    await this.conversationRepo.save(conversation);
+
+    await this.messageRepo.save(
+      this.messageRepo.create({ conversationId: conversation.id, messageType: 'OUTGOING', messageBody, isFromAi: false, whatsappMessageId: externalMessageId }),
+    );
+    this.eventEmitter.emit('whatsapp.message.received', {
+      placeId,
+      conversationId: conversation.id,
+      whatsappNumberId: conversation.whatsappNumberId,
+      customerName: conversation.customerName,
+      customerPhone: conversation.customerPhone,
+      messageBody,
+      messageType: 'OUTGOING',
+    });
+  }
+
   private async sendAndLogText(conversation: Conversation, text: string): Promise<void> {
     await this.messageRepo.save(
       this.messageRepo.create({
