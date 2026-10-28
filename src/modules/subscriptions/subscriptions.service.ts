@@ -17,9 +17,12 @@ import { Payment } from './entities/payment.entity';
 import { Place } from '../places/entities/place.entity';
 import { MailService } from '../../common/services/mail.service';
 
-export type SubscriptionTier = 'reputacion' | 'fidelizacion' | 'ia_total';
+export type SubscriptionTier = 'reputacion' | 'fidelizacion' | 'ia_total' | 'barbero';
 
 export const TIER_ORDER: SubscriptionTier[] = ['reputacion', 'fidelizacion', 'ia_total'];
+
+// Planes por rubro, fuera de la escalera: desbloquean lo mismo que el tier indicado.
+const TIER_EQUIVALENT: Partial<Record<SubscriptionTier, SubscriptionTier>> = { barbero: 'ia_total' };
 
 interface TierDefinition {
     tier: SubscriptionTier;
@@ -28,6 +31,8 @@ interface TierDefinition {
     envAmountKey: string;
     defaultAmount: number; // centavos
     features: string[];
+    /** Rubro al que se ofrece; sin él, el plan es para los rubros que no tienen plan propio. */
+    businessType?: string;
 }
 
 const TIER_DEFINITIONS: TierDefinition[] = [
@@ -72,7 +77,31 @@ const TIER_DEFINITIONS: TierDefinition[] = [
             'Base de conocimiento IA (RAG)',
         ],
     },
+    {
+        tier: 'barbero',
+        name: 'Wuarike Barbero',
+        envPlanIdKey: 'CULQI_PLAN_ID_BARBERO',
+        envAmountKey: 'CULQI_PLAN_AMOUNT_BARBERO',
+        defaultAmount: 25000, // S/.250
+        businessType: 'barberia',
+        features: [
+            'WhatsApp automatizado: tu bot responde y agenda por ti',
+            'Generación de citas desde WhatsApp, la web o la app',
+            'Revisión de tus citas del día, la semana y el mes',
+            'Envío automático de recordatorios a tus clientes',
+            'Creación de clientes con su historial de cortes',
+            'App en tu celular con aviso de cada reserva',
+        ],
+    },
 ];
+
+const BUSINESS_TYPES_WITH_OWN_PLAN = new Set(TIER_DEFINITIONS.map((d) => d.businessType).filter(Boolean));
+
+/** Planes que se ofrecen a un rubro: los suyos si tiene, si no los generales. */
+function plansForBusinessType(businessType?: string | null): TierDefinition[] {
+    const own = businessType && BUSINESS_TYPES_WITH_OWN_PLAN.has(businessType) ? businessType : undefined;
+    return TIER_DEFINITIONS.filter((d) => d.businessType === own);
+}
 
 // Hardware NFC de la landing: cobro único con Culqi. El precio se toma de aquí, nunca del cliente.
 export const HARDWARE_PRODUCTS = [
@@ -130,7 +159,8 @@ export class SubscriptionsService {
 
     /** True if `ownedTier` unlocks features gated at `requiredTier`. */
     hasTierAccess(ownedTier: string, requiredTier: SubscriptionTier): boolean {
-        const ownedIndex = TIER_ORDER.indexOf(ownedTier as SubscriptionTier);
+        const owned = TIER_EQUIVALENT[ownedTier as SubscriptionTier] ?? ownedTier;
+        const ownedIndex = TIER_ORDER.indexOf(owned as SubscriptionTier);
         const requiredIndex = TIER_ORDER.indexOf(requiredTier);
         return ownedIndex !== -1 && ownedIndex >= requiredIndex;
     }
@@ -164,6 +194,11 @@ export class SubscriptionsService {
         // Si quedó una con pago pendiente, se cancela en Culqi antes de crear la nueva: si no,
         // Culqi seguiría reintentando el cobro viejo y el local pagaría dos veces.
         const pastDue = await this.subscriptionsRepo.find({ where: { placeId, status: 'past_due' } });
+        const place = await this.placesRepo.findOne({ where: { id: placeId } });
+        if (!plansForBusinessType(place?.businessType).some((d) => d.tier === tier)) {
+            throw new BadRequestException('Ese plan no está disponible para este tipo de negocio');
+        }
+
         // Si no se puede cancelar la vieja en Culqi, no se crea la nueva (lanza error).
         for (const old of pastDue) await this.cancelInCulqiThenLocally(old);
 
@@ -199,8 +234,6 @@ export class SubscriptionsService {
         const firstPaid = !!firstChargeId && (await this.isChargePaid(firstChargeId, planAmount));
         const periodStart = new Date();
         const periodEnd = firstPaid && nextBilling ? nextBilling : periodStart;
-
-        const place = await this.placesRepo.findOne({ where: { id: placeId } });
 
         let sub: Subscription;
         try {
@@ -468,8 +501,8 @@ export class SubscriptionsService {
         }
     }
 
-    getPlans() {
-        return TIER_DEFINITIONS.map((def) => ({
+    getPlans(businessType?: string) {
+        return plansForBusinessType(businessType).map((def) => ({
             tier: def.tier,
             name: def.name,
             price: this.planAmountFor(def.tier) / 100,
