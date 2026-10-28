@@ -5,6 +5,6 @@ export class CreateSubscriptionDto {
     @IsNotEmpty()
     token: string;
 
-    @IsIn(['reputacion', 'fidelizacion', 'ia_total'])
-    tier: 'reputacion' | 'fidelizacion' | 'ia_total';
+    @IsIn(['reputacion', 'fidelizacion', 'ia_total', 'barbero'])
+    tier: 'reputacion' | 'fidelizacion' | 'ia_total' | 'barbero';
 }

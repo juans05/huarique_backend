@@ -24,8 +24,8 @@ export class SubscriptionsController {
     constructor(private readonly service: SubscriptionsService) { }
 
     @Get('plans')
-    getPlans() {
-        return this.service.getPlans();
+    getPlans(@Query('businessType') businessType?: string) {
+        return this.service.getPlans(businessType);
     }
 
     @Get('hardware')
