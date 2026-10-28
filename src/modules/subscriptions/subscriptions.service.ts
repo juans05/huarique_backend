@@ -21,8 +21,13 @@ export type SubscriptionTier = 'reputacion' | 'fidelizacion' | 'ia_total' | 'bar
 
 export const TIER_ORDER: SubscriptionTier[] = ['reputacion', 'fidelizacion', 'ia_total'];
 
-// Planes por rubro, fuera de la escalera: desbloquean lo mismo que el tier indicado.
-const TIER_EQUIVALENT: Partial<Record<SubscriptionTier, SubscriptionTier>> = { barbero: 'ia_total' };
+/** Funciones que un plan fuera de la escalera abre por encima de su tier base. */
+export type PlanFeature = 'whatsapp';
+
+// Planes fuera de la escalera: abren su tier base y solo las funciones listadas, no el tier entero.
+const PLAN_SCOPE: Partial<Record<SubscriptionTier, { base: SubscriptionTier; features: PlanFeature[] }>> = {
+    barbero: { base: 'reputacion', features: ['whatsapp'] },
+};
 
 interface TierDefinition {
     tier: SubscriptionTier;
@@ -31,8 +36,8 @@ interface TierDefinition {
     envAmountKey: string;
     defaultAmount: number; // centavos
     features: string[];
-    /** Rubro al que se ofrece; sin él, el plan es para los rubros que no tienen plan propio. */
-    businessType?: string;
+    /** Solo para el barbero independiente (freelance); una barbería con equipo paga los planes generales. */
+    independentOnly?: boolean;
 }
 
 const TIER_DEFINITIONS: TierDefinition[] = [
@@ -83,7 +88,7 @@ const TIER_DEFINITIONS: TierDefinition[] = [
         envPlanIdKey: 'CULQI_PLAN_ID_BARBERO',
         envAmountKey: 'CULQI_PLAN_AMOUNT_BARBERO',
         defaultAmount: 25000, // S/.250
-        businessType: 'barberia',
+        independentOnly: true,
         features: [
             'WhatsApp automatizado: tu bot responde y agenda por ti',
             'Generación de citas desde WhatsApp, la web o la app',
@@ -95,12 +100,12 @@ const TIER_DEFINITIONS: TierDefinition[] = [
     },
 ];
 
-const BUSINESS_TYPES_WITH_OWN_PLAN = new Set(TIER_DEFINITIONS.map((d) => d.businessType).filter(Boolean));
+type PlaceForPlans = Pick<Place, 'businessType' | 'metadata'> | null | undefined;
 
-/** Planes que se ofrecen a un rubro: los suyos si tiene, si no los generales. */
-function plansForBusinessType(businessType?: string | null): TierDefinition[] {
-    const own = businessType && BUSINESS_TYPES_WITH_OWN_PLAN.has(businessType) ? businessType : undefined;
-    return TIER_DEFINITIONS.filter((d) => d.businessType === own);
+/** Planes que se ofrecen a un local: el de barbero si es un barbero independiente, si no los generales. */
+function plansForPlace(place: PlaceForPlans): TierDefinition[] {
+    const independent = place?.businessType === 'barberia' && place.metadata?.independent === true;
+    return TIER_DEFINITIONS.filter((d) => !!d.independentOnly === independent);
 }
 
 // Hardware NFC de la landing: cobro único con Culqi. El precio se toma de aquí, nunca del cliente.
@@ -158,9 +163,10 @@ export class SubscriptionsService {
     }
 
     /** True if `ownedTier` unlocks features gated at `requiredTier`. */
-    hasTierAccess(ownedTier: string, requiredTier: SubscriptionTier): boolean {
-        const owned = TIER_EQUIVALENT[ownedTier as SubscriptionTier] ?? ownedTier;
-        const ownedIndex = TIER_ORDER.indexOf(owned as SubscriptionTier);
+    hasTierAccess(ownedTier: string, requiredTier: SubscriptionTier, feature?: PlanFeature): boolean {
+        const scope = PLAN_SCOPE[ownedTier as SubscriptionTier];
+        if (scope && feature && scope.features.includes(feature)) return true;
+        const ownedIndex = TIER_ORDER.indexOf((scope?.base ?? ownedTier) as SubscriptionTier);
         const requiredIndex = TIER_ORDER.indexOf(requiredTier);
         return ownedIndex !== -1 && ownedIndex >= requiredIndex;
     }
@@ -195,7 +201,7 @@ export class SubscriptionsService {
         // Culqi seguiría reintentando el cobro viejo y el local pagaría dos veces.
         const pastDue = await this.subscriptionsRepo.find({ where: { placeId, status: 'past_due' } });
         const place = await this.placesRepo.findOne({ where: { id: placeId } });
-        if (!plansForBusinessType(place?.businessType).some((d) => d.tier === tier)) {
+        if (!plansForPlace(place).some((d) => d.tier === tier)) {
             throw new BadRequestException('Ese plan no está disponible para este tipo de negocio');
         }
 
@@ -502,20 +508,21 @@ export class SubscriptionsService {
     }
 
     /**
-     * Antes de cambiar el rubro de un local: su plan vigente debe seguir ofreciéndose al rubro nuevo.
-     * Si no, un restaurante podría pasar a barbería, comprar el plan Barbero (más barato) y volver.
+     * Antes de cambiar el rubro de un local: su plan vigente debe seguir ofreciéndose al local cambiado.
+     * Si no, un restaurante podría pasar a barbero independiente, comprar el plan Barbero (más barato) y volver.
      */
-    async assertPlanAllowsBusinessType(placeId: string, businessType: string) {
+    async assertPlanAllowsPlace(placeId: string, changed: PlaceForPlans) {
         const sub = await this.subscriptionsRepo.findOne({
             where: { placeId, status: In(['active', 'pending', 'past_due']) },
         });
-        if (sub && !plansForBusinessType(businessType).some((d) => d.tier === sub.tier)) {
+        if (sub && !plansForPlace(changed).some((d) => d.tier === sub.tier)) {
             throw new BadRequestException('Tu plan actual no aplica a ese tipo de negocio. Cancela tu suscripción antes de cambiarlo.');
         }
     }
 
-    getPlans(businessType?: string) {
-        return plansForBusinessType(businessType).map((def) => ({
+    async getPlans(placeId?: string) {
+        const place = placeId ? await this.placesRepo.findOne({ where: { id: placeId } }) : null;
+        return plansForPlace(place).map((def) => ({
             tier: def.tier,
             name: def.name,
             price: this.planAmountFor(def.tier) / 100,

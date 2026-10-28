@@ -20,7 +20,7 @@ const build = (overrides: Record<string, any> = {}) => {
     const googleMapsService = { getPlaceDetails: jest.fn().mockResolvedValue({ name: 'Barber Kings', googlePlaceId: 'g1' }) };
     const mailService = { sendNewPlacePendingNotice: jest.fn().mockResolvedValue(undefined) };
     const config = { get: jest.fn() };
-    const subscriptionsService = { assertPlanAllowsBusinessType: jest.fn().mockResolvedValue(undefined) };
+    const subscriptionsService = { assertPlanAllowsPlace: jest.fn().mockResolvedValue(undefined) };
     const ctrl: any = Object.create(BusinessPlacesController.prototype);
     Object.assign(ctrl, { placesRepo, categoryRepo, teamMemberRepo, googleMapsService, mailService, config, subscriptionsService, ...overrides });
     ctrl.logger = { error: jest.fn() };

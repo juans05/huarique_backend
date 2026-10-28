@@ -7,6 +7,7 @@ import {
     UseGuards,
     Query,
     Body,
+    ParseUUIDPipe,
 } from '@nestjs/common';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { BuyHardwareDto } from './dto/buy-hardware.dto';
@@ -24,8 +25,8 @@ export class SubscriptionsController {
     constructor(private readonly service: SubscriptionsService) { }
 
     @Get('plans')
-    getPlans(@Query('businessType') businessType?: string) {
-        return this.service.getPlans(businessType);
+    getPlans(@Query('placeId', new ParseUUIDPipe({ optional: true })) placeId?: string) {
+        return this.service.getPlans(placeId);
     }
 
     @Get('hardware')

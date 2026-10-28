@@ -38,7 +38,7 @@ export class BookingAgentService {
         // Respuesta a un aviso de rutina ("sí, el sábado"): no trae palabras de reserva, pero viene a agendar ese servicio.
         const recallServiceId = draft ? null : await this.pendingRecallService(input.placeId, input.customerPhone);
         if (!draft && !recallServiceId && !looksLikeBookingIntent(input.message)) return { handled: false };
-        if (!(await this.team.assertPlaceTier(input.placeId, 'ia_total').then(() => true, () => false))) return { handled: false };
+        if (!(await this.team.assertPlaceTier(input.placeId, 'ia_total', 'whatsapp').then(() => true, () => false))) return { handled: false };
 
         const [services, pros] = await Promise.all([this.appointments.services(input.placeId), this.appointments.professionals(input.placeId, true)]);
         if (!services.length || !pros.length) return { handled: false };
