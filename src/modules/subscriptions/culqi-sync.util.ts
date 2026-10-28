@@ -17,7 +17,17 @@ export interface LocalSubState {
 export interface CulqiSubLike {
     status?: number;
     next_billing_date?: number;
-    periods?: { charges?: { charge_id?: string } | null } | null;
+    periods?: CulqiPeriod[] | CulqiPeriod | null;
+}
+
+type CulqiCharges = { charge_id?: string }[] | { charge_id?: string } | null;
+type CulqiPeriod = { charges?: CulqiCharges };
+
+const last = <T>(x: T[] | T | null | undefined): T | undefined => (Array.isArray(x) ? x[x.length - 1] : x ?? undefined);
+
+/** Último cargo del último periodo. Culqi devuelve `periods` y `charges` como listas; se acepta también un objeto suelto. */
+export function latestChargeId(remote: CulqiSubLike): string | undefined {
+    return last(last(remote.periods)?.charges)?.charge_id;
 }
 
 export type SyncAction =
@@ -38,7 +48,7 @@ export function decideSync(local: LocalSubState, remote: CulqiSubLike, now = new
 
     // Posible cobro: la próxima fecha de Culqi avanzó (1 día de margen por redondeos del alta) Y hay un cargo.
     // Es solo un candidato: el servicio lo confirma consultando el cargo en Culqi antes de dar acceso.
-    const chargeId = remote.periods?.charges?.charge_id;
+    const chargeId = latestChargeId(remote);
     if (chargeId && (!localEnd || remoteEnd.getTime() > localEnd.getTime() + DAY_MS)) {
         return { kind: 'renewed', periodStart: localEnd ?? now, periodEnd: remoteEnd, chargeId };
     }

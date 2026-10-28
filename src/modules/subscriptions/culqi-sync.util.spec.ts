@@ -1,4 +1,4 @@
-import { decideSync } from './culqi-sync.util';
+import { decideSync, latestChargeId } from './culqi-sync.util';
 
 const now = new Date('2026-11-20T12:00:00Z');
 const secs = (iso: string) => Math.floor(new Date(iso).getTime() / 1000);
@@ -46,5 +46,17 @@ describe('decideSync (formato /v2/recurrent/subscriptions)', () => {
 
     it('respuesta sin fecha de cobro → no toca nada (no bloquea a quien paga)', () => {
         expect(decideSync(active('2026-11-01T00:00:00Z'), { status: 3 }, now)).toEqual({ kind: 'none' });
+    });
+});
+
+describe('latestChargeId', () => {
+    it('lee la forma real de Culqi: listas de periodos y cargos', () => {
+        const remote = { periods: [{ charges: [{ charge_id: 'chr_viejo' }] }, { charges: [{ charge_id: 'chr_fallido' }, { charge_id: 'chr_nuevo' }] }] };
+        expect(latestChargeId(remote)).toBe('chr_nuevo');
+    });
+    it('acepta también un objeto suelto y periodos vacíos', () => {
+        expect(latestChargeId({ periods: { charges: { charge_id: 'chr_1' } } })).toBe('chr_1');
+        expect(latestChargeId({ periods: [] })).toBeUndefined();
+        expect(latestChargeId({})).toBeUndefined();
     });
 });
