@@ -27,6 +27,7 @@ import { PlaceVideo } from './entities/place-video.entity';
 import { PlacePhoto } from './entities/place-photo.entity';
 import { GoogleReview } from './entities/google-review.entity';
 import { Promotion } from './entities/promotion.entity';
+import { ReviewReply } from './entities/review-reply.entity';
 
 import { UploadModule } from '../upload/upload.module';
 import { PlaceReport } from './entities/place-report.entity';
@@ -36,6 +37,9 @@ import { GoogleMapsService } from './services/google-maps.service';
 import { GoogleBusinessService } from './services/google-business.service';
 import { WeeklyReportService } from './services/weekly-report.service';
 import { ReviewAutoService } from './services/review-auto.service';
+import { ReputationService } from './services/reputation.service';
+import { SeoService } from './services/seo.service';
+import { ReputationController } from './reputation.controller';
 import { GoogleCallbackController } from './google-callback.controller';
 import { User } from '../users/entities/user.entity';
 import { TeamModule } from '../team/team.module';
@@ -72,6 +76,7 @@ import { Order } from '../orders/entities/order.entity';
             LoyaltyCard,
             LoyaltyProgram,
             Order,
+            ReviewReply,
         ]),
         UploadModule,
         TeamModule,
@@ -79,8 +84,8 @@ import { Order } from '../orders/entities/order.entity';
         UsersModule,
     ],
 
-    controllers: [PlacesController, BusinessPlacesController, GoogleCallbackController],
-    providers: [PlacesService, MenuService, MenuAssistantService, MenuImportService, MenuFormatterService, BotPromptService, PromotionsService, TikTokSearchService, GeolocationService, RarityCalculatorService, GoogleMapsService, GoogleBusinessService, WeeklyReportService, ReviewAutoService, TodayService, IndependentOnboardingService],
+    controllers: [PlacesController, BusinessPlacesController, GoogleCallbackController, ReputationController],
+    providers: [PlacesService, MenuService, MenuAssistantService, MenuImportService, MenuFormatterService, BotPromptService, PromotionsService, TikTokSearchService, GeolocationService, RarityCalculatorService, GoogleMapsService, GoogleBusinessService, WeeklyReportService, ReviewAutoService, ReputationService, SeoService, TodayService, IndependentOnboardingService],
     exports: [PlacesService, MenuService, MenuFormatterService, GeolocationService, GoogleMapsService],
 })
 export class PlacesModule { }
