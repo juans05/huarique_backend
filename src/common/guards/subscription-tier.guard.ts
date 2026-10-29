@@ -4,10 +4,11 @@ import { REQUIRES_TIER_KEY } from '../decorators/requires-tier.decorator';
 import { SubscriptionsService, SubscriptionTier } from '../../modules/subscriptions/subscriptions.service';
 
 const TIER_LABEL: Record<SubscriptionTier, string> = {
-    reputacion: 'Wuarike Reputación',
-    fidelizacion: 'Wuarike Fidelización+',
-    ia_total: 'Wuarike IA Total',
-    barbero: 'Wuarike Barbero',
+    reputacion: 'Rankeado',
+    fidelizacion: 'Caserito',
+    ia_total: 'Taypá',
+    al_toque: 'Al Toque',
+    wawa: 'Wawa',
 };
 
 // Las suscripciones son por sede — este guard queda solo para rutas sin concepto

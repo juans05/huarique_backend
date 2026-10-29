@@ -18,7 +18,7 @@ import { Place } from '../places/entities/place.entity';
 import { MailService } from '../../common/services/mail.service';
 import { CreateSubscriptionDto } from './dto/create-subscription.dto';
 
-export type SubscriptionTier = 'reputacion' | 'fidelizacion' | 'ia_total' | 'barbero';
+export type SubscriptionTier = 'reputacion' | 'fidelizacion' | 'ia_total' | 'al_toque' | 'wawa';
 
 export const TIER_ORDER: SubscriptionTier[] = ['reputacion', 'fidelizacion', 'ia_total'];
 
@@ -27,7 +27,8 @@ export type PlanFeature = 'whatsapp' | 'campanas' | 'reportes' | 'ia';
 
 // Planes fuera de la escalera: abren su tier base y solo las funciones listadas, no el tier entero.
 const PLAN_SCOPE: Partial<Record<SubscriptionTier, { base: SubscriptionTier; features: PlanFeature[] }>> = {
-    barbero: { base: 'reputacion', features: ['whatsapp', 'campanas', 'reportes', 'ia'] },
+    al_toque: { base: 'reputacion', features: ['whatsapp', 'campanas', 'reportes', 'ia'] },
+    wawa: { base: 'reputacion', features: ['whatsapp', 'ia', 'reportes'] },
 };
 
 interface TierDefinition {
@@ -37,69 +38,84 @@ interface TierDefinition {
     envAmountKey: string;
     defaultAmount: number; // centavos
     features: string[];
-    /** Solo para el barbero independiente (freelance); una barbería con equipo paga los planes generales. */
+    /** Solo para el negocio de una sola persona (independiente); un negocio con equipo paga los planes generales. */
     independentOnly?: boolean;
 }
 
 const TIER_DEFINITIONS: TierDefinition[] = [
     {
         tier: 'reputacion',
-        name: 'Wuarike Reputación',
-        envPlanIdKey: 'CULQI_PLAN_ID_REPUTACION',
-        envAmountKey: 'CULQI_PLAN_AMOUNT_REPUTACION',
-        defaultAmount: 7999, // S/.79.99
+        name: 'Rankeado',
+        envPlanIdKey: 'CULQI_PLAN_ID_RANKEADO',
+        envAmountKey: 'CULQI_PLAN_AMOUNT_RANKEADO',
+        defaultAmount: 25490, // S/.254.90
         features: [
             'Solicitud de reseñas en Google por NFC y QR',
             'Instagram IA ilimitado',
             'Buzón privado de feedback',
             'Carta digital interactiva',
+            'Agenda de citas',
         ],
     },
     {
         tier: 'fidelizacion',
-        name: 'Wuarike Fidelización+',
-        envPlanIdKey: 'CULQI_PLAN_ID_FIDELIZACION',
-        envAmountKey: 'CULQI_PLAN_AMOUNT_FIDELIZACION',
-        defaultAmount: 19900, // S/.199
+        name: 'Caserito',
+        envPlanIdKey: 'CULQI_PLAN_ID_CASERITO',
+        envAmountKey: 'CULQI_PLAN_AMOUNT_CASERITO',
+        defaultAmount: 43990, // S/.439.90
         features: [
-            'Todo lo de Wuarike Reputación',
+            'Todo lo de Rankeado',
             'Programa de fidelización con sellos o puntos',
             'Tarjeta digital en Apple Wallet y Google Wallet',
             'Clientes CRM',
+            'Pedidos en mesa',
         ],
     },
     {
         tier: 'ia_total',
-        name: 'Wuarike IA Total',
-        envPlanIdKey: 'CULQI_PLAN_ID_IA',
-        envAmountKey: 'CULQI_PLAN_AMOUNT_IA',
-        defaultAmount: 49900, // S/.499
+        name: 'Taypá',
+        envPlanIdKey: 'CULQI_PLAN_ID_TAYPA',
+        envAmountKey: 'CULQI_PLAN_AMOUNT_TAYPA',
+        defaultAmount: 74990, // S/.749.90
         features: [
-            'Todo lo de Wuarike Fidelización+',
-            'PlazBot: bot de WhatsApp con IA',
+            'Todo lo de Caserito',
+            'Bot de WhatsApp con IA',
             'Chat en vivo',
             'Campañas de WhatsApp',
             'Email marketing',
             'Base de conocimiento IA (RAG)',
+            'Reportes',
         ],
     },
     {
-        tier: 'barbero',
-        name: 'Wuarike Barbero',
-        envPlanIdKey: 'CULQI_PLAN_ID_BARBERO',
-        envAmountKey: 'CULQI_PLAN_AMOUNT_BARBERO',
-        defaultAmount: 25000, // S/.250
+        tier: 'wawa',
+        name: 'Wawa',
+        envPlanIdKey: 'CULQI_PLAN_ID_WAWA',
+        envAmountKey: 'CULQI_PLAN_AMOUNT_WAWA',
+        defaultAmount: 6990, // S/.69.90
         independentOnly: true,
         features: [
             'WhatsApp automatizado: tu bot responde y agenda por ti',
-            'Generación de citas desde WhatsApp, la web o la app',
-            'Revisión de tus citas del día, la semana y el mes',
-            'Envío automático de recordatorios a tus clientes',
-            'Creación de clientes con su historial de cortes',
+            'Carta o catálogo digital',
+            'Agenda de citas con recordatorios automáticos',
+            'Reseñas en Google por NFC y QR',
+            'Reportes básicos',
+            'App en tu celular con aviso de cada reserva',
+        ],
+    },
+    {
+        tier: 'al_toque',
+        name: 'Al Toque',
+        envPlanIdKey: 'CULQI_PLAN_ID_AL_TOQUE',
+        envAmountKey: 'CULQI_PLAN_AMOUNT_AL_TOQUE',
+        defaultAmount: 29990, // S/.299.90
+        independentOnly: true,
+        features: [
+            'Todo lo de Wawa',
             'Campañas de WhatsApp para traer de vuelta a tus clientes',
             'Base de IA: tu bot conoce tus precios, horarios y servicios',
+            'Creación de clientes con su historial',
             'Reportes de tus citas y tus ingresos',
-            'App en tu celular con aviso de cada reserva',
         ],
     },
 ];
@@ -109,7 +125,7 @@ type CulqiBillingData = Pick<CreateSubscriptionDto, 'firstName' | 'lastName' | '
 
 type PlaceForPlans = Pick<Place, 'businessType' | 'metadata'> | null | undefined;
 
-/** Planes que se ofrecen a un local: el de barbero si es un barbero independiente, si no los generales. */
+/** Planes que se ofrecen a un local: Wawa y Al Toque si es independiente, si no los generales. */
 function plansForPlace(place: PlaceForPlans): TierDefinition[] {
     const independent = place?.businessType === 'barberia' && place.metadata?.independent === true;
     return TIER_DEFINITIONS.filter((d) => !!d.independentOnly === independent);
@@ -511,7 +527,7 @@ export class SubscriptionsService {
 
     /**
      * Antes de cambiar el rubro de un local: su plan vigente debe seguir ofreciéndose al local cambiado.
-     * Si no, un restaurante podría pasar a barbero independiente, comprar el plan Barbero (más barato) y volver.
+     * Si no, un restaurante podría pasar a barbero independiente, comprar Wawa o Al Toque (más baratos) y volver.
      */
     async assertPlanAllowsPlace(placeId: string, changed: PlaceForPlans) {
         const sub = await this.subscriptionsRepo.findOne({

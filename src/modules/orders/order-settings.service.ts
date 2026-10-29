@@ -41,7 +41,7 @@ export class OrderSettingsService {
         const next: PlaceOrderSettings = { ...current, ...rest };
         if (culqiSecretKey) next.culqiSecretKey = culqiSecretKey.trim();
         if (dto.ordersEnabled && !current.ordersEnabled && !(await this.planAccess(placeId)).table) {
-            throw new ForbiddenException('Recibir pedidos está disponible desde el plan Wuarike Fidelización+');
+            throw new ForbiddenException('Recibir pedidos está disponible desde el plan Caserito');
         }
         // El modo WUARIKES queda bloqueado hasta su validación legal y de Culqi (ver spec, "Riesgo regulatorio").
         if (dto.paymentDestination === 'WUARIKES') throw new BadRequestException('El cobro a través de Wuarikes todavía no está disponible');

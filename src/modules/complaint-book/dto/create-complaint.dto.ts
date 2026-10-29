@@ -31,7 +31,7 @@ export class CreateComplaintDto {
     @IsString()
     consumerPhone?: string;
 
-    @ApiProperty({ example: 'Plan Wuarike Fidelización+ (suscripción mensual)' })
+    @ApiProperty({ example: 'Plan Caserito (suscripción mensual)' })
     @IsString()
     contractedGood: string;
 

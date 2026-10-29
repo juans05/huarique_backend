@@ -5,8 +5,8 @@ export class CreateSubscriptionDto {
     @IsNotEmpty()
     token: string;
 
-    @IsIn(['reputacion', 'fidelizacion', 'ia_total', 'barbero'])
-    tier: 'reputacion' | 'fidelizacion' | 'ia_total' | 'barbero';
+    @IsIn(['reputacion', 'fidelizacion', 'ia_total', 'al_toque', 'wawa'])
+    tier: 'reputacion' | 'fidelizacion' | 'ia_total' | 'al_toque' | 'wawa';
 
     // Datos del titular que Culqi exige para crear el cliente de la suscripción.
     @IsString()
