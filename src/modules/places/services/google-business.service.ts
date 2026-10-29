@@ -4,6 +4,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { createHmac, timingSafeEqual } from 'crypto';
 import { Place } from '../entities/place.entity';
+import { GbpReview } from '../review-reply.util';
 
 const STATE_TTL_MS = 15 * 60_000;
 
@@ -175,14 +176,19 @@ export class GoogleBusinessService {
     return match.locationName;
   }
 
-  async getAllReviews(placeId: string): Promise<{ reviews: any[]; total: number; averageRating: number | null }> {
+  /** Ubicación conectada del local en formato "accounts/{a}/locations/{l}". */
+  private async connectedLocation(placeId: string): Promise<string> {
     const place = await this.placesRepo.findOne({ where: { id: placeId } });
     if (!place?.googleAccessToken || !place?.googleLocationName) {
       throw new GoogleApiError('not_connected', 'Conecta tu cuenta de Google Business primero.');
     }
-    const locationName = await this.resolveLocationName(placeId, place.googleLocationName);
+    return this.resolveLocationName(placeId, place.googleLocationName);
+  }
 
-    const reviews: any[] = [];
+  async getAllReviews(placeId: string): Promise<{ reviews: GbpReview[]; total: number; averageRating: number | null }> {
+    const locationName = await this.connectedLocation(placeId);
+
+    const reviews: GbpReview[] = [];
     let total = 0;
     let averageRating: number | null = null;
     let pageToken: string | undefined;
@@ -198,6 +204,38 @@ export class GoogleBusinessService {
     } while (pageToken);
 
     return { reviews, total: total || reviews.length, averageRating };
+  }
+
+  /** Reseñas creadas o editadas desde `since`. Google las ordena por updateTime desc: se corta al pasar la fecha. */
+  async getRecentReviews(placeId: string, since: Date): Promise<GbpReview[]> {
+    const locationName = await this.connectedLocation(placeId);
+    const reviews: GbpReview[] = [];
+    let pageToken: string | undefined;
+    do {
+      const data = await this.googleFetch(
+        placeId,
+        `https://mybusiness.googleapis.com/v4/${locationName}/reviews?pageSize=50&orderBy=updateTime%20desc${pageToken ? `&pageToken=${encodeURIComponent(pageToken)}` : ''}`,
+      );
+      const page: GbpReview[] = data.reviews ?? [];
+      reviews.push(...page);
+      const oldest = page[page.length - 1];
+      if (!oldest || Date.parse(oldest.updateTime ?? oldest.createTime) < since.getTime()) break;
+      pageToken = data.nextPageToken;
+    } while (pageToken);
+    return reviews;
+  }
+
+  /** Ficha (Business Information v1) y fotos (v4 media) para el análisis SEO. */
+  async getLocationProfile(placeId: string): Promise<{ profile: any; mediaItems: any[]; totalMedia: number }> {
+    const locationName = await this.connectedLocation(placeId);
+    const locationOnly = locationName.split('/').slice(2).join('/'); // "locations/{l}"
+    const profile = await this.googleFetch(
+      placeId,
+      `https://mybusinessbusinessinformation.googleapis.com/v1/${locationOnly}?readMask=title,phoneNumbers,categories,storefrontAddress,websiteUri,regularHours,profile,serviceItems`,
+    );
+    // ponytail: una sola página de 2500 fotos; ningún restaurante normal tiene más.
+    const media = await this.googleFetch(placeId, `https://mybusiness.googleapis.com/v4/${locationName}/media?pageSize=2500`);
+    return { profile, mediaItems: media.mediaItems ?? [], totalMedia: media.totalMediaItemCount ?? (media.mediaItems?.length ?? 0) };
   }
 
   /** Publica o reemplaza la respuesta del dueño a una reseña. */

@@ -27,7 +27,9 @@ import { BotPromptService } from './bot-prompt.service';
 import { MenuImportService } from './menu-import.service';
 import { sanitizeMenu } from './menu-import.util';
 import { sanitizeMenuTheme } from './menu-theme.util';
-import { buildReplyMessages } from './review-reply.util';
+import { buildReplyMessages, replyOptions, ReviewAutoSettings } from './review-reply.util';
+import { mergeReviewAutoSettings, AI_QUOTA_MESSAGE } from './reputation.util';
+import { ReputationService } from './services/reputation.service';
 import { MenuService } from './menu.service';
 import { PromotionsService } from './promotions.service';
 import { TodayService } from './today.service';
@@ -86,6 +88,7 @@ export class BusinessPlacesController {
         private subscriptionsService: SubscriptionsService,
         private readonly mailService: MailService,
         private readonly config: ConfigService,
+        private readonly reputationService: ReputationService,
     ) { }
 
     // Los locales creados por dueños quedan 'pending' (ocultos en el mapa) hasta que un
@@ -626,22 +629,27 @@ export class BusinessPlacesController {
     }
 
     @Post('places/:id/google-reviews/suggest-reply')
-    @ApiOperation({ summary: 'AI-suggested reply to a Google review (not published)' })
+    @ApiOperation({ summary: 'AI-suggested reply to a Google review (not published); counts against the monthly AI quota' })
     async suggestGoogleReply(
         @Param('id') id: string,
-        @Body() body: { comment?: string; stars?: number; reviewerName?: string },
+        @Body() body: { comment?: string; stars?: number; reviewerName?: string; reviewName?: string },
         @CurrentUser() user: any,
     ) {
         const place = await this.placesRepo.findOne({ where: { id } });
         if (!place || place.claimedByUserId !== user.id) {
             throw new ForbiddenException('No tienes permiso');
         }
+        const quota = await this.reputationService.aiQuota(id);
+        if (quota.remaining <= 0) throw new ForbiddenException(AI_QUOTA_MESSAGE);
         const stars = Math.min(Math.max(Number(body.stars) || 0, 1), 5);
-        const reply = await this.aiService.chat(buildReplyMessages(place.name, stars, body.reviewerName, body.comment));
-        return { reply: reply.trim() };
+        const reply = await this.aiService.chat(
+            buildReplyMessages(place.name, stars, body.reviewerName, body.comment, replyOptions(place.metadata?.reviewAuto)),
+        );
+        await this.reputationService.logSuggestion(id, typeof body.reviewName === 'string' ? body.reviewName.slice(0, 300) : null, stars);
+        return { reply: reply.trim(), quota: { ...quota, used: quota.used + 1, remaining: quota.remaining - 1 } };
     }
 
-    // Alertas por correo de reseñas bajas. Las respuestas nunca se publican solas: las aprueba el dueño.
+    // Alertas, palabras clave, auto-respuesta, tono, idioma y meta de estrellas (metadata.reviewAuto).
     @Get('places/:id/review-auto')
     async getReviewAuto(@Param('id') id: string, @CurrentUser() user: any) {
         const place = await this.placesRepo.findOne({ where: { id } });
@@ -650,26 +658,19 @@ export class BusinessPlacesController {
     }
 
     @Patch('places/:id/review-auto')
-    async setReviewAuto(@Param('id') id: string, @Body() body: { alerts?: boolean }, @CurrentUser() user: any) {
+    async setReviewAuto(@Param('id') id: string, @Body() body: Partial<ReviewAutoSettings>, @CurrentUser() user: any) {
         const place = await this.placesRepo.findOne({ where: { id } });
         if (!place || place.claimedByUserId !== user.id) throw new ForbiddenException('No tienes permiso');
-        const current = place.metadata?.reviewAuto ?? {};
-        const now = new Date().toISOString();
-        const alerts = body?.alerts !== false;
-        place.metadata = {
-            ...(place.metadata ?? {}),
-            reviewAuto: {
-                alerts,
-                alertsSince: alerts ? (current.alerts !== false ? current.alertsSince : now) : current.alertsSince,
-            },
-        };
+        const { alertsSince: _ignored, ...patch } = body ?? {};
+        place.metadata = { ...(place.metadata ?? {}), reviewAuto: mergeReviewAutoSettings(place.metadata?.reviewAuto, patch) };
         await this.placesRepo.save(place);
         return this.reviewAutoState(place);
     }
 
     private reviewAutoState(place: Place) {
-        const auto = place.metadata?.reviewAuto ?? {};
+        const { alertsSince: _since, ...auto }: ReviewAutoSettings = place.metadata?.reviewAuto ?? {};
         return {
+            ...auto,
             alerts: auto.alerts !== false,
             googleConnected: !!(place.googleAccessToken && place.googleLocationName),
         };

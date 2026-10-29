@@ -4,12 +4,21 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Place } from '../entities/place.entity';
 import { GoogleBusinessService } from './google-business.service';
+import { ReputationService } from './reputation.service';
 import { MailService } from '../../../common/services/mail.service';
-import { ReviewAutoSettings, starsOf } from '../review-reply.util';
+import { GbpReview, ReviewAutoSettings, starsOf } from '../review-reply.util';
+import { shouldAlert } from '../reputation.util';
+
+const RECENT_WINDOW_MS = 7 * 86_400_000;
+// Fusiona solo alertsSince dentro de metadata.reviewAuto: no pisa lo que el dueño guarde mientras corre el cron.
+const SET_ALERTS_SINCE_SQL = `UPDATE wuarike_db.places
+   SET metadata = COALESCE(metadata, '{}'::jsonb)
+     || jsonb_build_object('reviewAuto', COALESCE(metadata->'reviewAuto', '{}'::jsonb) || jsonb_build_object('alertsSince', $2::text))
+ WHERE id = $1`;
 
 /**
- * Cada 10 minutos revisa las reseñas de Google de los locales conectados y avisa por correo
- * de las de 1 a 3 estrellas. Nada se publica solo: las respuestas las aprueba el dueño desde Reputación.
+ * Cada 5 minutos, por local conectado a Google Business: avisa por correo de reseñas bajas o con
+ * palabras clave, programa auto-respuestas (si el dueño las activó) y publica las que vencieron.
  * Solo avisa de reseñas nuevas desde que se activaron las alertas, nunca del historial.
  */
 @Injectable()
@@ -21,10 +30,11 @@ export class ReviewAutoService {
         @InjectRepository(Place) private readonly placesRepo: Repository<Place>,
         private readonly google: GoogleBusinessService,
         private readonly mail: MailService,
+        private readonly reputation: ReputationService,
     ) {}
 
-    // ponytail: polling cada 10 min; si hace falta aviso instantáneo, usar notificaciones Pub/Sub de Google Business.
-    @Cron('0 */10 * * * *')
+    // ponytail: polling cada 5 min; con cientos de locales conectados, pasar a notificaciones Pub/Sub (Fase 3).
+    @Cron('0 */5 * * * *')
     async run() {
         if (this.running) return;
         this.running = true;
@@ -34,7 +44,6 @@ export class ReviewAutoService {
                 .leftJoinAndSelect('p.claimedBy', 'owner')
                 .where('p.google_location_name IS NOT NULL')
                 .andWhere('p.google_access_token IS NOT NULL')
-                .andWhere(`COALESCE(p.metadata->'reviewAuto'->>'alerts', 'true') <> 'false'`)
                 .getMany();
             for (const place of places) {
                 try {
@@ -48,28 +57,42 @@ export class ReviewAutoService {
         }
     }
 
-    private async processPlace(place: Place) {
-        if (!place.claimedBy?.email) return;
+    async processPlace(place: Place, now = Date.now()) {
         const settings: ReviewAutoSettings = place.metadata?.reviewAuto ?? {};
-        const { reviews } = await this.google.getAllReviews(place.id);
-        const now = Date.now();
-        // Sin fecha de activación (alertas por defecto) se empieza desde ahora: no se avisa del historial.
-        const alertsSince = settings.alertsSince ? Date.parse(settings.alertsSince) : now;
+        const alertsOn = settings.alerts !== false && !!place.claimedBy?.email;
+        const auto = settings.autoReply?.enabled ? settings.autoReply : null;
+        const due = await this.reputation.dueJobs(place.id, new Date(now));
+        if (!alertsOn && !auto && due.length === 0) return;
 
-        for (const r of reviews) {
-            const stars = starsOf(r);
-            if (stars >= 1 && stars <= 3 && Date.parse(r.createTime) > alertsSince) {
+        // Las respuestas en lote son de reseñas antiguas: para confirmarlas hace falta la lista completa.
+        const reviews: GbpReview[] = due.some((j) => j.origin === 'lote')
+            ? (await this.google.getAllReviews(place.id)).reviews
+            : await this.google.getRecentReviews(place.id, new Date(now - RECENT_WINDOW_MS));
+
+        if (alertsOn) {
+            const since = settings.alertsSince ? Date.parse(settings.alertsSince) : now;
+            for (const r of reviews) {
+                if (Date.parse(r.createTime) <= since) continue;
+                const stars = starsOf(r);
+                const { alert, matched } = shouldAlert(stars, r.comment, settings);
+                if (!alert) continue;
                 await this.mail.sendLowRatingAlert(place.claimedBy.email, place.name, {
-                    source: 'google',
-                    stars,
-                    author: r.reviewer?.displayName,
-                    comment: r.comment,
+                    source: 'google', stars, author: r.reviewer?.displayName, comment: r.comment, keywords: matched, cc: settings.alertEmail,
                 });
             }
         }
 
-        // Marca hasta dónde se avisó para no repetir correos en la siguiente ejecución.
-        place.metadata = { ...(place.metadata ?? {}), reviewAuto: { alerts: true, alertsSince: new Date(now).toISOString() } };
-        await this.placesRepo.update(place.id, { metadata: place.metadata });
+        if (auto) {
+            const from = Math.max(Date.parse(auto.since ?? '') || now, now - RECENT_WINDOW_MS);
+            const candidates = reviews.filter((r) => !r.reviewReply && Date.parse(r.createTime) > from && auto.stars.includes(starsOf(r)));
+            await this.reputation.scheduleAuto(place.id, candidates, auto, now);
+        }
+
+        const byName = new Map(reviews.map((r) => [r.name, r]));
+        for (const job of due) {
+            await this.reputation.publishJob(place, job, byName.get(job.reviewName ?? ''));
+        }
+
+        await this.placesRepo.query(SET_ALERTS_SINCE_SQL, [place.id, new Date(now).toISOString()]);
     }
 }

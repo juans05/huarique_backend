@@ -327,22 +327,25 @@ export class MailService {
     }
 
     /** Aviso al dueño: llegó una opinión o reseña de 3 estrellas o menos. */
-    async sendLowRatingAlert(to: string, placeName: string, alert: { source: 'google' | 'qr'; stars: number; author?: string | null; comment?: string | null; contact?: string | null }) {
+    async sendLowRatingAlert(to: string, placeName: string, alert: { source: 'google' | 'qr'; stars: number; author?: string | null; comment?: string | null; contact?: string | null; keywords?: string[]; cc?: string | null }) {
         const esc = (s: string) => s.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]!));
         const where = alert.source === 'google' ? 'en Google' : 'por tu QR/NFC';
         try {
             const { error } = await this.resend.emails.send({
                 from: 'Wuarike <alertas@wuarikes.com>',
-                to: [to],
-                subject: `${'★'.repeat(alert.stars)}${'☆'.repeat(5 - alert.stars)} Nueva opinión de ${alert.stars} ${alert.stars === 1 ? 'estrella' : 'estrellas'} ${where}`,
+                to: [to, ...(alert.cc && alert.cc !== to ? [alert.cc] : [])],
+                subject: alert.keywords?.length && alert.stars >= 4
+                    ? `Palabra clave en una opinión ${where}: "${alert.keywords.join('", "')}"`
+                    : `${'★'.repeat(alert.stars)}${'☆'.repeat(5 - alert.stars)} Nueva opinión de ${alert.stars} ${alert.stars === 1 ? 'estrella' : 'estrellas'} ${where}`,
                 html: `
                     <div style="font-family: 'Inter', sans-serif; max-width: 600px; margin: 0 auto; background-color: #ffffff; padding: 32px; border-radius: 20px; border: 1px solid #eee;">
                         <h1 style="color: #111827; font-size: 20px; margin: 0 0 8px;">Una opinión que conviene atender hoy</h1>
                         <p style="color: #4b5563; font-size: 15px;"><b>${esc(alert.author || 'Un cliente')}</b> dejó ${alert.stars} ${alert.stars === 1 ? 'estrella' : 'estrellas'} a <b>${esc(placeName)}</b> ${where}.</p>
                         ${alert.comment ? `<div style="background: #f3f4f6; padding: 16px; border-radius: 12px; color: #111827; font-size: 15px; line-height: 1.6;">${esc(alert.comment).replace(/\n/g, '<br>')}</div>` : ''}
+                        ${alert.keywords?.length ? `<p style="color: #4b5563; font-size: 14px;">Palabras clave: <b>${esc(alert.keywords.join(', '))}</b></p>` : ''}
                         ${alert.contact ? `<p style="color: #4b5563; font-size: 14px;">Contacto que dejó: <b>${esc(alert.contact)}</b></p>` : ''}
                         <p style="margin-top: 20px;"><a href="${this.frontendUrl}/${alert.source === 'google' ? 'reputacion' : 'feedback'}" style="background: #F26122; color: #fff; padding: 12px 20px; border-radius: 12px; text-decoration: none; font-weight: 700;">Ver y responder</a></p>
-                        <p style="color: #9ca3af; font-size: 12px;">Responder rápido y con calma suele convertir una crítica en un cliente que vuelve. Puedes apagar estas alertas en Reputación.</p>
+                        <p style="color: #9ca3af; font-size: 12px;">Responder rápido y con calma suele convertir una crítica en un cliente que vuelve. Puedes cambiar estas alertas en Reputación.</p>
                     </div>
                 `,
             });

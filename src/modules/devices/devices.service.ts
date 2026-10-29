@@ -1,7 +1,8 @@
-import { Injectable } from '@nestjs/common';
+import { BadRequestException, Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Not, Repository } from 'typeorm';
 import { Device } from './entities/device.entity';
+import { PlaceTeamMember } from '../team/entities/place-team-member.entity';
 import { DeviceRequest, DeviceRequestStatus, FREE_TAPS_PER_PLACE, TAP_UNIT_PRICE } from './entities/device-request.entity';
 import { CreateDeviceDto } from './dto/create-device.dto';
 import { UpdateDeviceDto } from './dto/update-device.dto';
@@ -14,6 +15,8 @@ export class DevicesService {
     private devicesRepository: Repository<Device>,
     @InjectRepository(DeviceRequest)
     private deviceRequestsRepository: Repository<DeviceRequest>,
+    @InjectRepository(PlaceTeamMember)
+    private membersRepository: Repository<PlaceTeamMember>,
   ) {}
 
   async findAll(placeId: string): Promise<Device[]> {
@@ -40,10 +43,11 @@ export class DevicesService {
   }
 
   async update(id: string, placeId: string, dto: UpdateDeviceDto): Promise<Device> {
-    await this.devicesRepository.update(
-      { id, placeId },
-      dto,
-    );
+    if (dto.teamMemberId) {
+      const member = await this.membersRepository.findOne({ where: { id: dto.teamMemberId, placeId } });
+      if (!member) throw new BadRequestException('Ese miembro no pertenece a este local');
+    }
+    await this.devicesRepository.update({ id, placeId }, dto);
     return this.findOne(id, placeId);
   }
 

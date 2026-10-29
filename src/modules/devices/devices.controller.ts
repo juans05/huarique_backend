@@ -22,6 +22,7 @@ import { DevicesService } from './devices.service';
 import { Device } from './entities/device.entity';
 import { DeviceRequest } from './entities/device-request.entity';
 import { Place } from '../places/entities/place.entity';
+import { limaWeekStart } from '../places/reputation.util';
 import { CreateDeviceDto } from './dto/create-device.dto';
 import { UpdateDeviceDto } from './dto/update-device.dto';
 import { CreateDeviceRequestDto } from './dto/create-device-request.dto';
@@ -87,21 +88,36 @@ export class DevicesController {
   ) {
     await this.assertOwner(placeId, user.id);
     const since = new Date(Date.now() - Math.min(Math.max(parseInt(days, 10) || 30, 1), 365) * 86_400_000);
-    const rows = await this.placesRepository.query(
+    const weekStart = limaWeekStart();
+    const from = since < weekStart ? since : weekStart;
+    // La meta y el líder cuentan opiniones (cualquier calificación), nunca reseñas de Google ni estrellas:
+    // la política de Google prohíbe fijar al personal cuotas de reseñas.
+    return this.placesRepository.query(
       `SELECT d.id, d.name, d.device_type AS "deviceType",
+              d.team_member_id AS "teamMemberId", u.full_name AS "memberName", d.weekly_goal AS "weeklyGoal",
               COALESCE(s.scans, 0)::int AS scans,
               COALESCE(f.opinions, 0)::int AS opinions,
-              COALESCE(f.positive, 0)::int AS positive
+              COALESCE(f.positive, 0)::int AS positive,
+              COALESCE(s.week_scans, 0)::int AS "weekScans",
+              COALESCE(f.week_opinions, 0)::int AS "weekOpinions"
          FROM wuarike_db.devices d
-         LEFT JOIN (SELECT device_id, COUNT(*) AS scans FROM wuarike_db.place_scans
-                     WHERE place_id = $1 AND created_at >= $2 GROUP BY device_id) s ON s.device_id = d.id::text
-         LEFT JOIN (SELECT device_id, COUNT(*) AS opinions, COUNT(*) FILTER (WHERE rating >= 4) AS positive
-                      FROM wuarike_db.public_feedback WHERE place_id = $1 AND created_at >= $2 GROUP BY device_id) f ON f.device_id = d.id::text
+         LEFT JOIN wuarike_db.place_team_members m ON m.id = d.team_member_id
+         LEFT JOIN wuarike_db.users u ON u.id = m.user_id
+         LEFT JOIN (SELECT device_id,
+                           COUNT(*) FILTER (WHERE created_at >= $2) AS scans,
+                           COUNT(*) FILTER (WHERE created_at >= $3) AS week_scans
+                      FROM wuarike_db.place_scans
+                     WHERE place_id = $1 AND created_at >= $4 GROUP BY device_id) s ON s.device_id = d.id::text
+         LEFT JOIN (SELECT device_id,
+                           COUNT(*) FILTER (WHERE created_at >= $2) AS opinions,
+                           COUNT(*) FILTER (WHERE created_at >= $2 AND rating >= 4) AS positive,
+                           COUNT(*) FILTER (WHERE created_at >= $3) AS week_opinions
+                      FROM wuarike_db.public_feedback
+                     WHERE place_id = $1 AND created_at >= $4 GROUP BY device_id) f ON f.device_id = d.id::text
         WHERE d.place_id = $1
         ORDER BY opinions DESC, scans DESC, d.name ASC`,
-      [placeId, since],
+      [placeId, since, weekStart, from],
     );
-    return rows;
   }
 
   @Post()
