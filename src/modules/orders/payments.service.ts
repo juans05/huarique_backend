@@ -14,6 +14,9 @@ import { culqiRequest } from './culqi-client';
 
 const PAYMENT_TTL_MS = 24 * 3600_000;
 const WHATSAPP_UNPAID_TTL_MS = 2 * 3600_000;
+const WEB_UNPAID_TTL_MS = 30 * 60_000;
+// Pedido web que el local no aceptó ni rechazó.
+const UNCONFIRMED_TTL_MS = 30 * 60_000;
 const STUCK_PROCESSING_MS = 10 * 60_000;
 // Un CIP dura 24 h; 7 días cubre pagos tardíos sin consultar a Culqi para siempre.
 const LATE_CIP_WINDOW_MS = 7 * 24 * 3600_000;
@@ -276,7 +279,8 @@ export class PaymentsService {
 
     /**
      * Pedidos que siguen en PENDIENTE_PAGO: si ya tienen un pago PAGADO (caída entre ambos updates), se reintenta;
-     * si son de WhatsApp y llevan más de 2 h sin pagar, se cancelan.
+     * si son de WhatsApp (2 h) o web (30 min) y llevan ese tiempo sin pagar, se cancelan.
+     * Los pedidos web POR_CONFIRMAR que el local no atendió en 30 min también se cancelan.
      */
     private async reconcileUnpaidOrders(placeId?: string): Promise<void> {
         const unpaid = await this.ordersRepo.find({ where: { status: 'PENDIENTE_PAGO', ...(placeId ? { placeId } : {}) } });
@@ -287,7 +291,8 @@ export class PaymentsService {
                     if (await this.orders.markOrderPaid(order.id)) this.emitter.emit('orders.payment.confirmed', { paymentId: paid.id, placeId: paid.placeId, orderIds: [order.id] });
                     continue;
                 }
-                if (order.channel !== 'WHATSAPP' || Date.now() - new Date(order.createdAt).getTime() < WHATSAPP_UNPAID_TTL_MS) continue;
+                const ttl = order.channel === 'WEB' ? WEB_UNPAID_TTL_MS : order.channel === 'WHATSAPP' ? WHATSAPP_UNPAID_TTL_MS : null;
+                if (ttl === null || Date.now() - new Date(order.createdAt).getTime() < ttl) continue;
                 // Un código PagoEfectivo vigente (24 h) se respeta: cancelar ahora haría perder ese pago.
                 const liveCip = await this.paymentsRepo.findOne({ where: { orderId: order.id, status: 'PENDIENTE', culqiOrderId: Not(IsNull()) } });
                 if (liveCip?.expiresAt && liveCip.expiresAt.getTime() > Date.now()) continue;
@@ -295,6 +300,11 @@ export class PaymentsService {
             } catch (err: any) {
                 this.logger.warn(`No se pudo conciliar el pedido ${order.id}: ${err?.message}`);
             }
+        }
+        const unconfirmed = await this.ordersRepo.find({ where: { status: 'POR_CONFIRMAR', createdAt: LessThan(new Date(Date.now() - UNCONFIRMED_TTL_MS)), ...(placeId ? { placeId } : {}) } });
+        for (const order of unconfirmed) {
+            await this.orders.cancelUnpaid(order.id, 'El local no confirmó a tiempo', 'POR_CONFIRMAR')
+                .catch((err) => this.logger.warn(`No se pudo vencer el pedido ${order.id}: ${err?.message}`));
         }
     }
 

@@ -1,4 +1,4 @@
-import { BadRequestException, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ForbiddenException, NotFoundException } from '@nestjs/common';
 import { OrdersService } from './orders.service';
 import { PinAttemptsService } from './pin-attempts.service';
 
@@ -175,6 +175,45 @@ describe('OrdersService', () => {
         const { svc } = build();
         const { order } = await svc.createTableOrder('qr-1', { pin: '1234', items: [{ dishId: 'd1', quantity: 1 }] });
         await expect(svc.changeStatus('p1', order.id, 'CANCELADO', 'admin')).resolves.toMatchObject({ refundPending: false });
+    });
+
+    describe('pedido web POR_CONFIRMAR', () => {
+        const porConfirmar = () => {
+            const ctx = build();
+            ctx.orders.rows.push({ id: 'w1', placeId: 'p1', number: 1, status: 'POR_CONFIRMAR', channel: 'WEB', tabId: null, tableId: null, paidAt: null, publicToken: 'wtok' });
+            return ctx;
+        };
+
+        it('cocina no puede aceptarlo', async () => {
+            const { svc, orders } = porConfirmar();
+            await expect(svc.changeStatus('p1', 'w1', 'NUEVO', 'cocina')).rejects.toBeInstanceOf(ForbiddenException);
+            expect(orders.rows[0].status).toBe('POR_CONFIRMAR');
+        });
+
+        it('aceptarlo lo pasa a NUEVO y avisa a cocina igual que un pedido recién pagado', async () => {
+            const { svc, events } = porConfirmar();
+            await expect(svc.changeStatus('p1', 'w1', 'NUEVO', 'agente')).resolves.toMatchObject({ status: 'NUEVO' });
+            expect(events.publish).toHaveBeenCalledWith(expect.objectContaining({ type: 'order.created', placeId: 'p1', orderId: 'w1', status: 'NUEVO', publicTokens: ['wtok'] }));
+        });
+
+        it('rechazarlo lo cancela con el motivo por defecto y sin devolución', async () => {
+            const { svc, events } = porConfirmar();
+            await expect(svc.changeStatus('p1', 'w1', 'CANCELADO', 'agente')).resolves.toMatchObject({ status: 'CANCELADO', refundPending: false, cancelReason: 'Rechazado por el local' });
+            expect(events.publish).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'order.created' }));
+        });
+
+        it('rechazarlo con motivo propio lo conserva', async () => {
+            const { svc } = porConfirmar();
+            await expect(svc.changeStatus('p1', 'w1', 'CANCELADO', 'agente', 'Sin stock')).resolves.toMatchObject({ cancelReason: 'Sin stock' });
+        });
+
+        it('cancelUnpaid con from POR_CONFIRMAR solo cancela pedidos en ese estado', async () => {
+            const { svc, orders } = porConfirmar();
+            await svc.cancelUnpaid('w1', 'El local no confirmó a tiempo');
+            expect(orders.rows[0].status).toBe('POR_CONFIRMAR');
+            await svc.cancelUnpaid('w1', 'El local no confirmó a tiempo', 'POR_CONFIRMAR');
+            expect(orders.rows[0]).toMatchObject({ status: 'CANCELADO', cancelReason: 'El local no confirmó a tiempo' });
+        });
     });
 
     it('mesa con cuenta PAGADA: se cierra y el nuevo pedido abre otra cuenta', async () => {

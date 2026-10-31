@@ -175,6 +175,39 @@ describe('PaymentsService', () => {
         expect(ordersService.cancelUnpaid).not.toHaveBeenCalled();
     });
 
+    it('pedido WEB sin pagar: se cancela a los 30 min, no antes; WhatsApp sigue con 2 h', async () => {
+        const { svc, orders, ordersService } = build();
+        Object.assign(orders.rows[0], { channel: 'WEB', createdAt: new Date(Date.now() - 29 * 60_000) });
+        await svc.reconcilePending();
+        expect(ordersService.cancelUnpaid).not.toHaveBeenCalled();
+        Object.assign(orders.rows[0], { createdAt: new Date(Date.now() - 31 * 60_000) });
+        await svc.reconcilePending();
+        expect(ordersService.cancelUnpaid).toHaveBeenCalledWith('o1', 'No se completó el pago');
+        ordersService.cancelUnpaid.mockClear();
+        Object.assign(orders.rows[0], { channel: 'WHATSAPP' });
+        await svc.reconcilePending();
+        expect(ordersService.cancelUnpaid).not.toHaveBeenCalled();
+    });
+
+    it('pedido WEB con código PagoEfectivo vigente: no se cancela', async () => {
+        const { svc, orders, payments, ordersService } = build();
+        Object.assign(orders.rows[0], { channel: 'WEB', createdAt: new Date(Date.now() - 31 * 60_000) });
+        payments.rows.push({ id: 'pay-cip', placeId: 'p1', orderId: 'o1', tabId: null, status: 'PENDIENTE', method: 'ONLINE', amount: 4500, culqiOrderId: 'ord_live', destination: 'WUARIKES', expiresAt: new Date(Date.now() + 3600_000) });
+        fetchMock({ '/orders/ord_live': { id: 'ord_live', state: 'pending' } });
+        await svc.reconcilePending();
+        expect(ordersService.cancelUnpaid).not.toHaveBeenCalled();
+    });
+
+    it('pedido POR_CONFIRMAR sin respuesta del local: se cancela a los 30 min, no antes', async () => {
+        const { svc, orders, ordersService } = build();
+        Object.assign(orders.rows[0], { status: 'POR_CONFIRMAR', channel: 'WEB', createdAt: new Date(Date.now() - 29 * 60_000) });
+        await svc.reconcilePending();
+        expect(ordersService.cancelUnpaid).not.toHaveBeenCalled();
+        Object.assign(orders.rows[0], { createdAt: new Date(Date.now() - 31 * 60_000) });
+        await svc.reconcilePending();
+        expect(ordersService.cancelUnpaid).toHaveBeenCalledWith('o1', 'El local no confirmó a tiempo', 'POR_CONFIRMAR');
+    });
+
     it('local que cobra en mesa: el comensal no puede pagar la cuenta online, el mozo sí registra efectivo', async () => {
         const { svc } = build({ tableOnlinePaymentEnabled: false });
         fetchMock({ '/orders': { id: 'ord_m' } });

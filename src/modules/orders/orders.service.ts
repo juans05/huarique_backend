@@ -16,7 +16,7 @@ import { PlaceTeamService } from '../team/place-team.service';
 import { SubscriptionTier } from '../subscriptions/subscriptions.service';
 import { OrderEventsService } from './order-events.service';
 import { ContactsService } from '../contacts/contacts.service';
-import { assertCanCancel, calculateTotals, canTransition, newPublicToken, newTablePin, normalizePhone, toCents } from './order-rules';
+import { assertCanCancel, assertCanConfirm, calculateTotals, canTransition, newPublicToken, newTablePin, normalizePhone, toCents } from './order-rules';
 
 export interface CartLine { dishId: string; quantity: number; note?: string }
 /** Ítem fuera de carta que registra el mozo; precio en céntimos. */
@@ -201,6 +201,8 @@ export class OrdersService {
     async changeStatus(placeId: string, orderId: string, to: OrderStatus, role: PlaceTeamRole, reason?: string): Promise<Order> {
         const order = await this.ordersRepo.findOne({ where: { id: orderId, placeId } });
         if (!order) throw new NotFoundException('Pedido no encontrado');
+        const unconfirmed = order.status === 'POR_CONFIRMAR';
+        if (unconfirmed) assertCanConfirm(role);
         if (to === 'CANCELADO') assertCanCancel(order.status, role);
         else if (!canTransition(order.status, to)) throw new BadRequestException(`No se puede pasar de ${order.status} a ${to}`);
 
@@ -210,7 +212,7 @@ export class OrdersService {
         if (to === 'ENTREGADO') patch.deliveredAt = now;
         if (to === 'CANCELADO') {
             patch.canceledAt = now;
-            patch.cancelReason = reason ?? null;
+            patch.cancelReason = reason ?? (unconfirmed ? 'Rechazado por el local' : null);
             // Sobrepago: si la cuenta de la mesa ya recibió pagos, lo de este pedido se devuelve.
             patch.refundPending = !!order.paidAt || (!!order.tabId && !!(await this.paymentsRepo.findOne({ where: { tabId: order.tabId, status: 'PAGADO' } })));
         }
@@ -221,6 +223,8 @@ export class OrdersService {
         const tab = updated.tabId ? await this.tabsRepo.findOne({ where: { id: updated.tabId } }) : null;
         await this.publish('order.status_changed', updated, tab);
         this.emitter.emit('orders.status.changed', { orderId: updated.id, status: updated.status });
+        // Aceptar un pedido web: cocina se entera igual que cuando un pedido se paga (markOrderPaid).
+        if (unconfirmed && to === 'NUEVO') await this.publish('order.created', updated, tab);
         return updated;
     }
 
@@ -254,8 +258,8 @@ export class OrdersService {
         return { total, paid, due: Math.max(0, total - paid) };
     }
 
-    async cancelUnpaid(orderId: string, reason: string): Promise<void> {
-        const result = await this.ordersRepo.update({ id: orderId, status: 'PENDIENTE_PAGO' }, { status: 'CANCELADO', canceledAt: new Date(), cancelReason: reason });
+    async cancelUnpaid(orderId: string, reason: string, from: OrderStatus = 'PENDIENTE_PAGO'): Promise<void> {
+        const result = await this.ordersRepo.update({ id: orderId, status: from }, { status: 'CANCELADO', canceledAt: new Date(), cancelReason: reason });
         if (result.affected) await this.expirePendingPayments(orderId);
     }
 
