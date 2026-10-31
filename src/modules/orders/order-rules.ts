@@ -1,6 +1,7 @@
 import { BadRequestException, ForbiddenException } from '@nestjs/common';
 import { randomBytes, randomInt } from 'crypto';
 import { OrderStatus } from './entities/order.entity';
+import { PlaceOrderSettings } from './entities/place-order-settings.entity';
 import { PlaceTeamRole, ROLE_RANK } from '../team/entities/place-team-member.entity';
 
 const IGV = 0.18;
@@ -43,6 +44,17 @@ export function assertCanCancel(status: OrderStatus, role: PlaceTeamRole): void 
 export function assertCanConfirm(role: PlaceTeamRole): void {
     // Confirmar un pedido web compromete a cocina (y un cobro): lo decide caja o gerencia, igual que cancelar.
     if (ROLE_RANK[role] < ROLE_RANK.agente) throw new ForbiddenException('Tu rol no puede confirmar pedidos');
+}
+
+/** Cobro del local (LOCAL): hacen falta sus llaves de Culqi; con el cobro de la plataforma se usan las de Wuarikes. */
+export function hasOnlinePayments(s: Pick<PlaceOrderSettings, 'paymentDestination' | 'culqiPublicKey' | 'culqiSecretKey'>): boolean {
+    return s.paymentDestination !== 'LOCAL' || !!(s.culqiPublicKey && s.culqiSecretKey);
+}
+
+/** Formas de pago del pedido web: en línea si hay Culqi; al recibir si el efectivo está activo y el local lo ofrece junto al pago en línea (o no hay otra forma). */
+export function webPaymentOptions(s: Pick<PlaceOrderSettings, 'paymentDestination' | 'culqiPublicKey' | 'culqiSecretKey' | 'cashPaymentEnabled' | 'webPaymentMode'>): { payOnline: boolean; payOnDelivery: boolean } {
+    const payOnline = hasOnlinePayments(s);
+    return { payOnline, payOnDelivery: !!s.cashPaymentEnabled && (s.webPaymentMode === 'ONLINE_O_ENTREGA' || !payOnline) };
 }
 
 export function newTablePin(): string {

@@ -3,7 +3,7 @@ import { ConfigService } from '@nestjs/config';
 import Redis from 'ioredis';
 import { Observable, Subject, filter, interval, map, merge } from 'rxjs';
 
-export type OrderEventType = 'order.created' | 'order.status_changed' | 'tab.updated' | 'tab.bill_requested' | 'payment.confirmed' | 'tab.closed';
+export type OrderEventType = 'order.created' | 'order.pending_confirmation' | 'order.status_changed' | 'tab.updated' | 'tab.bill_requested' | 'payment.confirmed' | 'tab.closed';
 
 export interface OrderEvent {
     type: OrderEventType;

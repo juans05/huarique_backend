@@ -1,5 +1,5 @@
 import { Type } from 'class-transformer';
-import { ArrayMaxSize, ArrayMinSize, IsEmail, IsIn, IsInt, IsOptional, IsString, IsUUID, Max, MaxLength, Matches, Min, MinLength, ValidateNested } from 'class-validator';
+import { ArrayMaxSize, ArrayMinSize, IsBoolean, IsEmail, IsIn, IsInt, IsOptional, IsString, IsUUID, Max, MaxLength, Matches, Min, MinLength, ValidateNested } from 'class-validator';
 
 export class CartLineDto {
     @IsUUID() dishId: string;
@@ -33,6 +33,18 @@ export class CreateTableOrderDto {
     @IsOptional() @IsString() @MaxLength(120) customerName?: string;
     @IsOptional() @IsString() @MaxLength(30) customerPhone?: string;
     @IsOptional() @IsString() @MaxLength(300) notes?: string;
+}
+
+/** Pedido de la carta pública (QR general): para llevar o delivery. Comer aquí va por CreateTableOrderDto. */
+export class CreateWebOrderDto {
+    @IsIn(['RECOJO', 'DELIVERY']) fulfillment: 'RECOJO' | 'DELIVERY';
+    @ValidateNested({ each: true }) @Type(() => CartLineDto) @ArrayMinSize(1) @ArrayMaxSize(40) items: CartLineDto[];
+    @IsString() @MinLength(1) @MaxLength(120) customerName: string;
+    @IsString() @MinLength(1) @MaxLength(30) customerPhone: string;
+    @IsOptional() @IsString() @MaxLength(300) deliveryAddress?: string;
+    @IsOptional() @IsString() @MaxLength(200) deliveryReference?: string;
+    @IsOptional() @IsString() @MaxLength(300) notes?: string;
+    @IsBoolean() payOnDelivery: boolean;
 }
 
 export class ChangeStatusDto {

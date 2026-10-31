@@ -1,4 +1,4 @@
-import { BadRequestException, ForbiddenException, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ForbiddenException, HttpException, NotFoundException } from '@nestjs/common';
 import { OrdersService } from './orders.service';
 import { PinAttemptsService } from './pin-attempts.service';
 
@@ -32,6 +32,7 @@ const memRepo = <T extends { id?: string }>(rows: T[] = []) => ({
     rows,
     findOne: jest.fn(async ({ where }: any) => rows.find((r) => matches(r, where)) ?? null),
     find: jest.fn(async ({ where }: any = {}) => rows.filter((r) => matches(r, where))),
+    count: jest.fn(async ({ where }: any = {}) => rows.filter((r) => matches(r, where)).length),
     create: jest.fn((x: any) => x),
     save: jest.fn(async (x: any) => {
         if (!x.id) x.id = `id-${rows.length + 1}`;
@@ -46,8 +47,11 @@ const memRepo = <T extends { id?: string }>(rows: T[] = []) => ({
     }),
 });
 
-const build = (opts: { mode?: 'CUENTA_ABIERTA' | 'PREPAGO'; dishAvailable?: boolean; dishPrice?: string | null; noPlan?: boolean } = {}) => {
-    const settings = memRepo([{ placeId: 'p1', ordersEnabled: true, tablePaymentMode: opts.mode ?? 'CUENTA_ABIERTA', pricesIncludeIgv: true, deliveryFee: 500, deliveryEnabled: true, pickupEnabled: true } as any]);
+const build = (opts: { mode?: 'CUENTA_ABIERTA' | 'PREPAGO'; dishAvailable?: boolean; dishPrice?: string | null; noPlan?: boolean; settings?: Record<string, unknown> } = {}) => {
+    const settings = memRepo([{
+        placeId: 'p1', ordersEnabled: true, tablePaymentMode: opts.mode ?? 'CUENTA_ABIERTA', pricesIncludeIgv: true, deliveryFee: 500, deliveryEnabled: true, pickupEnabled: true,
+        paymentDestination: 'LOCAL', culqiPublicKey: null, culqiSecretKey: null, cashPaymentEnabled: true, webPaymentMode: 'ONLINE', ...opts.settings,
+    } as any]);
     const tables = memRepo([{ id: 't1', placeId: 'p1', name: 'Mesa 4', qrToken: 'qr-1', pin: '1234', active: true } as any]);
     const tabs = memRepo<any>([]);
     const orders = memRepo<any>([]);
@@ -162,6 +166,16 @@ describe('OrdersService', () => {
         await svc.cancelUnpaid(order.id, 'El código de pago venció');
         expect(orders.rows[0].status).toBe('CANCELADO');
         expect(payments.rows[0].status).toBe('EXPIRADO');
+    });
+
+    it('cancelUnpaid avisa el cambio de estado (la página de seguimiento ve el vencimiento) solo si canceló algo', async () => {
+        const { svc, events } = build({ mode: 'PREPAGO' });
+        const { order, tab } = await svc.createTableOrder('qr-1', { pin: '1234', items: [{ dishId: 'd1', quantity: 1 }] });
+        await svc.cancelUnpaid(order.id, 'El código de pago venció');
+        expect(events.publish).toHaveBeenCalledWith(expect.objectContaining({ type: 'order.status_changed', placeId: 'p1', orderId: order.id, status: 'CANCELADO', publicTokens: [order.publicToken, tab!.publicToken] }));
+        events.publish.mockClear();
+        await svc.cancelUnpaid(order.id, 'El código de pago venció');
+        expect(events.publish).not.toHaveBeenCalled();
     });
 
     it('cancelar un pedido de una cuenta con pagos hechos marca devolución pendiente (sobrepago)', async () => {
@@ -301,6 +315,136 @@ describe('OrdersService', () => {
         tabs.rows.push({ id: 'tab-1', placeId: 'p1', tableId: 't1', status: 'ABIERTA', publicToken: 'ttok' });
         await expect(svc.requestBill('ttok')).resolves.toEqual({ status: 'CUENTA_PEDIDA' });
         await expect(svc.requestBill('ttok')).resolves.toEqual({ status: 'CUENTA_PEDIDA' });
+    });
+});
+
+describe('OrdersService.createWebOrder (carta pública)', () => {
+    const culqi = { culqiPublicKey: 'pk', culqiSecretKey: 'sk' };
+    const input = (over: Record<string, unknown> = {}) => ({ fulfillment: 'RECOJO' as const, items: [{ dishId: 'd2', quantity: 2 }], customerName: 'Luis', customerPhone: '987 654 321', payOnDelivery: false, ...over });
+    const pendingWeb = (n: number, over: Record<string, unknown> = {}) => Array.from({ length: n }, (_, i) => ({ id: `w${i}`, placeId: 'p1', channel: 'WEB', status: 'PENDIENTE_PAGO', customerPhone: '51987654321', ...over }));
+
+    it('sin plan Fidelización+ o con pedidos apagados: 403', async () => {
+        await expect(build({ noPlan: true, settings: culqi }).svc.createWebOrder('p1', input())).rejects.toBeInstanceOf(ForbiddenException);
+        await expect(build({ settings: { ...culqi, ordersEnabled: false } }).svc.createWebOrder('p1', input())).rejects.toBeInstanceOf(ForbiddenException);
+    });
+
+    it('delivery apagado, recojo apagado o delivery sin dirección: 400', async () => {
+        await expect(build({ settings: { ...culqi, deliveryEnabled: false } }).svc.createWebOrder('p1', input({ fulfillment: 'DELIVERY', deliveryAddress: 'Av. Arequipa 123' }))).rejects.toBeInstanceOf(BadRequestException);
+        await expect(build({ settings: { ...culqi, pickupEnabled: false } }).svc.createWebOrder('p1', input())).rejects.toBeInstanceOf(BadRequestException);
+        await expect(build({ settings: culqi }).svc.createWebOrder('p1', input({ fulfillment: 'DELIVERY', deliveryAddress: '  ' }))).rejects.toBeInstanceOf(BadRequestException);
+        await expect(build({ settings: culqi }).svc.createWebOrder('p1', input({ fulfillment: 'DELIVERY' }))).rejects.toBeInstanceOf(BadRequestException);
+    });
+
+    it('delivery válido: suma la tarifa, canal WEB, sin mesa ni cuenta', async () => {
+        const { svc, orders } = build({ settings: culqi });
+        const res = await svc.createWebOrder('p1', input({ fulfillment: 'DELIVERY', deliveryAddress: ' Av. Arequipa 123 ', deliveryReference: 'Puerta verde', notes: 'sin ají' }));
+        expect(res).toEqual({ orderToken: orders.rows[0].publicToken, requiresPayment: true, total: 1700 + 500 });
+        expect(orders.rows[0]).toMatchObject({
+            channel: 'WEB', fulfillment: 'DELIVERY', status: 'PENDIENTE_PAGO', subtotal: 1700, deliveryFee: 500, total: 2200, tabId: null, tableId: null, whatsappNumberId: null,
+            customerName: 'Luis', customerPhone: '51987654321', deliveryAddress: 'Av. Arequipa 123', deliveryReference: 'Puerta verde', notes: 'sin ají',
+        });
+    });
+
+    it('recojo no cobra tarifa ni guarda dirección', async () => {
+        const { svc, orders } = build({ settings: culqi });
+        await svc.createWebOrder('p1', input({ deliveryAddress: 'Av. Arequipa 123' }));
+        expect(orders.rows[0]).toMatchObject({ fulfillment: 'RECOJO', deliveryFee: 0, total: 1700, deliveryAddress: null });
+    });
+
+    it('pago en línea: nace PENDIENTE_PAGO, pide pagar y no avisa a cocina ni al panel todavía', async () => {
+        const { svc, orders, events, contacts } = build({ settings: culqi });
+        await expect(svc.createWebOrder('p1', input())).resolves.toMatchObject({ requiresPayment: true, total: 1700 });
+        expect(orders.rows[0].status).toBe('PENDIENTE_PAGO');
+        expect(events.publish).not.toHaveBeenCalled();
+        expect(contacts.upsertByPhone).toHaveBeenCalledWith('p1', '51987654321', { name: 'Luis', source: 'order' });
+    });
+
+    it('pagar al recibir con modo ONLINE y Culqi configurado: 400', async () => {
+        const { svc, orders } = build({ settings: culqi });
+        await expect(svc.createWebOrder('p1', input({ payOnDelivery: true }))).rejects.toBeInstanceOf(BadRequestException);
+        expect(orders.rows).toHaveLength(0);
+    });
+
+    it('modo ONLINE sin Culqi pero con efectivo: la única forma de pagar es al recibir', async () => {
+        const { svc, orders } = build();
+        await expect(svc.createWebOrder('p1', input({ payOnDelivery: true }))).resolves.toMatchObject({ requiresPayment: false });
+        expect(orders.rows[0].status).toBe('POR_CONFIRMAR');
+    });
+
+    it('modo ONLINE_O_ENTREGA: al recibir nace POR_CONFIRMAR, sin pago, y avisa al panel', async () => {
+        const { svc, orders, events } = build({ settings: { ...culqi, webPaymentMode: 'ONLINE_O_ENTREGA' } });
+        const res = await svc.createWebOrder('p1', input({ payOnDelivery: true }));
+        expect(res).toEqual({ orderToken: orders.rows[0].publicToken, requiresPayment: false, total: 1700 });
+        expect(orders.rows[0].status).toBe('POR_CONFIRMAR');
+        expect(events.publish).toHaveBeenCalledTimes(1);
+        expect(events.publish).toHaveBeenCalledWith(expect.objectContaining({ type: 'order.pending_confirmation', placeId: 'p1', orderId: orders.rows[0].id, status: 'POR_CONFIRMAR', publicTokens: [orders.rows[0].publicToken] }));
+        // ...y con ese mismo local sigue pudiendo pagar en línea.
+        await expect(svc.createWebOrder('p1', input())).resolves.toMatchObject({ requiresPayment: true });
+    });
+
+    it('pago online sin Culqi, o pagar al recibir con el efectivo apagado: 400', async () => {
+        await expect(build().svc.createWebOrder('p1', input())).rejects.toBeInstanceOf(BadRequestException);
+        await expect(build({ settings: { ...culqi, webPaymentMode: 'ONLINE_O_ENTREGA', cashPaymentEnabled: false } }).svc.createWebOrder('p1', input({ payOnDelivery: true }))).rejects.toBeInstanceOf(BadRequestException);
+        await expect(build({ settings: { cashPaymentEnabled: false } }).svc.createWebOrder('p1', input({ payOnDelivery: true }))).rejects.toBeInstanceOf(BadRequestException);
+    });
+
+    it('con el cobro de la plataforma (WUARIKES) hay pago en línea aunque el local no tenga llaves', async () => {
+        const { svc } = build({ settings: { paymentDestination: 'WUARIKES' } });
+        await expect(svc.createWebOrder('p1', input())).resolves.toMatchObject({ requiresPayment: true });
+    });
+
+    it('celular sin dígitos: 400 y no se crea nada', async () => {
+        const { svc, orders } = build({ settings: culqi });
+        await expect(svc.createWebOrder('p1', input({ customerPhone: ' - ' }))).rejects.toBeInstanceOf(BadRequestException);
+        expect(orders.rows).toHaveLength(0);
+    });
+
+    it('plato no disponible: 400 y no se crea nada', async () => {
+        const { svc, orders } = build({ settings: culqi, dishAvailable: false });
+        await expect(svc.createWebOrder('p1', input({ items: [{ dishId: 'd1', quantity: 1 }] }))).rejects.toThrow('Este plato ya no está disponible: Lomo saltado');
+        expect(orders.rows).toHaveLength(0);
+    });
+
+    it('tercer pedido pendiente del mismo celular (normalizado) en el local: 429; con 2 todavía pasa', async () => {
+        const { svc, orders } = build({ settings: culqi });
+        orders.rows.push(...pendingWeb(1), ...pendingWeb(1, { id: 'x', status: 'POR_CONFIRMAR' }));
+        await expect(svc.createWebOrder('p1', input())).resolves.toBeDefined();
+        const err = await svc.createWebOrder('p1', input({ customerPhone: '+51 987-654-321' })).catch((e) => e);
+        expect(err).toBeInstanceOf(HttpException);
+        expect(err.getStatus()).toBe(429);
+        expect(err.message).toBe('Ya tienes pedidos pendientes');
+    });
+
+    it('el límite solo cuenta pedidos WEB pendientes de ese celular y de ese local', async () => {
+        const { svc, orders } = build({ settings: culqi });
+        orders.rows.push(
+            ...pendingWeb(2, { id: 'otro-cel', customerPhone: '51911111111' }),
+            ...pendingWeb(2, { id: 'otro-local', placeId: 'p2' }),
+            ...pendingWeb(2, { id: 'ya-pagado', status: 'NUEVO' }),
+            ...pendingWeb(2, { id: 'whatsapp', channel: 'WHATSAPP' }),
+        );
+        await expect(svc.createWebOrder('p1', input())).resolves.toBeDefined();
+    });
+
+    it('un celular con 3 pedidos web pendientes igual puede pedir por la mesa (el límite es solo del pedido web)', async () => {
+        const { svc, orders } = build({ settings: culqi });
+        orders.rows.push(...pendingWeb(3, { fulfillment: 'RECOJO' }));
+        await expect(svc.createWebOrder('p1', input())).rejects.toBeInstanceOf(HttpException);
+        await expect(svc.createTableOrder('qr-1', { pin: '1234', items: [{ dishId: 'd1', quantity: 1 }], customerPhone: '987654321' })).resolves.toBeDefined();
+    });
+});
+
+describe('OrdersService.listPublicTables', () => {
+    it('solo mesas activas del local, con nombre y token del QR, y nunca el PIN', async () => {
+        const { svc, tables } = build();
+        tables.rows.push(
+            { id: 't2', placeId: 'p1', name: 'Mesa 5', qrToken: 'qr-2', pin: '4321', active: false } as any,
+            { id: 't3', placeId: 'p2', name: 'Mesa 1', qrToken: 'qr-3', pin: '1111', active: true } as any,
+        );
+        const list = await svc.listPublicTables('p1');
+        expect(list).toEqual([{ name: 'Mesa 4', qrToken: 'qr-1' }]);
+        expect(list.every((t) => !('pin' in t))).toBe(true);
+        expect(tables.find).toHaveBeenLastCalledWith(expect.objectContaining({ order: { displayOrder: 'ASC', name: 'ASC' } }));
     });
 });
 

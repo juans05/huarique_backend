@@ -1,5 +1,5 @@
 import { timingSafeEqual } from 'crypto';
-import { BadRequestException, ForbiddenException, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ForbiddenException, HttpException, HttpStatus, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { InjectDataSource, InjectRepository } from '@nestjs/typeorm';
 import { DataSource, In, MoreThanOrEqual, Repository } from 'typeorm';
@@ -16,7 +16,8 @@ import { PlaceTeamService } from '../team/place-team.service';
 import { SubscriptionTier } from '../subscriptions/subscriptions.service';
 import { OrderEventsService } from './order-events.service';
 import { ContactsService } from '../contacts/contacts.service';
-import { assertCanCancel, assertCanConfirm, calculateTotals, canTransition, newPublicToken, newTablePin, normalizePhone, toCents } from './order-rules';
+import { assertCanCancel, assertCanConfirm, calculateTotals, canTransition, newPublicToken, newTablePin, normalizePhone, toCents, webPaymentOptions } from './order-rules';
+import { CreateWebOrderDto } from './dto/orders.dto';
 
 export interface CartLine { dishId: string; quantity: number; note?: string }
 /** Ítem fuera de carta que registra el mozo; precio en céntimos. */
@@ -40,6 +41,8 @@ const PIN_MAX_FAILURES_PER_TABLE = 15;
 // Si Redis no responde: 'allow' deja pedir (el PIN se sigue exigiendo y el rate limit por IP sigue activo);
 // 'deny' bloquea los pedidos por QR hasta que Redis vuelva. Decisión de negocio pendiente de confirmar.
 const PIN_ON_REDIS_ERROR: 'allow' | 'deny' = 'allow';
+// Pedidos web sin resolver (por pagar o por confirmar) que un mismo celular puede tener en un local.
+const WEB_PENDING_PER_PHONE = 3;
 
 @Injectable()
 export class OrdersService {
@@ -180,6 +183,47 @@ export class OrdersService {
         return order;
     }
 
+    /**
+     * Pedido de la carta pública (QR general): para llevar o delivery, sin mesa ni PIN. Pagado en línea nace PENDIENTE_PAGO;
+     * pagado al recibir nace POR_CONFIRMAR hasta que caja lo acepte. "Comer aquí" sigue por createTableOrder.
+     */
+    async createWebOrder(placeId: string, input: CreateWebOrderDto): Promise<{ orderToken: string; requiresPayment: boolean; total: number }> {
+        const settings = await this.getSettings(placeId);
+        if (!settings.ordersEnabled || !(await this.hasPlan(placeId, 'fidelizacion'))) throw new ForbiddenException('Este local no está recibiendo pedidos por ahora');
+        const delivery = input.fulfillment === 'DELIVERY';
+        if (delivery && !settings.deliveryEnabled) throw new BadRequestException('Este local no hace delivery');
+        if (!delivery && !settings.pickupEnabled) throw new BadRequestException('Este local no atiende recojo');
+        if (delivery && !input.deliveryAddress?.trim()) throw new BadRequestException('Falta la dirección de entrega');
+        const { payOnline, payOnDelivery } = webPaymentOptions(settings);
+        if (input.payOnDelivery && !payOnDelivery) throw new BadRequestException('Este local no acepta pago al recibir');
+        if (!input.payOnDelivery && !payOnline) throw new BadRequestException('Este local no acepta pagos en línea');
+        const phone = normalizePhone(input.customerPhone);
+        if (!phone) throw new BadRequestException('Falta el celular');
+        // ponytail: contar e insertar no es atómico; el rate limit por IP del endpoint acota la carrera.
+        const pending = await this.ordersRepo.count({ where: { placeId, channel: 'WEB', customerPhone: phone, status: In(['PENDIENTE_PAGO', 'POR_CONFIRMAR']) } });
+        if (pending >= WEB_PENDING_PER_PHONE) throw new HttpException('Ya tienes pedidos pendientes', HttpStatus.TOO_MANY_REQUESTS);
+
+        const items = await this.buildItems(placeId, input.items);
+        const fee = delivery ? settings.deliveryFee : 0;
+        const totals = calculateTotals(items, fee, settings.pricesIncludeIgv);
+        const order = await this.saveOrder({
+            placeId, tabId: null, tableId: null, channel: 'WEB', fulfillment: input.fulfillment, status: input.payOnDelivery ? 'POR_CONFIRMAR' : 'PENDIENTE_PAGO',
+            customerName: input.customerName.trim(), customerPhone: phone, whatsappNumberId: null,
+            deliveryAddress: delivery ? input.deliveryAddress!.trim() : null, deliveryReference: delivery ? input.deliveryReference?.trim() || null : null,
+            notes: input.notes?.slice(0, 300) || null, subtotal: totals.subtotal, deliveryFee: fee, total: totals.total, items,
+        });
+        this.captureContact(order);
+        // Pagado en línea, cocina se entera al confirmarse el pago (markOrderPaid); al recibir, caja debe aceptarlo antes.
+        if (order.status === 'POR_CONFIRMAR') await this.publish('order.pending_confirmation', order, null);
+        return { orderToken: order.publicToken, requiresPayment: !input.payOnDelivery, total: order.total };
+    }
+
+    /** Mesas activas para "comer aquí" en la carta pública. Solo nombre y token del QR: el PIN lo da el personal. */
+    async listPublicTables(placeId: string): Promise<{ name: string; qrToken: string }[]> {
+        const tables = await this.tablesRepo.find({ where: { placeId, active: true }, order: { displayOrder: 'ASC', name: 'ASC' } });
+        return tables.map((t) => ({ name: t.name, qrToken: t.qrToken }));
+    }
+
     /** Cliente único: el pedido deja al cliente en la ficha de contactos (sin consentimiento de marketing). No bloquea el pedido. */
     private captureContact(order: Order): void {
         if (!order.customerPhone) return;
@@ -260,7 +304,13 @@ export class OrdersService {
 
     async cancelUnpaid(orderId: string, reason: string, from: OrderStatus = 'PENDIENTE_PAGO'): Promise<void> {
         const result = await this.ordersRepo.update({ id: orderId, status: from }, { status: 'CANCELADO', canceledAt: new Date(), cancelReason: reason });
-        if (result.affected) await this.expirePendingPayments(orderId);
+        if (!result.affected) return;
+        await this.expirePendingPayments(orderId);
+        // La página de seguimiento (SSE) ve el vencimiento igual que un cambio de estado del local.
+        const order = await this.ordersRepo.findOne({ where: { id: orderId } });
+        if (!order) return;
+        const tab = order.tabId ? await this.tabsRepo.findOne({ where: { id: order.tabId } }) : null;
+        await this.publish('order.status_changed', order, tab);
     }
 
     /** Un pedido cancelado no puede seguir cobrándose: sus checkouts abiertos dejan de ser pagables. */
@@ -442,7 +492,7 @@ export class OrdersService {
         };
     }
 
-    private async publish(type: 'order.created' | 'order.status_changed', order: Order, tab: Tab | null) {
+    private async publish(type: 'order.created' | 'order.pending_confirmation' | 'order.status_changed', order: Order, tab: Tab | null) {
         await this.events.publish({ type, placeId: order.placeId, orderId: order.id, tabId: order.tabId ?? undefined, tableId: order.tableId ?? undefined, status: order.status, publicTokens: [order.publicToken, ...(tab ? [tab.publicToken] : [])] });
     }
 }

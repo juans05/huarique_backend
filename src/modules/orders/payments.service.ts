@@ -11,6 +11,7 @@ import { PlaceOrderSettings } from './entities/place-order-settings.entity';
 import { OrdersService } from './orders.service';
 import { OrderEventsService } from './order-events.service';
 import { culqiRequest } from './culqi-client';
+import { hasOnlinePayments } from './order-rules';
 
 const PAYMENT_TTL_MS = 24 * 3600_000;
 const WHATSAPP_UNPAID_TTL_MS = 2 * 3600_000;
@@ -346,8 +347,8 @@ export class PaymentsService {
 
     private keysFor(settings: PlaceOrderSettings): { publicKey: string; secretKey: string } {
         if (settings.paymentDestination === 'LOCAL') {
-            if (!settings.culqiPublicKey || !settings.culqiSecretKey) throw new BadRequestException('El local no configuró sus pagos online');
-            return { publicKey: settings.culqiPublicKey, secretKey: settings.culqiSecretKey };
+            if (!hasOnlinePayments(settings)) throw new BadRequestException('El local no configuró sus pagos online');
+            return { publicKey: settings.culqiPublicKey!, secretKey: settings.culqiSecretKey! };
         }
         return { publicKey: this.config.get<string>('CULQI_PUBLIC_KEY') || '', secretKey: this.config.get<string>('CULQI_SECRET_KEY') || '' };
     }
