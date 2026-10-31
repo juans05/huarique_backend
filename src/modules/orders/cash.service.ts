@@ -140,6 +140,8 @@ export class CashService {
         const settings = await this.orders.getSettings(placeId);
         const series = (settings.receiptSeries ?? DEFAULT_RECEIPT_SERIES)[dto.docType];
 
+        // Los avisos del pago (cocina, cliente, fidelización) salen solo si la transacción confirma.
+        const afterCommit: (() => Promise<void>)[] = [];
         const receipt = await this.dataSource.transaction(async (em) => {
             await this.lockOpen(em, session.id);
             const order = await em.findOne(Order, { where: { id: orderId, placeId }, relations: ['items'] });
@@ -147,8 +149,8 @@ export class CashService {
             const error = receiptCustomerError(dto.docType, dto, order.total);
             if (error) throw new BadRequestException(error);
 
-            // Valida el estado del pedido (mesa, por confirmar, ya pagado) y lo marca pagado.
-            const payment = await this.payments.recordManualPayment(placeId, { orderId: order.id }, PAYMENT_METHOD[dto.method], userId);
+            // Valida el pedido (mesa, por confirmar, ya pagado), lo reclama y registra el pago en esta transacción.
+            const payment = await this.payments.recordManualPayment(placeId, { orderId: order.id }, PAYMENT_METHOD[dto.method], userId, { em, afterCommit: (fn) => afterCommit.push(fn) });
             const lines = (order.items ?? []).map((i) => ({ dishId: i.dishId, description: i.dishNameSnapshot, quantity: i.quantity, unitPrice: i.unitPrice, lineTotal: i.lineTotal }));
             if (order.deliveryFee > 0) lines.push({ dishId: null, description: 'Delivery', quantity: 1, unitPrice: order.deliveryFee, lineTotal: order.deliveryFee });
             const [{ max }] = await em.query(`SELECT COALESCE(MAX(number), 0) AS max FROM wuarike_db.receipts WHERE place_id = $1 AND series = $2`, [placeId, series]);
@@ -161,6 +163,7 @@ export class CashService {
                 items: lines.map((l) => em.create(ReceiptItem, l)),
             }));
         });
+        for (const fn of afterCommit) await fn();
         return { ...receipt, code: receiptCode(receipt.series, receipt.number) };
     }
 

@@ -3,7 +3,7 @@ import { ConfigService } from '@nestjs/config';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { InjectRepository } from '@nestjs/typeorm';
-import { In, IsNull, LessThan, MoreThan, Not, Repository } from 'typeorm';
+import { EntityManager, In, IsNull, LessThan, MoreThan, Not, Repository } from 'typeorm';
 import { OrderPayment, PaymentStatus } from './entities/order-payment.entity';
 import { Order } from './entities/order.entity';
 import { Tab } from './entities/tab.entity';
@@ -122,7 +122,14 @@ export class PaymentsService {
         return false;
     }
 
-    async recordManualPayment(placeId: string, target: { orderId?: string; tabId?: string }, method: 'EFECTIVO' | 'POS' | 'YAPE', userId: string) {
+    /**
+     * Pago manual (efectivo/POS/Yape) de una cuenta o un pedido. Con `tx` (cobro en caja) el reclamo del pedido y el pago
+     * van en esa transacción y los avisos se difieren hasta que confirme (`tx.afterCommit`).
+     */
+    async recordManualPayment(
+        placeId: string, target: { orderId?: string; tabId?: string }, method: 'EFECTIVO' | 'POS' | 'YAPE', userId: string,
+        tx?: { em: EntityManager; afterCommit: (fn: () => Promise<void>) => void },
+    ) {
         if (!target.tabId === !target.orderId) throw new BadRequestException('Indica la cuenta o el pedido, no ambos');
         let amount: number;
         if (target.tabId) {
@@ -130,13 +137,27 @@ export class PaymentsService {
             if (!tab) throw new NotFoundException('Cuenta no encontrada');
             amount = (await this.orders.tabTotal(tab.id)).due;
         } else {
-            const order = await this.ordersRepo.findOne({ where: { id: target.orderId, placeId } });
+            const ordersRepo = tx ? tx.em.getRepository(Order) : this.ordersRepo;
+            const order = await ordersRepo.findOne({ where: { id: target.orderId, placeId } });
             if (!order) throw new NotFoundException('Pedido no encontrado');
             if (order.tabId) throw new BadRequestException('Cóbralo desde la cuenta de la mesa');
             if (order.status === 'POR_CONFIRMAR') throw new BadRequestException('Acepta el pedido antes de cobrarlo');
-            if (order.status === 'CANCELADO') throw new BadRequestException('Este pedido está cancelado');
             if (order.paidAt) throw new BadRequestException('Este pedido ya está pagado');
+            if (order.status === 'CANCELADO') throw new BadRequestException('Este pedido está cancelado');
             amount = order.total;
+            if (amount <= 0) throw new BadRequestException('No hay saldo pendiente por pagar');
+            // ponytail: PENDIENTE_PAGO sigue el camino de siempre (confirm), fuera de `tx`; caja cobra "al entregar" solo pedidos ya aceptados.
+            if (order.status !== 'PENDIENTE_PAGO') {
+                // Pedido aceptado que se paga al entregar: se reclama antes de registrar el pago, así dos cobros nunca pasan los dos.
+                if (!(await this.orders.markOrderSettled(order.id, tx?.em))) throw new BadRequestException('Este pedido ya está pagado');
+                const paymentsRepo = tx ? tx.em.getRepository(OrderPayment) : this.paymentsRepo;
+                const payment = await paymentsRepo.save(paymentsRepo.create({
+                    placeId, orderId: order.id, tabId: null, method, amount, status: 'PAGADO', paidAt: new Date(), destination: 'LOCAL', recordedByUserId: userId,
+                }));
+                const announce = () => this.announcePayment(payment, [order.id]);
+                if (tx) tx.afterCommit(announce); else await announce();
+                return payment;
+            }
         }
         if (amount <= 0) throw new BadRequestException('No hay saldo pendiente por pagar');
         const payment = await this.paymentsRepo.save(this.paymentsRepo.create({
@@ -318,7 +339,7 @@ export class PaymentsService {
         const payment = (await this.paymentsRepo.findOne({ where: { id: paymentId } }))!;
         let orderIds: string[] = [];
         if (payment.orderId) {
-            // PENDIENTE_PAGO pasa a NUEVO; un pedido aceptado que se cobra al entregar solo queda pagado.
+            // PENDIENTE_PAGO pasa a NUEVO. Un pago online tardío de un pedido WEB que el local adelantó a mano sin cobrar lo deja pagado en vez de marcar devolución.
             if (!(await this.orders.markOrderPaid(payment.orderId)) && !(await this.orders.markOrderSettled(payment.orderId))) {
                 // Pedido ya pagado por otro medio o cancelado: el dinero entró pero hay que devolverlo.
                 await this.ordersRepo.update({ id: payment.orderId }, { refundPending: true });
@@ -331,9 +352,13 @@ export class PaymentsService {
             await this.orders.refreshTabAfterPayment(payment.tabId);
             orderIds = (await this.ordersRepo.find({ where: { tabId: payment.tabId } })).filter((o) => o.status !== 'CANCELADO').map((o) => o.id);
         }
-        await this.events.publish({ type: 'payment.confirmed', placeId: payment.placeId, orderId: payment.orderId ?? undefined, tabId: payment.tabId ?? undefined, publicTokens: await this.tokensFor(payment) });
-        this.emitter.emit('orders.payment.confirmed', { paymentId, placeId: payment.placeId, orderIds });
+        await this.announcePayment(payment, orderIds);
         return true;
+    }
+
+    private async announcePayment(payment: OrderPayment, orderIds: string[]): Promise<void> {
+        await this.events.publish({ type: 'payment.confirmed', placeId: payment.placeId, orderId: payment.orderId ?? undefined, tabId: payment.tabId ?? undefined, publicTokens: await this.tokensFor(payment) });
+        this.emitter.emit('orders.payment.confirmed', { paymentId: payment.id, placeId: payment.placeId, orderIds });
     }
 
     private async resolveTarget(target: { orderToken?: string; tabToken?: string }) {

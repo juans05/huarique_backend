@@ -2,7 +2,7 @@ import { timingSafeEqual } from 'crypto';
 import { BadRequestException, ForbiddenException, HttpException, HttpStatus, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { InjectDataSource, InjectRepository } from '@nestjs/typeorm';
-import { DataSource, In, IsNull, MoreThanOrEqual, Repository } from 'typeorm';
+import { DataSource, EntityManager, In, IsNull, MoreThanOrEqual, Repository } from 'typeorm';
 import { PlaceOrderSettings } from './entities/place-order-settings.entity';
 import { PlaceTable } from './entities/place-table.entity';
 import { Tab } from './entities/tab.entity';
@@ -250,10 +250,10 @@ export class OrdersService {
         return order;
     }
 
-    /** Pedido suelto ya aceptado que se cobra al entregar (caja): marca `paidAt` una sola vez, sin cambiar su estado. */
-    async markOrderSettled(orderId: string): Promise<boolean> {
-        const result = await this.ordersRepo.update(
-            { id: orderId, paidAt: IsNull(), tabId: IsNull(), status: In(['NUEVO', 'EN_PREPARACION', 'LISTO', 'ENTREGADO']) },
+    /** Pedido web ya aceptado que se cobra al entregar (caja): marca `paidAt` una sola vez, sin cambiar su estado. */
+    async markOrderSettled(orderId: string, em?: EntityManager): Promise<boolean> {
+        const result = await (em ? em.getRepository(Order) : this.ordersRepo).update(
+            { id: orderId, channel: 'WEB', paidAt: IsNull(), tabId: IsNull(), status: In(['NUEVO', 'EN_PREPARACION', 'LISTO', 'ENTREGADO']) },
             { paidAt: new Date() },
         );
         return !!result.affected;
@@ -376,8 +376,8 @@ export class OrdersService {
         if (filter.status?.length) qb.andWhere('o.status IN (:...status)', { status: filter.status });
         if (filter.channel) qb.andWhere('o.channel = :channel', { channel: filter.channel });
         if (filter.from) qb.andWhere('o.created_at >= :from', { from: filter.from });
-        // Por cobrar en caja: pedidos sueltos aceptados que aún no se pagan.
-        if (filter.unpaid) qb.andWhere("o.paid_at IS NULL AND o.tab_id IS NULL AND o.status NOT IN ('CANCELADO', 'PENDIENTE_PAGO', 'POR_CONFIRMAR')");
+        // Por cobrar en caja: pedidos web aceptados que se pagan al entregar y aún no se pagan.
+        if (filter.unpaid) qb.andWhere("o.channel = 'WEB' AND o.paid_at IS NULL AND o.tab_id IS NULL AND o.status NOT IN ('CANCELADO', 'PENDIENTE_PAGO', 'POR_CONFIRMAR')");
         if (filter.q) {
             const asNumber = parseInt(filter.q.replace('#', ''), 10);
             if (!isNaN(asNumber)) qb.andWhere('o.number = :n', { n: asNumber });

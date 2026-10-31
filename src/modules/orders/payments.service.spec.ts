@@ -1,5 +1,7 @@
 import { BadRequestException } from '@nestjs/common';
 import { PaymentsService } from './payments.service';
+import { OrderPayment } from './entities/order-payment.entity';
+import { Order } from './entities/order.entity';
 
 // Compara filas con un `where` de TypeORM: `Not(IsNull())` = "no nulo"; `In([...])` / FindOperator con `_value`.
 // Un `where` en arreglo es OR (como en TypeORM); LessThan/MoreThan/IsNull por `_type`.
@@ -36,9 +38,9 @@ const build = (settingsOverride: any = {}) => {
     const ordersService = {
         getSettings: jest.fn(async () => settings),
         markOrderPaid: jest.fn(async (id: string) => { const o = orders.rows.find((r) => r.id === id); if (o.status !== 'PENDIENTE_PAGO') return null; o.status = 'NUEVO'; o.paidAt = new Date(); return o; }),
-        markOrderSettled: jest.fn(async (id: string) => {
+        markOrderSettled: jest.fn(async (id: string, _em?: any) => {
             const o = orders.rows.find((r) => r.id === id);
-            if (o.paidAt || o.tabId || !['NUEVO', 'EN_PREPARACION', 'LISTO', 'ENTREGADO'].includes(o.status)) return false;
+            if (o.channel !== 'WEB' || o.paidAt || o.tabId || !['NUEVO', 'EN_PREPARACION', 'LISTO', 'ENTREGADO'].includes(o.status)) return false;
             o.paidAt = new Date(); return true;
         }),
         refreshTabAfterPayment: jest.fn(async () => undefined),
@@ -49,7 +51,7 @@ const build = (settingsOverride: any = {}) => {
     const emitter = { emit: jest.fn() };
     const config = { get: (k: string) => ({ CULQI_SECRET_KEY: 'sk_wuarikes', CULQI_PUBLIC_KEY: 'pk_wuarikes' } as any)[k] };
     const svc = new PaymentsService(payments as any, orders as any, tabs as any, ordersService as any, events as any, emitter as any, config as any);
-    return { svc, payments, ordersService, emitter, orders };
+    return { svc, payments, ordersService, emitter, events, orders };
 };
 
 describe('PaymentsService', () => {
@@ -387,7 +389,8 @@ describe('PaymentsService', () => {
             const { svc, orders, emitter } = build();
             Object.assign(orders.rows[0], { channel: 'WEB', status: 'NUEVO', paidAt: null, refundPending: false });
             const payment = await svc.recordManualPayment('p1', { orderId: 'o1' }, 'EFECTIVO', 'u1');
-            expect(payment).toMatchObject({ status: 'PAGADO', amount: 4500, orderId: 'o1', destination: 'LOCAL' });
+            expect(payment).toMatchObject({ status: 'PAGADO', amount: 4500, orderId: 'o1', destination: 'LOCAL', method: 'EFECTIVO', recordedByUserId: 'u1' });
+            expect(payment.paidAt).toBeInstanceOf(Date);
             expect(orders.rows[0]).toMatchObject({ status: 'NUEVO', refundPending: false });
             expect(orders.rows[0].paidAt).toBeInstanceOf(Date);
             expect(emitter.emit).toHaveBeenCalledWith('orders.payment.confirmed', { paymentId: payment.id, placeId: 'p1', orderIds: ['o1'] });
@@ -404,11 +407,56 @@ describe('PaymentsService', () => {
             const { svc, orders, payments } = build();
             Object.assign(orders.rows[0], { channel: 'WEB', status: 'LISTO', paidAt: new Date() });
             await expect(svc.recordManualPayment('p1', { orderId: 'o1' }, 'EFECTIVO', 'u1')).rejects.toThrow(new BadRequestException('Este pedido ya está pagado'));
-            Object.assign(orders.rows[0], { status: 'CANCELADO', paidAt: null });
+            Object.assign(orders.rows[0], { status: 'CANCELADO' }); // cancelado y ya pagado: manda "pagado"
+            await expect(svc.recordManualPayment('p1', { orderId: 'o1' }, 'EFECTIVO', 'u1')).rejects.toThrow(new BadRequestException('Este pedido ya está pagado'));
+            Object.assign(orders.rows[0], { paidAt: null });
             await expect(svc.recordManualPayment('p1', { orderId: 'o1' }, 'EFECTIVO', 'u1')).rejects.toThrow(new BadRequestException('Este pedido está cancelado'));
             Object.assign(orders.rows[0], { status: 'POR_CONFIRMAR' });
             await expect(svc.recordManualPayment('p1', { orderId: 'o1' }, 'EFECTIVO', 'u1')).rejects.toThrow(new BadRequestException('Acepta el pedido antes de cobrarlo'));
             expect(payments.rows).toHaveLength(0);
+        });
+
+        it('pedido WhatsApp aceptado sin pagar: no se cobra como "al entregar" (solo WEB)', async () => {
+            const { svc, orders, payments } = build();
+            Object.assign(orders.rows[0], { channel: 'WHATSAPP', status: 'NUEVO', paidAt: null });
+            await expect(svc.recordManualPayment('p1', { orderId: 'o1' }, 'EFECTIVO', 'u1')).rejects.toThrow(new BadRequestException('Este pedido ya está pagado'));
+            expect(payments.rows).toHaveLength(0);
+            expect(orders.rows[0].paidAt).toBeNull();
+        });
+
+        it('dos cobros del mismo pedido a la vez: un solo pago PAGADO, el otro se rechaza', async () => {
+            const { svc, orders, payments } = build();
+            Object.assign(orders.rows[0], { channel: 'WEB', status: 'LISTO', paidAt: null });
+            const results = await Promise.allSettled([
+                svc.recordManualPayment('p1', { orderId: 'o1' }, 'EFECTIVO', 'u1'),
+                svc.recordManualPayment('p1', { orderId: 'o1' }, 'POS', 'u2'),
+            ]);
+            expect(results.filter((r) => r.status === 'fulfilled')).toHaveLength(1);
+            expect((results.find((r) => r.status === 'rejected') as PromiseRejectedResult).reason.message).toBe('Este pedido ya está pagado');
+            expect(payments.rows.filter((p) => p.status === 'PAGADO')).toHaveLength(1);
+            await expect(svc.recordManualPayment('p1', { orderId: 'o1' }, 'EFECTIVO', 'u1')).rejects.toThrow('Este pedido ya está pagado');
+            expect(payments.rows).toHaveLength(1);
+        });
+
+        it('con transacción de caja: reclamo y pago van por el EntityManager y los avisos esperan al commit', async () => {
+            const { svc, orders, payments, ordersService, emitter, events } = build();
+            Object.assign(orders.rows[0], { channel: 'WEB', status: 'NUEVO', paidAt: null });
+            const txPayments = memRepo();
+            const txOrders = memRepo(orders.rows);
+            const em = { getRepository: jest.fn((e: any) => (e === OrderPayment ? txPayments : e === Order ? txOrders : null)) };
+            const pending: (() => Promise<void>)[] = [];
+            const payment = await svc.recordManualPayment('p1', { orderId: 'o1' }, 'YAPE', 'u1', { em: em as any, afterCommit: (fn) => pending.push(fn) });
+            expect(ordersService.markOrderSettled).toHaveBeenCalledWith('o1', em);
+            expect(txOrders.findOne).toHaveBeenCalled();
+            expect(orders.findOne).not.toHaveBeenCalled();
+            expect(payments.save).not.toHaveBeenCalled();
+            expect(txPayments.rows).toEqual([expect.objectContaining({ id: payment.id, status: 'PAGADO', method: 'YAPE' })]);
+            expect(emitter.emit).not.toHaveBeenCalled();
+            expect(events.publish).not.toHaveBeenCalled();
+            expect(pending).toHaveLength(1);
+            await pending[0]();
+            expect(emitter.emit).toHaveBeenCalledWith('orders.payment.confirmed', { paymentId: payment.id, placeId: 'p1', orderIds: ['o1'] });
+            expect(events.publish).toHaveBeenCalledWith(expect.objectContaining({ type: 'payment.confirmed', orderId: 'o1' }));
         });
 
         it('PENDIENTE_PAGO sigue igual: pasa a NUEVO', async () => {

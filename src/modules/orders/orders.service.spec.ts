@@ -147,23 +147,31 @@ describe('OrdersService', () => {
 
     it('markOrderSettled: solo pedidos sueltos aceptados y sin pagar, una sola vez', async () => {
         const { svc, orders } = build();
-        orders.rows.push({ id: 'w1', placeId: 'p1', tabId: null, paidAt: null, status: 'NUEVO' });
+        orders.rows.push({ id: 'w1', placeId: 'p1', channel: 'WEB', tabId: null, paidAt: null, status: 'NUEVO' });
+        orders.rows.push({ id: 'wa1', placeId: 'p1', channel: 'WHATSAPP', tabId: null, paidAt: null, status: 'NUEVO' });
+        expect(await svc.markOrderSettled('wa1')).toBe(false);
+        expect(orders.rows.find((o: any) => o.id === 'wa1').paidAt).toBeNull();
         expect(await svc.markOrderSettled('w1')).toBe(true);
         const [where, patch] = orders.update.mock.calls.at(-1)!;
-        expect(where).toMatchObject({ id: 'w1', paidAt: expect.objectContaining({ _type: 'isNull' }), tabId: expect.objectContaining({ _type: 'isNull' }) });
+        expect(where).toMatchObject({ id: 'w1', channel: 'WEB', paidAt: expect.objectContaining({ _type: 'isNull' }), tabId: expect.objectContaining({ _type: 'isNull' }) });
         expect(where.status._value).toEqual(['NUEVO', 'EN_PREPARACION', 'LISTO', 'ENTREGADO']);
         expect(patch.paidAt).toBeInstanceOf(Date);
-        orders.update.mockResolvedValueOnce({ affected: 0 });
         expect(await svc.markOrderSettled('w1')).toBe(false);
+        const txOrders = { update: jest.fn(async () => ({ affected: 1 })) };
+        const em = { getRepository: jest.fn(() => txOrders) };
+        orders.update.mockClear();
+        await svc.markOrderSettled('w2', em as any);
+        expect(txOrders.update).toHaveBeenCalled();
+        expect(orders.update).not.toHaveBeenCalled();
     });
 
-    it('listForPlace unpaid: sin pagar, sin cuenta de mesa y fuera de cancelados/por pagar/por confirmar', async () => {
+    it('listForPlace unpaid: solo WEB, sin pagar, sin cuenta de mesa y fuera de cancelados/por pagar/por confirmar', async () => {
         const { svc, orders } = build();
         const where: string[] = [];
         const qb: any = new Proxy({}, { get: (_t, k) => k === 'getManyAndCount' ? async () => [[], 0] : (sql: any) => { if (typeof sql === 'string') where.push(sql); return qb; } });
         (orders as any).createQueryBuilder = () => qb;
         await svc.listForPlace('p1', { unpaid: true });
-        expect(where).toContain("o.paid_at IS NULL AND o.tab_id IS NULL AND o.status NOT IN ('CANCELADO', 'PENDIENTE_PAGO', 'POR_CONFIRMAR')");
+        expect(where).toContain("o.channel = 'WEB' AND o.paid_at IS NULL AND o.tab_id IS NULL AND o.status NOT IN ('CANCELADO', 'PENDIENTE_PAGO', 'POR_CONFIRMAR')");
     });
 
     it('changeStatus rechaza saltos inválidos', async () => {
