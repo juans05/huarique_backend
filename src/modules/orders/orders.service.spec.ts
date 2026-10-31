@@ -47,7 +47,7 @@ const memRepo = <T extends { id?: string }>(rows: T[] = []) => ({
     }),
 });
 
-const build = (opts: { mode?: 'CUENTA_ABIERTA' | 'PREPAGO'; dishAvailable?: boolean; dishPrice?: string | null; noPlan?: boolean; settings?: Record<string, unknown> } = {}) => {
+const build = (opts: { mode?: 'CUENTA_ABIERTA' | 'PREPAGO'; dishAvailable?: boolean; dishPrice?: string | null; noPlan?: boolean; settings?: Record<string, unknown>; placeStatus?: string } = {}) => {
     const settings = memRepo([{
         placeId: 'p1', ordersEnabled: true, tablePaymentMode: opts.mode ?? 'CUENTA_ABIERTA', pricesIncludeIgv: true, deliveryFee: 500, deliveryEnabled: true, pickupEnabled: true,
         paymentDestination: 'LOCAL', culqiPublicKey: null, culqiSecretKey: null, cashPaymentEnabled: true, webPaymentMode: 'ONLINE', ...opts.settings,
@@ -68,7 +68,8 @@ const build = (opts: { mode?: 'CUENTA_ABIERTA' | 'PREPAGO'; dishAvailable?: bool
     pinAttempts.onModuleInit();
     const contacts = { upsertByPhone: jest.fn().mockResolvedValue(null) };
     const team = { assertPlaceTier: jest.fn(async () => { if (opts.noPlan) throw new Error('sin plan'); }) };
-    const svc = new OrdersService(settings as any, tables as any, tabs as any, orders as any, payments as any, dishes as any, dataSource as any, events as any, emitter as any, pinAttempts, contacts as any, team as any);
+    const places = memRepo([{ id: 'p1', status: opts.placeStatus ?? 'active' } as any]);
+    const svc = new OrdersService(settings as any, tables as any, tabs as any, orders as any, payments as any, dishes as any, dataSource as any, events as any, emitter as any, pinAttempts, contacts as any, team as any, places as any);
     return { svc, tabs, tables, orders, payments, events, emitter, contacts };
 };
 
@@ -328,6 +329,19 @@ describe('OrdersService.createWebOrder (carta pública)', () => {
         await expect(build({ settings: { ...culqi, ordersEnabled: false } }).svc.createWebOrder('p1', input())).rejects.toBeInstanceOf(ForbiddenException);
     });
 
+    it('local que no está activo (o no existe): 404 y no se crea nada', async () => {
+        const { svc, orders } = build({ settings: culqi, placeStatus: 'pending' });
+        await expect(svc.createWebOrder('p1', input())).rejects.toBeInstanceOf(NotFoundException);
+        await expect(build({ settings: culqi }).svc.createWebOrder('p9', input())).rejects.toBeInstanceOf(NotFoundException);
+        expect(orders.rows).toHaveLength(0);
+    });
+
+    it('nombre vacío o solo espacios: 400 "Falta tu nombre" y no se crea nada', async () => {
+        const { svc, orders } = build({ settings: culqi });
+        await expect(svc.createWebOrder('p1', input({ customerName: '   ' }))).rejects.toThrow('Falta tu nombre');
+        expect(orders.rows).toHaveLength(0);
+    });
+
     it('delivery apagado, recojo apagado o delivery sin dirección: 400', async () => {
         await expect(build({ settings: { ...culqi, deliveryEnabled: false } }).svc.createWebOrder('p1', input({ fulfillment: 'DELIVERY', deliveryAddress: 'Av. Arequipa 123' }))).rejects.toBeInstanceOf(BadRequestException);
         await expect(build({ settings: { ...culqi, pickupEnabled: false } }).svc.createWebOrder('p1', input())).rejects.toBeInstanceOf(BadRequestException);
@@ -445,6 +459,13 @@ describe('OrdersService.listPublicTables', () => {
         expect(list).toEqual([{ name: 'Mesa 4', qrToken: 'qr-1' }]);
         expect(list.every((t) => !('pin' in t))).toBe(true);
         expect(tables.find).toHaveBeenLastCalledWith(expect.objectContaining({ order: { displayOrder: 'ASC', name: 'ASC' } }));
+    });
+
+    it('sin plan Fidelización+ o con pedidos apagados no expone las mesas: []', async () => {
+        const noPlan = build({ noPlan: true });
+        await expect(noPlan.svc.listPublicTables('p1')).resolves.toEqual([]);
+        expect(noPlan.tables.find).not.toHaveBeenCalled();
+        await expect(build({ settings: { ordersEnabled: false } }).svc.listPublicTables('p1')).resolves.toEqual([]);
     });
 });
 

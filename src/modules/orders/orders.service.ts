@@ -10,6 +10,7 @@ import { Order, OrderChannel, OrderStatus } from './entities/order.entity';
 import { OrderItem } from './entities/order-item.entity';
 import { OrderPayment } from './entities/order-payment.entity';
 import { Dish } from '../places/entities/dish.entity';
+import { Place } from '../places/entities/place.entity';
 import { PlaceTeamRole } from '../team/entities/place-team-member.entity';
 import { PinAttemptsService } from './pin-attempts.service';
 import { PlaceTeamService } from '../team/place-team.service';
@@ -61,6 +62,7 @@ export class OrdersService {
         private pinAttempts: PinAttemptsService,
         private contacts: ContactsService,
         private team: PlaceTeamService,
+        @InjectRepository(Place) private placesRepo: Repository<Place>,
     ) { }
 
     /** Plan activo de la sede: pedidos en mesa desde Fidelización+, por WhatsApp solo con IA Total. */
@@ -188,6 +190,9 @@ export class OrdersService {
      * pagado al recibir nace POR_CONFIRMAR hasta que caja lo acepte. "Comer aquí" sigue por createTableOrder.
      */
     async createWebOrder(placeId: string, input: CreateWebOrderDto): Promise<{ orderToken: string; requiresPayment: boolean; total: number }> {
+        // Igual que placeActions: un local que no está activo no recibe pedidos web.
+        const place = await this.placesRepo.findOne({ where: { id: placeId }, select: ['id', 'status'] });
+        if (!place || place.status !== 'active') throw new NotFoundException('Local no encontrado');
         const settings = await this.getSettings(placeId);
         if (!settings.ordersEnabled || !(await this.hasPlan(placeId, 'fidelizacion'))) throw new ForbiddenException('Este local no está recibiendo pedidos por ahora');
         const delivery = input.fulfillment === 'DELIVERY';
@@ -197,6 +202,7 @@ export class OrdersService {
         const { payOnline, payOnDelivery } = webPaymentOptions(settings);
         if (input.payOnDelivery && !payOnDelivery) throw new BadRequestException('Este local no acepta pago al recibir');
         if (!input.payOnDelivery && !payOnline) throw new BadRequestException('Este local no acepta pagos en línea');
+        if (!input.customerName.trim()) throw new BadRequestException('Falta tu nombre');
         const phone = normalizePhone(input.customerPhone);
         if (!phone) throw new BadRequestException('Falta el celular');
         // ponytail: contar e insertar no es atómico; el rate limit por IP del endpoint acota la carrera.
@@ -218,8 +224,10 @@ export class OrdersService {
         return { orderToken: order.publicToken, requiresPayment: !input.payOnDelivery, total: order.total };
     }
 
-    /** Mesas activas para "comer aquí" en la carta pública. Solo nombre y token del QR: el PIN lo da el personal. */
+    /** Mesas activas para "comer aquí" en la carta pública. Solo nombre y token del QR: el PIN lo da el personal. Sin pedidos activos en el local no se expone nada. */
     async listPublicTables(placeId: string): Promise<{ name: string; qrToken: string }[]> {
+        const settings = await this.getSettings(placeId);
+        if (!settings.ordersEnabled || !(await this.hasPlan(placeId, 'fidelizacion'))) return [];
         const tables = await this.tablesRepo.find({ where: { placeId, active: true }, order: { displayOrder: 'ASC', name: 'ASC' } });
         return tables.map((t) => ({ name: t.name, qrToken: t.qrToken }));
     }
