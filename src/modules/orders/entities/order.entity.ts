@@ -1,9 +1,10 @@
 import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, UpdateDateColumn, OneToMany } from 'typeorm';
 import { OrderItem } from './order-item.entity';
 
-export type OrderStatus = 'PENDIENTE_PAGO' | 'NUEVO' | 'EN_PREPARACION' | 'LISTO' | 'ENTREGADO' | 'CANCELADO';
-/** MESA: el cliente con la carta digital (QR); MOZO: el mozo desde su celular o tablet. */
-export type OrderChannel = 'MESA' | 'MOZO' | 'WHATSAPP';
+/** POR_CONFIRMAR: pedido de la carta web que caja todavía debe aceptar o rechazar. */
+export type OrderStatus = 'POR_CONFIRMAR' | 'PENDIENTE_PAGO' | 'NUEVO' | 'EN_PREPARACION' | 'LISTO' | 'ENTREGADO' | 'CANCELADO';
+/** MESA: el cliente con la carta digital (QR); MOZO: el mozo desde su celular o tablet; WEB: el cliente desde la carta pública con el QR general. */
+export type OrderChannel = 'MESA' | 'MOZO' | 'WHATSAPP' | 'WEB';
 export type Fulfillment = 'SALA' | 'RECOJO' | 'DELIVERY';
 
 @Entity('orders')

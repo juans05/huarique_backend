@@ -30,7 +30,7 @@ const TIMELINE_MAX = 100;
 // Campos que un alta posterior puede completar en un contacto existente (solo si estaban vacíos).
 const FILL_KEYS = ['name', 'email', 'dni', 'tags', 'customFields'] as const;
 const ORDER_STATUS_LABEL: Record<string, string> = {
-    PENDIENTE_PAGO: 'pendiente de pago', NUEVO: 'nuevo', EN_PREPARACION: 'en preparación', LISTO: 'listo', ENTREGADO: 'entregado', CANCELADO: 'cancelado',
+    POR_CONFIRMAR: 'por confirmar', PENDIENTE_PAGO: 'pendiente de pago', NUEVO: 'nuevo', EN_PREPARACION: 'en preparación', LISTO: 'listo', ENTREGADO: 'entregado', CANCELADO: 'cancelado',
 };
 const CONVERSATION_STATUS_LABEL: Record<string, string> = { abierto: 'abierta', pendiente: 'pendiente', cerrado: 'cerrada' };
 

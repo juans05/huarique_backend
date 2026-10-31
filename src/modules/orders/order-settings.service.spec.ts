@@ -36,6 +36,14 @@ describe('OrderSettingsService', () => {
         await expect(svc2.update('p1', { tableOnlinePaymentEnabled: false })).rejects.toBeInstanceOf(BadRequestException);
     });
 
+    it('pagar al recibir en la web necesita el efectivo activo (en ninguno de los dos órdenes)', async () => {
+        const svc = new OrderSettingsService(repo() as any, repo() as any, config, team);
+        await expect(svc.update('p1', { webPaymentMode: 'ONLINE_O_ENTREGA', cashPaymentEnabled: false })).rejects.toThrow(/efectivo/);
+        await expect(svc.update('p1', { webPaymentMode: 'ONLINE_O_ENTREGA', cashPaymentEnabled: true })).resolves.toMatchObject({ webPaymentMode: 'ONLINE_O_ENTREGA' });
+        const svc2 = new OrderSettingsService(repo([{ placeId: 'p1', webPaymentMode: 'ONLINE_O_ENTREGA', cashPaymentEnabled: true }]) as any, repo() as any, config, team);
+        await expect(svc2.update('p1', { cashPaymentEnabled: false })).rejects.toBeInstanceOf(BadRequestException);
+    });
+
     it('secret vacía no borra la guardada', async () => {
         const settings = repo([{ placeId: 'p1', culqiPublicKey: 'pk_test_1', culqiSecretKey: 'sk_test_1' }]);
         const svc = new OrderSettingsService(settings as any, repo() as any, config, team);

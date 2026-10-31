@@ -1,5 +1,5 @@
 import { BadRequestException, ForbiddenException } from '@nestjs/common';
-import { toCents, calculateTotals, canTransition, assertCanCancel, newPublicToken } from './order-rules';
+import { toCents, calculateTotals, canTransition, assertCanCancel, assertCanConfirm, newPublicToken } from './order-rules';
 
 describe('order-rules', () => {
     it('toCents redondea decimales de la carta', () => {
@@ -26,6 +26,18 @@ describe('order-rules', () => {
         expect(canTransition('NUEVO', 'LISTO')).toBe(false);
         expect(canTransition('ENTREGADO', 'CANCELADO')).toBe(false);
         expect(canTransition('PENDIENTE_PAGO', 'EN_PREPARACION')).toBe(false);
+    });
+
+    it('POR_CONFIRMAR pasa a NUEVO o CANCELADO, nunca directo a preparación', () => {
+        expect(canTransition('POR_CONFIRMAR', 'NUEVO')).toBe(true);
+        expect(canTransition('POR_CONFIRMAR', 'CANCELADO')).toBe(true);
+        expect(canTransition('POR_CONFIRMAR', 'EN_PREPARACION')).toBe(false);
+    });
+
+    it('confirmar un pedido web: desde caja (agente) hacia arriba; cocina y mozo no', () => {
+        expect(() => assertCanConfirm('cocina')).toThrow(ForbiddenException);
+        expect(() => assertCanConfirm('mozo')).toThrow(ForbiddenException);
+        expect(() => assertCanConfirm('agente')).not.toThrow();
     });
 
     it('cancelar: caja cancela NUEVO, solo gerente EN_PREPARACION, nadie LISTO, cocina nunca', () => {

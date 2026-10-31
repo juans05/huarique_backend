@@ -3,6 +3,8 @@ import { encryptTransformer } from '../../../common/utils/encryption-transformer
 
 export type TablePaymentMode = 'CUENTA_ABIERTA' | 'PREPAGO';
 export type PaymentDestination = 'LOCAL' | 'WUARIKES';
+/** Pedidos de la carta web: ONLINE = solo pago en línea; ONLINE_O_ENTREGA = el cliente también puede pagar al recibir. */
+export type WebPaymentMode = 'ONLINE' | 'ONLINE_O_ENTREGA';
 export type ReceiptSeries = { TICKET: string; BOLETA: string; FACTURA: string; NOTA_CREDITO: string };
 export const DEFAULT_RECEIPT_SERIES: ReceiptSeries = { TICKET: 'T001', BOLETA: 'B001', FACTURA: 'F001', NOTA_CREDITO: 'FC01' };
 
@@ -25,6 +27,7 @@ export class PlaceOrderSettings {
     @Column({ name: 'cash_payment_enabled', default: true }) cashPaymentEnabled: boolean;
     // false: el comensal no paga la cuenta de mesa desde su celular; cobra el mozo (efectivo/POS).
     @Column({ name: 'table_online_payment_enabled', default: true }) tableOnlinePaymentEnabled: boolean;
+    @Column({ name: 'web_payment_mode', type: 'varchar', length: 20, default: 'ONLINE' }) webPaymentMode: WebPaymentMode;
     @Column({ name: 'wuarikes_commission_pct', type: 'numeric', precision: 5, scale: 4, default: 0.05, transformer: numeric }) wuarikesCommissionPct: number;
     @Column({ name: 'receipt_series', type: 'jsonb', default: () => `'${JSON.stringify(DEFAULT_RECEIPT_SERIES)}'` }) receiptSeries: ReceiptSeries;
     @UpdateDateColumn({ name: 'updated_at' }) updatedAt: Date;

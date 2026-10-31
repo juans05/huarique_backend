@@ -26,6 +26,7 @@ export class UpdateOrderSettingsDto {
     @IsOptional() @IsBoolean() cashPaymentEnabled?: boolean;
     @IsOptional() @ValidateNested() @Type(() => ReceiptSeriesDto) receiptSeries?: ReceiptSeriesDto;
     @IsOptional() @IsBoolean() tableOnlinePaymentEnabled?: boolean;
+    @IsOptional() @IsIn(['ONLINE', 'ONLINE_O_ENTREGA']) webPaymentMode?: 'ONLINE' | 'ONLINE_O_ENTREGA';
 }
 
 export class AdminCommissionDto {

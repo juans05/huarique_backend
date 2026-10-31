@@ -20,6 +20,7 @@ export function calculateTotals(items: { unitPrice: number; quantity: number }[]
 }
 
 const TRANSITIONS: Record<OrderStatus, OrderStatus[]> = {
+    POR_CONFIRMAR: ['NUEVO', 'CANCELADO'],
     PENDIENTE_PAGO: ['NUEVO', 'CANCELADO'],
     NUEVO: ['EN_PREPARACION', 'CANCELADO'],
     EN_PREPARACION: ['LISTO', 'CANCELADO'],
@@ -37,6 +38,11 @@ export function assertCanCancel(status: OrderStatus, role: PlaceTeamRole): void 
     // Cocina y mozo no cancelan: un pedido cancelado puede implicar devolver un pago (lo decide caja o gerencia).
     if (ROLE_RANK[role] < ROLE_RANK.agente) throw new ForbiddenException('Tu rol no puede cancelar pedidos');
     if (status === 'EN_PREPARACION' && ROLE_RANK[role] < ROLE_RANK.supervisor) throw new ForbiddenException('Solo un gerente puede cancelar un pedido en preparación');
+}
+
+export function assertCanConfirm(role: PlaceTeamRole): void {
+    // Confirmar un pedido web compromete a cocina (y un cobro): lo decide caja o gerencia, igual que cancelar.
+    if (ROLE_RANK[role] < ROLE_RANK.agente) throw new ForbiddenException('Tu rol no puede confirmar pedidos');
 }
 
 export function newTablePin(): string {
