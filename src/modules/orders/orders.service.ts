@@ -2,7 +2,7 @@ import { timingSafeEqual } from 'crypto';
 import { BadRequestException, ForbiddenException, HttpException, HttpStatus, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { InjectDataSource, InjectRepository } from '@nestjs/typeorm';
-import { DataSource, In, MoreThanOrEqual, Repository } from 'typeorm';
+import { DataSource, In, IsNull, MoreThanOrEqual, Repository } from 'typeorm';
 import { PlaceOrderSettings } from './entities/place-order-settings.entity';
 import { PlaceTable } from './entities/place-table.entity';
 import { Tab } from './entities/tab.entity';
@@ -250,6 +250,15 @@ export class OrdersService {
         return order;
     }
 
+    /** Pedido suelto ya aceptado que se cobra al entregar (caja): marca `paidAt` una sola vez, sin cambiar su estado. */
+    async markOrderSettled(orderId: string): Promise<boolean> {
+        const result = await this.ordersRepo.update(
+            { id: orderId, paidAt: IsNull(), tabId: IsNull(), status: In(['NUEVO', 'EN_PREPARACION', 'LISTO', 'ENTREGADO']) },
+            { paidAt: new Date() },
+        );
+        return !!result.affected;
+    }
+
     async changeStatus(placeId: string, orderId: string, to: OrderStatus, role: PlaceTeamRole, reason?: string): Promise<Order> {
         const order = await this.ordersRepo.findOne({ where: { id: orderId, placeId } });
         if (!order) throw new NotFoundException('Pedido no encontrado');
@@ -362,11 +371,13 @@ export class OrdersService {
         return { status: tab.status, ...sums, onlinePaymentEnabled: tableOnlinePaymentEnabled !== false, orders: orders.map((o) => this.publicView(o)) };
     }
 
-    async listForPlace(placeId: string, filter: { status?: OrderStatus[]; channel?: OrderChannel; q?: string; from?: Date; page?: number }) {
+    async listForPlace(placeId: string, filter: { status?: OrderStatus[]; channel?: OrderChannel; q?: string; from?: Date; page?: number; unpaid?: boolean }) {
         const qb = this.ordersRepo.createQueryBuilder('o').leftJoinAndSelect('o.items', 'i').where('o.place_id = :placeId', { placeId });
         if (filter.status?.length) qb.andWhere('o.status IN (:...status)', { status: filter.status });
         if (filter.channel) qb.andWhere('o.channel = :channel', { channel: filter.channel });
         if (filter.from) qb.andWhere('o.created_at >= :from', { from: filter.from });
+        // Por cobrar en caja: pedidos sueltos aceptados que aún no se pagan.
+        if (filter.unpaid) qb.andWhere("o.paid_at IS NULL AND o.tab_id IS NULL AND o.status NOT IN ('CANCELADO', 'PENDIENTE_PAGO', 'POR_CONFIRMAR')");
         if (filter.q) {
             const asNumber = parseInt(filter.q.replace('#', ''), 10);
             if (!isNaN(asNumber)) qb.andWhere('o.number = :n', { n: asNumber });

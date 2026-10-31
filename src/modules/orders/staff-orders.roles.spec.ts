@@ -32,6 +32,12 @@ describe('StaffOrdersController roles', () => {
         await expect(guardWith('agente').canActivate(ctxFor(proto.updateSettings))).rejects.toBeInstanceOf(ForbiddenException);
     });
 
+    it('cobrar en caja un pedido suelto exige agente (mozo y cocina no)', async () => {
+        await expect(guardWith('agente').canActivate(ctxFor(proto.cashChargeOrder))).resolves.toBe(true);
+        await expect(guardWith('mozo').canActivate(ctxFor(proto.cashChargeOrder))).rejects.toBeInstanceOf(ForbiddenException);
+        await expect(guardWith('cocina').canActivate(ctxFor(proto.cashChargeOrder))).rejects.toBeInstanceOf(ForbiddenException);
+    });
+
     it('mozo ve mesas, abre la cuenta por QR, cobra y cierra; no ve pedidos de WhatsApp ni configura', async () => {
         for (const h of [proto.tablesBoard, proto.staffTable, proto.manualPayment, proto.closeTab]) {
             await expect(guardWith('mozo').canActivate(ctxFor(h))).resolves.toBe(true);
@@ -57,10 +63,28 @@ describe('StaffOrdersController.manualPayment', () => {
     });
 });
 
+describe('StaffOrdersController.cashChargeOrder', () => {
+    it('pasa el pedido de la ruta y el usuario a caja', async () => {
+        const cash = { chargeOrder: jest.fn(async () => ({ id: 'r1' })) };
+        const ctrl = new StaffOrdersController({} as any, {} as any, {} as any, cash as any, {} as any);
+        await ctrl.cashChargeOrder('p1', 'o1', { docType: 'TICKET', method: 'EFECTIVO' }, { id: 'u1' });
+        expect(cash.chargeOrder).toHaveBeenCalledWith('p1', 'u1', 'o1', { docType: 'TICKET', method: 'EFECTIVO' });
+    });
+});
+
 describe('StaffOrdersController.list', () => {
     it('page no numérico se toma como 1', () => {
         const orders = { listForPlace: jest.fn() };
         new StaffOrdersController(orders as any, {} as any, {} as any, {} as any, {} as any).list('p1', undefined, undefined, undefined, 'abc');
         expect(orders.listForPlace).toHaveBeenCalledWith('p1', expect.objectContaining({ page: 1 }));
+    });
+
+    it('unpaid=true filtra pedidos sin cobrar; otro valor no', () => {
+        const orders = { listForPlace: jest.fn() };
+        const ctrl = new StaffOrdersController(orders as any, {} as any, {} as any, {} as any, {} as any);
+        ctrl.list('p1', undefined, undefined, undefined, '1', 'true');
+        expect(orders.listForPlace).toHaveBeenLastCalledWith('p1', expect.objectContaining({ unpaid: true }));
+        ctrl.list('p1', undefined, undefined, undefined, '1');
+        expect(orders.listForPlace).toHaveBeenLastCalledWith('p1', expect.objectContaining({ unpaid: false }));
     });
 });

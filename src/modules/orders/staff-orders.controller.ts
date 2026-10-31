@@ -8,7 +8,7 @@ import { OrdersService } from './orders.service';
 import { OrderSettingsService } from './order-settings.service';
 import { PaymentsService } from './payments.service';
 import { CashService } from './cash.service';
-import { ChargeDto, CloseCashDto, OpenCashDto, PrecuentaDto, SaleDto } from './dto/cash.dto';
+import { ChargeDto, ChargeOrderDto, CloseCashDto, OpenCashDto, PrecuentaDto, SaleDto } from './dto/cash.dto';
 import { AssignWaiterDto, ChangeStatusDto, ManualPaymentDto, StaffOrderDto } from './dto/orders.dto';
 import { BulkTablesDto, TableDto, UpdateOrderSettingsDto, UpdateTableDto } from './dto/order-settings.dto';
 import { OrderChannel, OrderStatus } from './entities/order.entity';
@@ -31,8 +31,8 @@ export class StaffOrdersController {
 
     @Get()
     @RequiresPlaceRole('agente')
-    list(@Param('placeId') placeId: string, @Query('status') status?: string, @Query('channel') channel?: OrderChannel, @Query('q') q?: string, @Query('page') page = '1') {
-        return this.orders.listForPlace(placeId, { status: status ? (status.split(',') as OrderStatus[]) : undefined, channel, q, page: parseInt(page, 10) || 1 });
+    list(@Param('placeId') placeId: string, @Query('status') status?: string, @Query('channel') channel?: OrderChannel, @Query('q') q?: string, @Query('page') page = '1', @Query('unpaid') unpaid?: string) {
+        return this.orders.listForPlace(placeId, { status: status ? (status.split(',') as OrderStatus[]) : undefined, channel, q, page: parseInt(page, 10) || 1, unpaid: unpaid === 'true' });
     }
 
     @Get('kds')
@@ -119,6 +119,12 @@ export class StaffOrdersController {
     @RequiresPlaceRole('agente')
     cashCharge(@Param('placeId') placeId: string, @Body() dto: ChargeDto, @CurrentUser() user: any) {
         return this.cash.charge(placeId, user.id, dto);
+    }
+
+    @Post('cash/orders/:orderId/charge')
+    @RequiresPlaceRole('agente')
+    cashChargeOrder(@Param('placeId') placeId: string, @Param('orderId', ParseUUIDPipe) orderId: string, @Body() dto: ChargeOrderDto, @CurrentUser() user: any) {
+        return this.cash.chargeOrder(placeId, user.id, orderId, dto);
     }
 
     @Post('cash/sale')

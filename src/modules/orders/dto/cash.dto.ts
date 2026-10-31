@@ -24,6 +24,11 @@ export class ChargeDto extends PrecuentaDto {
     @IsIn(['EFECTIVO', 'TARJETA', 'YAPE_PLIN']) method: 'EFECTIVO' | 'TARJETA' | 'YAPE_PLIN';
 }
 
+/** Cobro en caja de un pedido suelto (al entregar): el pedido va en la ruta. */
+export class ChargeOrderDto extends PrecuentaDto {
+    @IsIn(['EFECTIVO', 'TARJETA', 'YAPE_PLIN']) method: 'EFECTIVO' | 'TARJETA' | 'YAPE_PLIN';
+}
+
 /** Línea de venta: un ítem del catálogo (dishId) o un "otro ítem" con nombre y precio. */
 export class SaleLineDto {
     @IsOptional() @IsUUID() dishId?: string;

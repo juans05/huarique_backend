@@ -10,7 +10,8 @@ import { DEFAULT_RECEIPT_SERIES } from './entities/place-order-settings.entity';
 import { OrdersService } from './orders.service';
 import { PaymentsService } from './payments.service';
 import { OrderEventsService } from './order-events.service';
-import { ChargeDto, PrecuentaDto, SaleDto } from './dto/cash.dto';
+import { ChargeDto, ChargeOrderDto, PrecuentaDto, SaleDto } from './dto/cash.dto';
+import { Order } from './entities/order.entity';
 import { Dish } from '../places/entities/dish.entity';
 import { toCents } from './order-rules';
 import { receiptCode, receiptCustomerError } from './cash-rules';
@@ -127,6 +128,39 @@ export class CashService {
             }));
         });
         await this.orders.closeTab(placeId, receipt.tabId!);
+        return { ...receipt, code: receiptCode(receipt.series, receipt.number) };
+    }
+
+    /**
+     * Cobra un pedido suelto que se paga al entregar (recojo/delivery) y emite el comprobante con sus líneas.
+     * Mismo bloqueo que `charge`: dos cajeros no cobran dos veces el mismo pedido.
+     */
+    async chargeOrder(placeId: string, userId: string, orderId: string, dto: ChargeOrderDto) {
+        const session = await this.requireOpen(placeId);
+        const settings = await this.orders.getSettings(placeId);
+        const series = (settings.receiptSeries ?? DEFAULT_RECEIPT_SERIES)[dto.docType];
+
+        const receipt = await this.dataSource.transaction(async (em) => {
+            await this.lockOpen(em, session.id);
+            const order = await em.findOne(Order, { where: { id: orderId, placeId }, relations: ['items'] });
+            if (!order) throw new NotFoundException('Pedido no encontrado');
+            const error = receiptCustomerError(dto.docType, dto, order.total);
+            if (error) throw new BadRequestException(error);
+
+            // Valida el estado del pedido (mesa, por confirmar, ya pagado) y lo marca pagado.
+            const payment = await this.payments.recordManualPayment(placeId, { orderId: order.id }, PAYMENT_METHOD[dto.method], userId);
+            const lines = (order.items ?? []).map((i) => ({ dishId: i.dishId, description: i.dishNameSnapshot, quantity: i.quantity, unitPrice: i.unitPrice, lineTotal: i.lineTotal }));
+            if (order.deliveryFee > 0) lines.push({ dishId: null, description: 'Delivery', quantity: 1, unitPrice: order.deliveryFee, lineTotal: order.deliveryFee });
+            const [{ max }] = await em.query(`SELECT COALESCE(MAX(number), 0) AS max FROM wuarike_db.receipts WHERE place_id = $1 AND series = $2`, [placeId, series]);
+            const customer = this.clean(dto);
+            return em.save(em.create(Receipt, {
+                placeId, cashSessionId: session.id, kind: 'VENTA', tabId: null, tableName: `Pedido #${order.number}`, paymentId: payment.id,
+                docType: dto.docType, series, number: Number(max) + 1, paymentMethod: dto.method, total: payment.amount, createdByUserId: userId,
+                customerDocType: customer.customerDocType ?? null, customerDocNumber: customer.customerDocNumber ?? null,
+                customerName: customer.customerName ?? null, customerAddress: customer.customerAddress ?? null,
+                items: lines.map((l) => em.create(ReceiptItem, l)),
+            }));
+        });
         return { ...receipt, code: receiptCode(receipt.series, receipt.number) };
     }
 

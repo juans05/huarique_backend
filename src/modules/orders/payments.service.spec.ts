@@ -35,7 +35,12 @@ const build = (settingsOverride: any = {}) => {
     const settings = { placeId: 'p1', paymentDestination: 'WUARIKES', culqiPublicKey: null, culqiSecretKey: null, cashPaymentEnabled: true, ...settingsOverride };
     const ordersService = {
         getSettings: jest.fn(async () => settings),
-        markOrderPaid: jest.fn(async (id: string) => { const o = orders.rows.find((r) => r.id === id); if (o.status !== 'PENDIENTE_PAGO') return null; o.status = 'NUEVO'; return o; }),
+        markOrderPaid: jest.fn(async (id: string) => { const o = orders.rows.find((r) => r.id === id); if (o.status !== 'PENDIENTE_PAGO') return null; o.status = 'NUEVO'; o.paidAt = new Date(); return o; }),
+        markOrderSettled: jest.fn(async (id: string) => {
+            const o = orders.rows.find((r) => r.id === id);
+            if (o.paidAt || o.tabId || !['NUEVO', 'EN_PREPARACION', 'LISTO', 'ENTREGADO'].includes(o.status)) return false;
+            o.paidAt = new Date(); return true;
+        }),
         refreshTabAfterPayment: jest.fn(async () => undefined),
         tabTotal: jest.fn(async () => ({ total: 9000, paid: 2000, due: 7000 })),
         cancelUnpaid: jest.fn(async () => undefined),
@@ -140,7 +145,7 @@ describe('PaymentsService', () => {
 
     it('CIP pagado después de pagar con tarjeta: devolución pendiente y sin evento de pago', async () => {
         const { svc, orders, payments, emitter } = build();
-        orders.rows[0].status = 'NUEVO'; // ya se pagó con tarjeta en otro intento
+        Object.assign(orders.rows[0], { status: 'NUEVO', paidAt: new Date() }); // ya se pagó con tarjeta en otro intento
         payments.rows.push({ id: 'pay-cip', placeId: 'p1', orderId: 'o1', tabId: null, status: 'PENDIENTE', method: 'ONLINE', amount: 4500, culqiOrderId: 'ord_cip', destination: 'WUARIKES', expiresAt: new Date(Date.now() + 3600_000) });
         fetchMock({ '/orders/ord_cip': { id: 'ord_cip', state: 'paid' } });
         await svc.reconcilePending('p1');
@@ -375,6 +380,53 @@ describe('PaymentsService', () => {
             fetchMock({ '/orders/ord_e': { id: 'ord_e', state: 'paid' } });
             await svc.reconcilePending();
             expect(payments.rows[0].status).toBe('EXPIRADO');
+        });
+    });
+    describe('cobro en caja de un pedido "al entregar"', () => {
+        it('pedido WEB aceptado (NUEVO, sin pagar): queda pagado sin devolución y sigue en NUEVO', async () => {
+            const { svc, orders, emitter } = build();
+            Object.assign(orders.rows[0], { channel: 'WEB', status: 'NUEVO', paidAt: null, refundPending: false });
+            const payment = await svc.recordManualPayment('p1', { orderId: 'o1' }, 'EFECTIVO', 'u1');
+            expect(payment).toMatchObject({ status: 'PAGADO', amount: 4500, orderId: 'o1', destination: 'LOCAL' });
+            expect(orders.rows[0]).toMatchObject({ status: 'NUEVO', refundPending: false });
+            expect(orders.rows[0].paidAt).toBeInstanceOf(Date);
+            expect(emitter.emit).toHaveBeenCalledWith('orders.payment.confirmed', { paymentId: payment.id, placeId: 'p1', orderIds: ['o1'] });
+        });
+
+        it('pedido de mesa (con cuenta): se cobra desde la cuenta', async () => {
+            const { svc, orders, payments } = build();
+            Object.assign(orders.rows[0], { channel: 'MESA', status: 'NUEVO', tabId: 'tab1', paidAt: null });
+            await expect(svc.recordManualPayment('p1', { orderId: 'o1' }, 'EFECTIVO', 'u1')).rejects.toThrow(new BadRequestException('Cóbralo desde la cuenta de la mesa'));
+            expect(payments.rows).toHaveLength(0);
+        });
+
+        it('ya pagado, cancelado o por confirmar: no se cobra', async () => {
+            const { svc, orders, payments } = build();
+            Object.assign(orders.rows[0], { channel: 'WEB', status: 'LISTO', paidAt: new Date() });
+            await expect(svc.recordManualPayment('p1', { orderId: 'o1' }, 'EFECTIVO', 'u1')).rejects.toThrow(new BadRequestException('Este pedido ya está pagado'));
+            Object.assign(orders.rows[0], { status: 'CANCELADO', paidAt: null });
+            await expect(svc.recordManualPayment('p1', { orderId: 'o1' }, 'EFECTIVO', 'u1')).rejects.toThrow(new BadRequestException('Este pedido está cancelado'));
+            Object.assign(orders.rows[0], { status: 'POR_CONFIRMAR' });
+            await expect(svc.recordManualPayment('p1', { orderId: 'o1' }, 'EFECTIVO', 'u1')).rejects.toThrow(new BadRequestException('Acepta el pedido antes de cobrarlo'));
+            expect(payments.rows).toHaveLength(0);
+        });
+
+        it('PENDIENTE_PAGO sigue igual: pasa a NUEVO', async () => {
+            const { svc, orders, ordersService } = build();
+            await svc.recordManualPayment('p1', { orderId: 'o1' }, 'POS', 'u1');
+            expect(orders.rows[0].status).toBe('NUEVO');
+            expect(ordersService.markOrderPaid).toHaveBeenCalledWith('o1');
+            expect(ordersService.markOrderSettled).not.toHaveBeenCalled();
+            expect(orders.rows[0].refundPending).toBeUndefined();
+        });
+
+        it('pago online que llega para un pedido ya cobrado en caja: devolución pendiente', async () => {
+            const { svc, orders, payments } = build();
+            Object.assign(orders.rows[0], { status: 'NUEVO', paidAt: new Date() });
+            payments.rows.push({ id: 'pay-late', placeId: 'p1', orderId: 'o1', tabId: null, status: 'PENDIENTE', method: 'ONLINE', amount: 4500, culqiOrderId: 'ord_late', destination: 'WUARIKES', expiresAt: new Date(Date.now() + 3600_000) });
+            fetchMock({ '/orders/ord_late': { id: 'ord_late', state: 'paid' } });
+            await svc.reconcilePending('p1');
+            expect(orders.rows[0].refundPending).toBe(true);
         });
     });
 });

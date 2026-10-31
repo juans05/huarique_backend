@@ -21,9 +21,10 @@ const fakeRedisStore = () => {
     };
 };
 
-// Compara una fila con un `where` de TypeORM, incluido `In([...])` (FindOperator con `_value`).
+// Compara una fila con un `where` de TypeORM, incluido `In([...])` (FindOperator con `_value`) e `IsNull()`.
 const matches = (row: any, where: any = {}) => Object.entries(where).every(([k, v]: [string, any]) =>
     v && typeof v === 'object' && v._type === 'moreThanOrEqual' ? row[k] >= v._value
+    : v && typeof v === 'object' && v._type === 'isNull' ? row[k] == null
     : v && typeof v === 'object' && '_value' in v
         ? (Array.isArray(v._value) ? v._value.includes(row[k]) : row[k] === v._value)
         : row[k] === v);
@@ -142,6 +143,27 @@ describe('OrdersService', () => {
         const { order } = await svc.createTableOrder('qr-1', { pin: '1234', items: [{ dishId: 'd1', quantity: 1 }] });
         expect(await svc.markOrderPaid(order.id)).toMatchObject({ status: 'NUEVO' });
         expect(await svc.markOrderPaid(order.id)).toBeNull();
+    });
+
+    it('markOrderSettled: solo pedidos sueltos aceptados y sin pagar, una sola vez', async () => {
+        const { svc, orders } = build();
+        orders.rows.push({ id: 'w1', placeId: 'p1', tabId: null, paidAt: null, status: 'NUEVO' });
+        expect(await svc.markOrderSettled('w1')).toBe(true);
+        const [where, patch] = orders.update.mock.calls.at(-1)!;
+        expect(where).toMatchObject({ id: 'w1', paidAt: expect.objectContaining({ _type: 'isNull' }), tabId: expect.objectContaining({ _type: 'isNull' }) });
+        expect(where.status._value).toEqual(['NUEVO', 'EN_PREPARACION', 'LISTO', 'ENTREGADO']);
+        expect(patch.paidAt).toBeInstanceOf(Date);
+        orders.update.mockResolvedValueOnce({ affected: 0 });
+        expect(await svc.markOrderSettled('w1')).toBe(false);
+    });
+
+    it('listForPlace unpaid: sin pagar, sin cuenta de mesa y fuera de cancelados/por pagar/por confirmar', async () => {
+        const { svc, orders } = build();
+        const where: string[] = [];
+        const qb: any = new Proxy({}, { get: (_t, k) => k === 'getManyAndCount' ? async () => [[], 0] : (sql: any) => { if (typeof sql === 'string') where.push(sql); return qb; } });
+        (orders as any).createQueryBuilder = () => qb;
+        await svc.listForPlace('p1', { unpaid: true });
+        expect(where).toContain("o.paid_at IS NULL AND o.tab_id IS NULL AND o.status NOT IN ('CANCELADO', 'PENDIENTE_PAGO', 'POR_CONFIRMAR')");
     });
 
     it('changeStatus rechaza saltos inválidos', async () => {

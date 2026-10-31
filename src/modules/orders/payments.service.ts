@@ -132,7 +132,10 @@ export class PaymentsService {
         } else {
             const order = await this.ordersRepo.findOne({ where: { id: target.orderId, placeId } });
             if (!order) throw new NotFoundException('Pedido no encontrado');
-            if (order.status !== 'PENDIENTE_PAGO') throw new BadRequestException('Este pedido ya está pagado');
+            if (order.tabId) throw new BadRequestException('Cóbralo desde la cuenta de la mesa');
+            if (order.status === 'POR_CONFIRMAR') throw new BadRequestException('Acepta el pedido antes de cobrarlo');
+            if (order.status === 'CANCELADO') throw new BadRequestException('Este pedido está cancelado');
+            if (order.paidAt) throw new BadRequestException('Este pedido ya está pagado');
             amount = order.total;
         }
         if (amount <= 0) throw new BadRequestException('No hay saldo pendiente por pagar');
@@ -315,7 +318,8 @@ export class PaymentsService {
         const payment = (await this.paymentsRepo.findOne({ where: { id: paymentId } }))!;
         let orderIds: string[] = [];
         if (payment.orderId) {
-            if (!(await this.orders.markOrderPaid(payment.orderId))) {
+            // PENDIENTE_PAGO pasa a NUEVO; un pedido aceptado que se cobra al entregar solo queda pagado.
+            if (!(await this.orders.markOrderPaid(payment.orderId)) && !(await this.orders.markOrderSettled(payment.orderId))) {
                 // Pedido ya pagado por otro medio o cancelado: el dinero entró pero hay que devolverlo.
                 await this.ordersRepo.update({ id: payment.orderId }, { refundPending: true });
                 this.logger.warn(`Pago ${payment.id} confirmado para el pedido ${payment.orderId} que ya no esperaba pago: devolución pendiente`);
