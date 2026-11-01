@@ -55,6 +55,14 @@ describe('CashService.chargeOrder', () => {
         expect(announce).not.toHaveBeenCalled();
     });
 
+    it('pedido que espera su pago en línea: se rechaza sin comprobante ni avisos', async () => {
+        const { svc, em, payments, announce } = build();
+        payments.recordManualPayment.mockRejectedValueOnce(new BadRequestException('Este pedido espera su pago en línea'));
+        await expect(svc.chargeOrder('p1', 'u1', 'o1', { docType: 'TICKET', method: 'EFECTIVO' })).rejects.toThrow('Este pedido espera su pago en línea');
+        expect(em.save).not.toHaveBeenCalled();
+        expect(announce).not.toHaveBeenCalled();
+    });
+
     it('caja cerrada mientras tanto: no registra el pago', async () => {
         const { svc, payments } = build({ sessionStatus: 'CERRADA' });
         await expect(svc.chargeOrder('p1', 'u1', 'o1', { docType: 'TICKET', method: 'EFECTIVO' })).rejects.toBeInstanceOf(BadRequestException);

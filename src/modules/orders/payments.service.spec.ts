@@ -419,7 +419,7 @@ describe('PaymentsService', () => {
         it('pedido WhatsApp aceptado sin pagar: no se cobra como "al entregar" (solo WEB)', async () => {
             const { svc, orders, payments } = build();
             Object.assign(orders.rows[0], { channel: 'WHATSAPP', status: 'NUEVO', paidAt: null });
-            await expect(svc.recordManualPayment('p1', { orderId: 'o1' }, 'EFECTIVO', 'u1')).rejects.toThrow(new BadRequestException('Este pedido ya está pagado'));
+            await expect(svc.recordManualPayment('p1', { orderId: 'o1' }, 'EFECTIVO', 'u1')).rejects.toThrow(new BadRequestException('Solo los pedidos web se cobran al entregar'));
             expect(payments.rows).toHaveLength(0);
             expect(orders.rows[0].paidAt).toBeNull();
         });
@@ -457,6 +457,22 @@ describe('PaymentsService', () => {
             await pending[0]();
             expect(emitter.emit).toHaveBeenCalledWith('orders.payment.confirmed', { paymentId: payment.id, placeId: 'p1', orderIds: ['o1'] });
             expect(events.publish).toHaveBeenCalledWith(expect.objectContaining({ type: 'payment.confirmed', orderId: 'o1' }));
+        });
+
+        it('caja (con transacción) no cobra un pedido que espera su pago en línea: nada se escribe', async () => {
+            const { svc, orders, payments, ordersService, emitter } = build();
+            const txPayments = memRepo();
+            const em = { getRepository: jest.fn((e: any) => (e === OrderPayment ? txPayments : e === Order ? memRepo(orders.rows) : null)) };
+            const pending: (() => Promise<void>)[] = [];
+            await expect(svc.recordManualPayment('p1', { orderId: 'o1' }, 'EFECTIVO', 'u1', { em: em as any, afterCommit: (fn) => pending.push(fn) }))
+                .rejects.toThrow(new BadRequestException('Este pedido espera su pago en línea'));
+            expect(orders.rows[0].status).toBe('PENDIENTE_PAGO');
+            expect(payments.rows).toHaveLength(0);
+            expect(txPayments.rows).toHaveLength(0);
+            expect(ordersService.markOrderPaid).not.toHaveBeenCalled();
+            expect(ordersService.markOrderSettled).not.toHaveBeenCalled();
+            expect(pending).toHaveLength(0);
+            expect(emitter.emit).not.toHaveBeenCalled();
         });
 
         it('PENDIENTE_PAGO sigue igual: pasa a NUEVO', async () => {

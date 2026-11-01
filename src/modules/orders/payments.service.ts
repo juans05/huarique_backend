@@ -146,8 +146,10 @@ export class PaymentsService {
             if (order.status === 'CANCELADO') throw new BadRequestException('Este pedido está cancelado');
             amount = order.total;
             if (amount <= 0) throw new BadRequestException('No hay saldo pendiente por pagar');
-            // ponytail: PENDIENTE_PAGO sigue el camino de siempre (confirm), fuera de `tx`; caja cobra "al entregar" solo pedidos ya aceptados.
+            // Caja (con `tx`) cobra solo pedidos "al entregar"; el pago manual de un PENDIENTE_PAGO sigue el camino de siempre (confirm).
+            if (tx && order.status === 'PENDIENTE_PAGO') throw new BadRequestException('Este pedido espera su pago en línea');
             if (order.status !== 'PENDIENTE_PAGO') {
+                if (order.channel !== 'WEB') throw new BadRequestException('Solo los pedidos web se cobran al entregar');
                 // Pedido aceptado que se paga al entregar: se reclama antes de registrar el pago, así dos cobros nunca pasan los dos.
                 if (!(await this.orders.markOrderSettled(order.id, tx?.em))) throw new BadRequestException('Este pedido ya está pagado');
                 const paymentsRepo = tx ? tx.em.getRepository(OrderPayment) : this.paymentsRepo;
