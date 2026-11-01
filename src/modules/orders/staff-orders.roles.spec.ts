@@ -38,6 +38,12 @@ describe('StaffOrdersController roles', () => {
         await expect(guardWith('cocina').canActivate(ctxFor(proto.cashChargeOrder))).rejects.toBeInstanceOf(ForbiddenException);
     });
 
+    it('aceptar un pedido por confirmar exige agente (mozo y cocina no)', async () => {
+        await expect(guardWith('agente').canActivate(ctxFor(proto.confirmOrder))).resolves.toBe(true);
+        await expect(guardWith('mozo').canActivate(ctxFor(proto.confirmOrder))).rejects.toBeInstanceOf(ForbiddenException);
+        await expect(guardWith('cocina').canActivate(ctxFor(proto.confirmOrder))).rejects.toBeInstanceOf(ForbiddenException);
+    });
+
     it('mozo ve mesas, abre la cuenta por QR, cobra y cierra; no ve pedidos de WhatsApp ni configura', async () => {
         for (const h of [proto.tablesBoard, proto.staffTable, proto.manualPayment, proto.closeTab]) {
             await expect(guardWith('mozo').canActivate(ctxFor(h))).resolves.toBe(true);

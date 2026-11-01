@@ -47,6 +47,12 @@ export class StaffOrdersController {
         return this.orders.changeStatus(placeId, orderId, dto.status, req.placeTeamMember.role, dto.reason);
     }
 
+    @Post(':orderId/confirm')
+    @RequiresPlaceRole('agente')
+    confirmOrder(@Param('placeId') placeId: string, @Param('orderId', ParseUUIDPipe) orderId: string, @Req() req: any) {
+        return this.orders.confirmOrder(placeId, orderId, req.placeTeamMember.role);
+    }
+
     @Get('tables-board')
     @RequiresPlaceRole('mozo')
     tablesBoard(@Param('placeId') placeId: string) {

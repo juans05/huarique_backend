@@ -259,6 +259,14 @@ export class OrdersService {
         return !!result.affected;
     }
 
+    /** Aceptar un pedido web por confirmar. Aparte de changeStatus para que un PENDIENTE_PAGO nunca llegue a cocina por esta vía. */
+    async confirmOrder(placeId: string, orderId: string, role: PlaceTeamRole): Promise<Order> {
+        const order = await this.ordersRepo.findOne({ where: { id: orderId, placeId } });
+        if (!order) throw new NotFoundException('Pedido no encontrado');
+        if (order.status !== 'POR_CONFIRMAR') throw new BadRequestException('Este pedido no está por confirmar');
+        return this.changeStatus(placeId, orderId, 'NUEVO', role);
+    }
+
     async changeStatus(placeId: string, orderId: string, to: OrderStatus, role: PlaceTeamRole, reason?: string): Promise<Order> {
         const order = await this.ordersRepo.findOne({ where: { id: orderId, placeId } });
         if (!order) throw new NotFoundException('Pedido no encontrado');

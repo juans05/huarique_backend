@@ -241,6 +241,19 @@ describe('OrdersService', () => {
             expect(events.publish).toHaveBeenCalledWith(expect.objectContaining({ type: 'order.created', placeId: 'p1', orderId: 'w1', status: 'NUEVO', publicTokens: ['wtok'] }));
         });
 
+        it('confirmOrder acepta un pedido por confirmar (agente) y lo pasa a NUEVO', async () => {
+            const { svc, events } = porConfirmar();
+            await expect(svc.confirmOrder('p1', 'w1', 'agente')).resolves.toMatchObject({ status: 'NUEVO' });
+            expect(events.publish).toHaveBeenCalledWith(expect.objectContaining({ type: 'order.created', orderId: 'w1' }));
+        });
+
+        it('confirmOrder no sirve para un pedido que espera pago en línea', async () => {
+            const { svc, orders } = porConfirmar();
+            orders.rows[0].status = 'PENDIENTE_PAGO';
+            await expect(svc.confirmOrder('p1', 'w1', 'agente')).rejects.toBeInstanceOf(BadRequestException);
+            expect(orders.rows[0].status).toBe('PENDIENTE_PAGO');
+        });
+
         it('rechazarlo lo cancela con el motivo por defecto y sin devolución', async () => {
             const { svc, events } = porConfirmar();
             await expect(svc.changeStatus('p1', 'w1', 'CANCELADO', 'agente')).resolves.toMatchObject({ status: 'CANCELADO', refundPending: false, cancelReason: 'Rechazado por el local' });
