@@ -69,98 +69,60 @@ describe('BusinessPlacesController.createPlace', () => {
     });
 });
 
+// Reclamar ya no asigna el local: crea una solicitud con documentos (ver onboarding-claim.spec.ts).
+const documents = {
+    fichaRuc: 'https://res.cloudinary.com/x/raw/upload/ruc.pdf',
+    dni: 'https://res.cloudinary.com/x/image/upload/dni.jpg',
+    manifiesto: 'https://res.cloudinary.com/x/raw/upload/m.pdf',
+};
+const withClaims = () => build({ placesService: { claimPlace: jest.fn(async () => ({ id: 'c1' })) } });
+
 describe('BusinessPlacesController.claimPlace', () => {
-    const unclaimed = (category: any = null) => ({ id: 'p1', claimedByUserId: null, businessType: 'restaurante', category });
-
-    it('el tipo elegido por el dueño reemplaza al existente', async () => {
-        const { ctrl, placesRepo } = build();
-        placesRepo.findOne.mockResolvedValue(unclaimed());
-        await ctrl.claimPlace('p1', user, 'barberia');
-        expect(placesRepo.update).toHaveBeenCalledWith(
-            expect.objectContaining({ id: 'p1' }),
-            { claimedByUserId: 'u1', status: 'pending', businessType: 'barberia' },
-        );
-    });
-
-    it('sin businessType conserva el tipo y la categoría que ya tenía el local', async () => {
-        const { ctrl, placesRepo } = build();
-        placesRepo.findOne.mockResolvedValue({ ...unclaimed({ id: 'c1', vertical: 'gastronomia' }), businessType: 'barberia' });
-        await ctrl.claimPlace('p1', user, undefined as any);
-        expect(placesRepo.update).toHaveBeenCalledWith(expect.objectContaining({ id: 'p1' }), { claimedByUserId: 'u1', status: 'pending' });
-    });
-
-    it.each(['xyz', ''])('rechaza businessType %p con 400 sin tocar el local', async (bt) => {
-        const { ctrl, placesRepo } = build();
-        placesRepo.findOne.mockResolvedValue(unclaimed());
-        await expect(ctrl.claimPlace('p1', user, bt)).rejects.toBeInstanceOf(BadRequestException);
+    it('pasa el tipo elegido a la solicitud sin tocar el local', async () => {
+        const { ctrl, placesRepo } = withClaims();
+        placesRepo.findOne.mockResolvedValue({ id: 'p1', name: 'L', claimedByUserId: null });
+        await ctrl.claimPlace('p1', user, { businessType: 'barberia', documents });
+        expect((ctrl as any).placesService.claimPlace).toHaveBeenCalledWith('u1', 'p1', expect.anything(), 'barberia');
         expect(placesRepo.update).not.toHaveBeenCalled();
     });
 
-    it('si cambia de rubro, quita la categoría que ya no corresponde', async () => {
-        const { ctrl, placesRepo } = build();
-        placesRepo.findOne.mockResolvedValue(unclaimed({ id: 'c1', vertical: 'gastronomia' }));
-        await ctrl.claimPlace('p1', user, 'barberia');
-        expect(placesRepo.update).toHaveBeenCalledWith(
-            expect.objectContaining({ id: 'p1' }),
-            expect.objectContaining({ businessType: 'barberia', categoryId: null }),
-        );
+    it.each(['xyz', ''])('rechaza businessType %p con 400', async (bt) => {
+        const { ctrl, placesRepo } = withClaims();
+        placesRepo.findOne.mockResolvedValue({ id: 'p1', claimedByUserId: null });
+        await expect(ctrl.claimPlace('p1', user, { businessType: bt, documents })).rejects.toBeInstanceOf(BadRequestException);
     });
 
-    it('conserva la categoría del mismo rubro o sin rubro', async () => {
-        for (const vertical of ['gastronomia', null]) {
-            const { ctrl, placesRepo } = build();
-            placesRepo.findOne.mockResolvedValue(unclaimed({ id: 'c1', vertical }));
-            await ctrl.claimPlace('p1', user, 'cafeteria');
-            expect(placesRepo.update.mock.calls[0][1]).not.toHaveProperty('categoryId');
-        }
-    });
-
-    it('local inexistente → 404; ya reclamado (o carrera perdida) → 400', async () => {
-        const { ctrl, placesRepo } = build();
-        await expect(ctrl.claimPlace('p1', user, 'spa')).rejects.toBeInstanceOf(NotFoundException);
-        placesRepo.findOne.mockResolvedValue({ ...unclaimed(), claimedByUserId: 'otro' });
-        await expect(ctrl.claimPlace('p1', user, 'spa')).rejects.toBeInstanceOf(BadRequestException);
-        placesRepo.findOne.mockResolvedValue(unclaimed());
-        placesRepo.update.mockResolvedValue({ affected: 0 });
-        await expect(ctrl.claimPlace('p1', user, 'spa')).rejects.toBeInstanceOf(BadRequestException);
+    it('local inexistente → 404; ya reclamado → 400', async () => {
+        const { ctrl, placesRepo } = withClaims();
+        await expect(ctrl.claimPlace('p1', user, { documents })).rejects.toBeInstanceOf(NotFoundException);
+        placesRepo.findOne.mockResolvedValue({ id: 'p1', claimedByUserId: 'otro' });
+        await expect(ctrl.claimPlace('p1', user, { documents })).rejects.toBeInstanceOf(BadRequestException);
     });
 });
 
 describe('BusinessPlacesController.importPlace', () => {
-    it('rechaza businessType inválido antes de consultar a Google', async () => {
-        const { ctrl, googleMapsService } = build();
-        await expect(ctrl.importPlace('g1', 'xyz', user)).rejects.toBeInstanceOf(BadRequestException);
+    it('rechaza businessType inválido o sin documentos antes de consultar a Google', async () => {
+        const { ctrl, googleMapsService } = withClaims();
+        await expect(ctrl.importPlace({ googlePlaceId: 'g1', businessType: 'xyz', documents }, user)).rejects.toBeInstanceOf(BadRequestException);
+        await expect(ctrl.importPlace({ googlePlaceId: 'g1', businessType: 'spa' }, user)).rejects.toBeInstanceOf(BadRequestException);
         expect(googleMapsService.getPlaceDetails).not.toHaveBeenCalled();
     });
 
-    it('un local nuevo se guarda con el businessType', async () => {
-        const { ctrl, placesRepo } = build();
-        await ctrl.importPlace('g1', 'peluqueria', user);
-        expect(placesRepo.create).toHaveBeenCalledWith(expect.objectContaining({ businessType: 'peluqueria', claimedByUserId: 'u1' }));
+    it('un local nuevo se guarda con el businessType, sin dueño, y queda una solicitud', async () => {
+        const { ctrl, placesRepo } = withClaims();
+        placesRepo.findOne.mockImplementation(async ({ where }: any) => (where.id ? { id: where.id, name: 'Barber Kings', claimedByUserId: null } : null));
+        await ctrl.importPlace({ googlePlaceId: 'g1', businessType: 'peluqueria', documents }, user);
+        const created = placesRepo.create.mock.calls[0][0];
+        expect(created).toEqual(expect.objectContaining({ businessType: 'peluqueria' }));
+        expect(created).not.toHaveProperty('claimedByUserId');
+        expect((ctrl as any).placesService.claimPlace).toHaveBeenCalledWith('u1', 'new-place', expect.anything(), 'peluqueria');
     });
 
     it("sin businessType un local nuevo se guarda como 'restaurante'", async () => {
-        const { ctrl, placesRepo } = build();
-        await ctrl.importPlace('g1', undefined as any, user);
+        const { ctrl, placesRepo } = withClaims();
+        placesRepo.findOne.mockImplementation(async ({ where }: any) => (where.id ? { id: where.id, claimedByUserId: null } : null));
+        await ctrl.importPlace({ googlePlaceId: 'g1', documents }, user);
         expect(placesRepo.create).toHaveBeenCalledWith(expect.objectContaining({ businessType: 'restaurante' }));
-    });
-
-    it('si ya existe en Wuarikes, lo reclama con el tipo elegido', async () => {
-        const { ctrl, placesRepo } = build();
-        const existing = { id: 'p9', claimedByUserId: null, category: null };
-        placesRepo.findOne.mockResolvedValue(existing);
-        await ctrl.importPlace('g1', 'spa', user);
-        expect(placesRepo.update).toHaveBeenCalledWith(
-            expect.objectContaining({ id: 'p9' }),
-            expect.objectContaining({ businessType: 'spa' }),
-        );
-    });
-
-    it('si ya existe y no llega businessType, conserva el tipo que tenía', async () => {
-        const { ctrl, placesRepo } = build();
-        placesRepo.findOne.mockResolvedValue({ id: 'p9', claimedByUserId: null, businessType: 'barberia', category: null });
-        await ctrl.importPlace('g1', undefined as any, user);
-        expect(placesRepo.update.mock.calls[0][1]).not.toHaveProperty('businessType');
     });
 });
 
