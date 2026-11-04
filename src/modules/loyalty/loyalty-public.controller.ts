@@ -8,6 +8,26 @@ import { Repository } from 'typeorm';
 import { Place } from '../places/entities/place.entity';
 import { logoDataUri, stampsPng, walletHex } from './wallet-images';
 
+/**
+ * Lo que ve el cliente en su tarjeta pública: saldo y nivel, sin datos de consentimiento, Wallet ni fechas internas,
+ * y solo el primer nombre (la ruta se abre con un teléfono, que no es un secreto).
+ */
+function publicCard(card: any) {
+  if (!card) return card;
+  const firstName = typeof card.customerName === 'string' ? card.customerName.trim().split(/\s+/)[0] : null;
+  return {
+    id: card.id,
+    placeId: card.placeId,
+    customerName: firstName || null,
+    customerPhone: card.customerPhone, // quien consulta ya lo tiene: viene en la URL
+    stamps: card.stamps,
+    points: card.points,
+    level: card.level,
+    totalVisits: card.totalVisits,
+    totalRedeemed: card.totalRedeemed,
+  };
+}
+
 @ApiTags('loyalty-public')
 @Controller('public/loyalty')
 export class LoyaltyPublicController {
@@ -55,7 +75,7 @@ export class LoyaltyPublicController {
       this.pushWalletUpdate(placeId, result.card, result.program);
     }
 
-    return result;
+    return { ...result, card: publicCard(result.card) };
   }
 
   @Post('wallet/google/callback')
@@ -85,7 +105,8 @@ export class LoyaltyPublicController {
   @Get(':placeId/card/:phone')
   @ApiOperation({ summary: 'Get customer loyalty card (public — customer view)' })
   async getCard(@Param('placeId') placeId: string, @Param('phone') phone: string) {
-    return this.loyaltyService.getCardWithProgram(placeId, phone);
+    const data = await this.loyaltyService.getCardWithProgram(placeId, phone);
+    return { ...data, card: publicCard(data.card) };
   }
 
   @Get('card/:cardId/history')

@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Body, Param, Query, UseGuards, HttpCode, ForbiddenException, NotFoundException } from '@nestjs/common';
+import { Controller, Get, Post, Body, Param, Query, UseGuards, HttpCode, ForbiddenException, NotFoundException, BadRequestException } from '@nestjs/common';
 import { ApiTags, ApiBearerAuth, ApiOperation, ApiQuery } from '@nestjs/swagger';
 import { CreditsService } from './credits.service';
 import { QueryTransactionDto } from './dto/query-transaction.dto';
@@ -40,9 +40,9 @@ export class CreditsController {
     @Get('transactions')
     @ApiOperation({ summary: 'List credit transactions' })
     async getTransactions(@Query() query: QueryTransactionDto, @CurrentUser() user: any) {
-        if (query.placeId) {
-            await this.assertOwner(query.placeId, user.id);
-        }
+        // Sin placeId la consulta no filtraba por local y devolvía las transacciones de todos.
+        if (!query.placeId) throw new BadRequestException('placeId es obligatorio');
+        await this.assertOwner(query.placeId, user.id);
         return this.creditsService.getTransactions(query);
     }
 

@@ -166,11 +166,13 @@ export class LoyaltyService {
     return { card, program, stampsEarned, pointsEarned, rewardUnlocked, isNew };
   }
 
-  async redeem(cardId: string, rewardId: string): Promise<{ card: LoyaltyCard; reward: Reward }> {
-    const card = await this.cardRepo.findOne({ where: { id: cardId } });
+  async redeem(placeId: string, cardId: string, rewardId: string): Promise<{ card: LoyaltyCard; reward: Reward }> {
+    // Tarjeta y premio deben ser del local autorizado: si no, se canjeaba el saldo de clientes de otro local.
+    if (!placeId || !cardId || !rewardId) throw new NotFoundException('Tarjeta no encontrada');
+    const card = await this.cardRepo.findOne({ where: { id: cardId, placeId } });
     if (!card) throw new NotFoundException('Tarjeta no encontrada');
 
-    const reward = await this.rewardRepo.findOne({ where: { id: rewardId, isActive: true } });
+    const reward = await this.rewardRepo.findOne({ where: { id: rewardId, placeId, isActive: true } });
     if (!reward) throw new NotFoundException('Premio no encontrado');
 
     const program = await this.programRepo.findOne({ where: { placeId: card.placeId } });
@@ -238,6 +240,8 @@ export class LoyaltyService {
         .where('card.placeId = :placeId', { placeId: program.placeId })
         .andWhere('card.lastVisitAt < :cutoff', { cutoff })
         .andWhere('(card.lastWinbackSentAt IS NULL OR card.lastWinbackSentAt < :cutoff)', { cutoff })
+        // Solo a quien aceptó recibir mensajes del local.
+        .andWhere('card.marketingConsent = true')
         .getMany();
 
       for (const card of eligibleCards) {

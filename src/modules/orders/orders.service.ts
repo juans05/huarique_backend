@@ -39,6 +39,11 @@ const PAGE_SIZE = 25;
 // PIN incorrectos en 10 min: 5 bloquean a esa IP en esa mesa; 15 (de cualquier origen) bloquean la mesa.
 const PIN_MAX_FAILURES_PER_CLIENT = 5;
 const PIN_MAX_FAILURES_PER_TABLE = 15;
+// Topes entre mesas: sin ellos, una IP probaba 5 PINs en CADA mesa (las mesas y sus QR son públicos).
+const PIN_MAX_FAILURES_PER_CLIENT_ALL_TABLES = 10;
+// ponytail: un atacante puede agotar este tope y frenar los pedidos por QR del local 10 min; el PIN de 4 dígitos
+// sigue siendo el techo real (pasar a 6 dígitos si se ve abuso).
+const PIN_MAX_FAILURES_PER_PLACE = 30;
 // Si Redis no responde: 'allow' deja pedir (el PIN se sigue exigiendo y el rate limit por IP sigue activo);
 // 'deny' bloquea los pedidos por QR hasta que Redis vuelva. Decisión de negocio pendiente de confirmar.
 const PIN_ON_REDIS_ERROR: 'allow' | 'deny' = 'allow';
@@ -475,9 +480,13 @@ export class OrdersService {
         const perTable = `${table.id}`;
         // Por mesa+IP: quien prueba PINs se bloquea a sí mismo, no a los comensales. Por mesa (tope más alto):
         // frena intentos repartidos entre muchas IPs. Los contadores viven en Redis (PinAttemptsService).
+        const perClientAll = `ip:${table.placeId}:${clientKey}`;
+        const perPlace = `place:${table.placeId}`;
         const limits = [
             { key: perClient, max: PIN_MAX_FAILURES_PER_CLIENT },
             { key: perTable, max: PIN_MAX_FAILURES_PER_TABLE },
+            { key: perClientAll, max: PIN_MAX_FAILURES_PER_CLIENT_ALL_TABLES },
+            { key: perPlace, max: PIN_MAX_FAILURES_PER_PLACE },
         ];
         // El intento se cuenta antes de comparar: muchos intentos en paralelo no se cuelan.
         const allowed = await this.pinAttempts.consume(limits, PIN_ON_REDIS_ERROR);
@@ -488,7 +497,7 @@ export class OrdersService {
             throw new ForbiddenException('PIN incorrecto. Pídelo al personal del local.');
         }
         // PIN correcto: ese intento no cuenta como fallo.
-        await this.pinAttempts.refund([perClient, perTable]);
+        await this.pinAttempts.refund([perClient, perTable, perClientAll, perPlace]);
     }
 
     async rotateTablePin(tableId: string): Promise<void> {

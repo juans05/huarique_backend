@@ -10,11 +10,11 @@ export function plazbotWebhookUrl(): string {
 
 /**
  * true si la llamada trae el secreto correcto.
- * ponytail: sin PLAZBOT_WEBHOOK_SECRET configurado se acepta todo (para no cortar el bot al desplegar);
- * en cuanto se define la variable, el secreto es obligatorio.
+ * Sin PLAZBOT_WEBHOOK_SECRET configurado se rechaza todo: si no, cualquiera podría inyectar
+ * mensajes falsos de clientes, dar de baja su marketing y gastar llamadas a la IA.
  */
 export function isValidPlazbotSecret(provided: string | undefined, secret = process.env.PLAZBOT_WEBHOOK_SECRET): boolean {
-    if (!secret) return true;
+    if (!secret) return false;
     if (!provided || provided.length !== secret.length) return false;
     return crypto.timingSafeEqual(Buffer.from(provided), Buffer.from(secret));
 }

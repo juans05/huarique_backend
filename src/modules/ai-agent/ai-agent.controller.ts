@@ -10,7 +10,7 @@ import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { PlaceTeamService } from '../team/place-team.service';
 import { AiAgentService } from './ai-agent.service';
-import axios from 'axios';
+import { fetchPublicText } from '../../common/utils/safe-url';
 import { JSDOM } from 'jsdom';
 import { Readability } from '@mozilla/readability';
 
@@ -120,22 +120,15 @@ export class AiAgentController {
         await this.placeTeamService.assertAccess(user.id, placeId, 'ia_total', 'ia');
         if (!body.url) throw new BadRequestException('URL requerida');
 
-        let url: URL;
-        try {
-            url = new URL(body.url);
-        } catch {
-            throw new BadRequestException('URL inválida');
-        }
+        this.logger.log(`[url] Procesando ${body.url} para placeId=${placeId}`);
 
-        this.logger.log(`[url] Procesando ${url.href} para placeId=${placeId}`);
-
-        const response = await axios.get(url.href, {
+        // Solo destinos públicos (valida cada redirección): si no, el servidor podía leer servicios internos.
+        const { url, data } = await fetchPublicText(body.url, {
             headers: { 'User-Agent': 'Mozilla/5.0 (compatible; WarikeBot/1.0)' },
-            timeout: 15000,
-            responseType: 'text',
-        }).catch(() => {
-            throw new BadRequestException('No se pudo acceder a la URL');
+        }).catch((e) => {
+            throw e instanceof BadRequestException ? e : new BadRequestException('No se pudo acceder a la URL');
         });
+        const response = { data };
 
         const dom = new JSDOM(response.data, { url: url.href });
         const reader = new Readability(dom.window.document);

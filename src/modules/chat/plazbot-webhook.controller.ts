@@ -22,7 +22,6 @@ export class PlazBotWebhookController {
       this.logger.warn('[webhook] Secreto inválido o ausente: llamada rechazada');
       throw new UnauthorizedException();
     }
-    if (!process.env.PLAZBOT_WEBHOOK_SECRET) this.logger.warn('[webhook] PLAZBOT_WEBHOOK_SECRET no configurado: el webhook acepta cualquier llamada');
     this.logger.log(`[webhook] Payload recibido: ${JSON.stringify(payload)}`);
 
     // Formato WhatsApp Business API (enviado por PlazBot)

@@ -3,6 +3,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { In, Repository } from 'typeorm';
 import { plainToInstance } from 'class-transformer';
 import { User } from './entities/user.entity';
+import { RefreshToken } from '../auth/entities/refresh-token.entity';
 import { UserFollow } from './entities/user-follow.entity';
 import { Place } from '../places/entities/place.entity';
 import { PlaceResponseDto } from '../places/dto/place-response.dto';
@@ -83,7 +84,16 @@ export class UsersService {
             allowBusinessMessages: false,
             isDiscoverable: false,
             deletedAt: new Date(),
+            // Sin esto el login social seguía encontrando la cuenta borrada por su socialId.
+            socialProvider: null,
+            socialId: null,
         });
+        await this.revokeSessions(userId);
+    }
+
+    /** Cierra todas las sesiones (refresh tokens) de la cuenta. */
+    async revokeSessions(userId: string): Promise<void> {
+        await this.usersRepository.manager.delete(RefreshToken, { userId });
     }
 
     async searchUsers(query: string, currentUserId: string): Promise<{ id: string; fullName: string; avatarUrl: string | null }[]> {
@@ -217,6 +227,8 @@ export class UsersService {
             verificationCode: null,
             verificationCodeExpiresAt: null,
         });
+        // Cambiar la clave cierra las sesiones abiertas: si alguien tenía un token robado, lo pierde.
+        await this.revokeSessions(userId);
     }
 
     async setVerificationCode(userId: string, code: string, ttlMs = 10 * 60 * 1000): Promise<void> {

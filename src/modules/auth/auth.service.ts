@@ -3,7 +3,7 @@ import { JwtService } from '@nestjs/jwt';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, LessThan } from 'typeorm';
 import { ConfigService } from '@nestjs/config';
-import { createHash, randomBytes } from 'crypto';
+import { createHash, randomBytes, randomInt, timingSafeEqual } from 'crypto';
 import { OAuth2Client } from 'google-auth-library';
 import axios from 'axios';
 import { UsersService } from '../users/users.service';
@@ -15,6 +15,10 @@ import { ForgotPasswordDto } from './dto/forgot-password.dto';
 import { ResetPasswordDto } from './dto/reset-password.dto';
 import * as bcrypt from 'bcryptjs';
 
+const MAX_CODE_FAILURES = 5;
+/** Código de 6 dígitos con un generador criptográfico (Math.random es predecible). */
+export const newCode = () => randomInt(100000, 1000000).toString();
+
 function getDeviceLabel(userAgent?: string): string {
     if (!userAgent) return 'Desconocido';
     return /Mobile|Android|iPhone/i.test(userAgent) ? 'Mobile' : 'Desktop';
@@ -23,6 +27,7 @@ function getDeviceLabel(userAgent?: string): string {
 @Injectable()
 export class AuthService {
     private readonly logger = new Logger(AuthService.name);
+    private readonly codeFailures = new Map<string, number>();
 
     constructor(
         private usersService: UsersService,
@@ -39,7 +44,7 @@ export class AuthService {
             throw new ConflictException('El email ya está registrado');
         }
 
-        const verificationCode = Math.floor(100000 + Math.random() * 900000).toString();
+        const verificationCode = newCode();
 
         await this.usersService.create(
             registerDto.email,
@@ -66,9 +71,7 @@ export class AuthService {
             return { message: 'Cuenta ya verificada' };
         }
 
-        if (user.verificationCode !== code || user.verificationCodeExpiresAt < new Date()) {
-            throw new UnauthorizedException('Código inválido o expirado');
-        }
+        await this.checkCode(user, code);
 
         await this.usersService.markVerified(user.id);
 
@@ -100,8 +103,9 @@ export class AuthService {
             return { message: 'Cuenta ya verificada' };
         }
 
-        const verificationCode = Math.floor(100000 + Math.random() * 900000).toString();
+        const verificationCode = newCode();
         await this.usersService.setVerificationCode(user.id, verificationCode);
+        this.codeFailures.delete(user.id);
 
         await this.mailService.sendVerificationCode(email, verificationCode);
 
@@ -137,7 +141,8 @@ export class AuthService {
             } catch {
                 throw new UnauthorizedException('Token de Google inválido');
             }
-            if (!payload?.email) {
+            // Sin email verificado por Google, cualquiera podría entrar a la cuenta que ya usa ese correo.
+            if (!payload?.email || payload.email_verified !== true) {
                 throw new UnauthorizedException('Token de Google inválido');
             }
             verifiedEmail = payload.email;
@@ -222,8 +227,9 @@ export class AuthService {
             return { message: 'Si el correo existe, se ha enviado un código   ' };
         }
 
-        const resetCode = Math.floor(100000 + Math.random() * 900000).toString();
+        const resetCode = newCode();
         await this.usersService.setVerificationCode(user.id, resetCode);
+        this.codeFailures.delete(user.id);
 
         await this.mailService.sendVerificationCode(user.email, resetCode);
 
@@ -236,9 +242,7 @@ export class AuthService {
             throw new UnauthorizedException('Usuario no encontrado');
         }
 
-        if (user.verificationCode !== dto.code || user.verificationCodeExpiresAt < new Date()) {
-            throw new UnauthorizedException('Código inválido o expirado');
-        }
+        await this.checkCode(user, dto.code);
 
         const passwordHash = await bcrypt.hash(dto.password, 10);
         await this.usersService.updatePassword(user.id, passwordHash);
@@ -385,7 +389,30 @@ export class AuthService {
         };
     }
 
+    /**
+     * Compara el código de 6 dígitos con tope de intentos: tras MAX_CODE_FAILURES fallos el código se anula
+     * y hay que pedir otro. Sin esto, se podía adivinar a fuerza bruta solo con el límite global por IP.
+     * ponytail: contador en memoria por instancia; pasarlo a Redis si se escala a varias réplicas.
+     */
+    private async checkCode(user: { id: string; verificationCode: string; verificationCodeExpiresAt: Date }, code: string) {
+        const valid = !!user.verificationCode && user.verificationCodeExpiresAt >= new Date()
+            && typeof code === 'string' && code.length === user.verificationCode.length
+            && timingSafeEqual(Buffer.from(code), Buffer.from(user.verificationCode));
+        if (valid) { this.codeFailures.delete(user.id); return; }
+        const fails = (this.codeFailures.get(user.id) ?? 0) + 1;
+        if (fails >= MAX_CODE_FAILURES) {
+            this.codeFailures.delete(user.id);
+            await this.usersService.setVerificationCode(user.id, null, 0);
+        } else {
+            this.codeFailures.set(user.id, fails);
+        }
+        throw new UnauthorizedException('Código inválido o expirado');
+    }
+
     private async generateTokens(userId: string, email: string, role: string, deviceLabel?: string) {
+        // Único punto donde se emiten sesiones: una cuenta baneada o borrada no obtiene tokens nuevos.
+        const account = await this.usersService.findById(userId).catch(() => null);
+        if (!account || account.isBanned || account.deletedAt) throw new UnauthorizedException('Cuenta no disponible');
         const [accessToken, refreshToken] = await Promise.all([
             this.jwtService.signAsync(
                 { sub: userId, email, role },

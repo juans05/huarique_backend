@@ -30,13 +30,23 @@ const SCRAPE_TIMEOUT_MS = 60_000;
 @Injectable()
 export class TikTokSearchService {
     private readonly logger = new Logger(TikTokSearchService.name);
+    // Una sola búsqueda en curso por local: varias visitas a la vez no lanzan varios scrapers de 60 s.
+    private readonly inFlight = new Map<string, Promise<{ videos: TikTokVideo[]; available: boolean }>>();
 
     constructor(
         @InjectRepository(Place)
         private placesRepository: Repository<Place>,
     ) { }
 
-    async getOrSearch(placeId: string): Promise<{ videos: TikTokVideo[]; available: boolean }> {
+    getOrSearch(placeId: string): Promise<{ videos: TikTokVideo[]; available: boolean }> {
+        const running = this.inFlight.get(placeId);
+        if (running) return running;
+        const job = this.search(placeId).finally(() => this.inFlight.delete(placeId));
+        this.inFlight.set(placeId, job);
+        return job;
+    }
+
+    private async search(placeId: string): Promise<{ videos: TikTokVideo[]; available: boolean }> {
         const place = await this.placesRepository.findOne({
             where: { id: placeId },
             relations: ['district'],
@@ -69,9 +79,13 @@ export class TikTokSearchService {
 
         // Se cachea aunque venga vacío ([]) para no re-scrapear en cada visita —
         // el próximo intento manual de re-búsqueda debería borrar la key primero.
-        await this.placesRepository.update(placeId, {
-            metadata: { ...(place.metadata ?? {}), tiktokVideos: videos },
-        });
+        // Solo toca la clave tiktokVideos: no pisa lo que el dueño cambió en metadata durante el scrape.
+        await this.placesRepository.createQueryBuilder()
+            .update()
+            .set({ metadata: () => `jsonb_set(COALESCE(metadata, '{}'::jsonb), '{tiktokVideos}', CAST(:videos AS jsonb))` })
+            .where('id = :placeId', { placeId })
+            .setParameter('videos', JSON.stringify(videos))
+            .execute();
 
         return { videos, available: true };
     }

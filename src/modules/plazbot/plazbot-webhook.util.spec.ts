@@ -1,8 +1,9 @@
 import { isValidPlazbotSecret } from './plazbot-webhook.util';
 
 describe('isValidPlazbotSecret', () => {
-    it('sin secreto configurado acepta todo', () => {
-        expect(isValidPlazbotSecret(undefined, '')).toBe(true);
+    it('sin secreto configurado rechaza todo', () => {
+        expect(isValidPlazbotSecret(undefined, '')).toBe(false);
+        expect(isValidPlazbotSecret('cualquiera', '')).toBe(false);
     });
 
     it('con secreto configurado exige el mismo valor', () => {

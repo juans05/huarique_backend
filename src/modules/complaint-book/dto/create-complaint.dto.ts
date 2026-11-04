@@ -1,4 +1,4 @@
-import { IsString, IsEmail, IsOptional, IsIn, IsNumber, Min } from 'class-validator';
+import { IsString, IsEmail, IsOptional, IsIn, IsNumber, Min, MaxLength } from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 
 export class CreateComplaintDto {
@@ -8,6 +8,7 @@ export class CreateComplaintDto {
 
     @ApiProperty({ example: 'Juana Pérez Ríos' })
     @IsString()
+    @MaxLength(120)
     consumerFullName: string;
 
     @ApiProperty({ enum: ['DNI', 'CE', 'Pasaporte', 'RUC'] })

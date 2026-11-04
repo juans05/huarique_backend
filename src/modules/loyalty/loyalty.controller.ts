@@ -140,6 +140,6 @@ export class LoyaltyController {
   @ApiOperation({ summary: 'Redeem a reward for a customer (from cashier/restaurant side)' })
   async redeem(@Param('placeId') placeId: string, @Body() body: { cardId: string; rewardId: string }, @CurrentUser() user: any) {
     await this.assertOwner(placeId, user.id);
-    return this.loyaltyService.redeem(body.cardId, body.rewardId);
+    return this.loyaltyService.redeem(placeId, body.cardId, body.rewardId);
   }
 }

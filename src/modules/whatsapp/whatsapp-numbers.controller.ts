@@ -1,4 +1,4 @@
-import { Controller, Post, Get, Patch, Delete, Param, Body, UseGuards, NotFoundException, ForbiddenException, BadRequestException } from '@nestjs/common';
+import { Controller, Post, Get, Patch, Delete, Param, Body, UseGuards, NotFoundException, ForbiddenException, BadRequestException, ConflictException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Place } from '../places/entities/place.entity';
@@ -46,11 +46,19 @@ export class WhatsAppNumbersController {
     @Post()
     async createWhatsAppNumber(@CurrentUser() user: any, @Body() data: any) {
         await this.assertOwner(data.placeId, user.id);
+        const phoneNumberId = typeof data.phoneNumberId === 'string' ? data.phoneNumberId.trim() : '';
+        const token = typeof data.whatsappApiToken === 'string' ? data.whatsappApiToken.trim() : '';
+        if (!/^\d{5,30}$/.test(phoneNumberId)) throw new BadRequestException('phoneNumberId inválido');
+        // Sin token propio, los envíos caerían al token de la plataforma: se exige el del local.
+        if (!token) throw new BadRequestException('Falta el token de acceso de WhatsApp del local');
+        // Un número, un local (igual que la conexión con Facebook): evita suplantar o desviar el número de otro.
+        const taken = await this.whatsappNumberRepo.findOne({ where: { phoneNumberId } });
+        if (taken) throw new ConflictException('Este número de WhatsApp ya está registrado.');
         const number = this.whatsappNumberRepo.create({
             placeId: data.placeId,
             phoneNumber: normalizePhone(data.phoneNumber),
-            phoneNumberId: data.phoneNumberId,
-            whatsappApiToken: data.whatsappApiToken,
+            phoneNumberId,
+            whatsappApiToken: token,
             provider: 'meta',
             isActive: true,
             verificationStatus: 'UNVERIFIED',

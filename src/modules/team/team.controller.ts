@@ -25,6 +25,7 @@ import { PROFILE_BASE_ROLES, TEAM_MODULES } from './team-modules';
 import { Place } from '../places/entities/place.entity';
 import { UsersService } from '../users/users.service';
 import { MailService } from '../../common/services/mail.service';
+import { newCode } from '../auth/auth.service';
 
 // Sin esta validación cualquier texto se guardaba como rol y el guard (rango indefinido) lo dejaba pasar.
 function assertValidRole(role: string): asserts role is PlaceTeamRole {
@@ -204,7 +205,7 @@ export class TeamController {
                 // con solo saber su email. En su lugar, disparamos el mismo flujo de
                 // "olvidé mi contraseña": solo quien tiene acceso a esa casilla puede
                 // convertir el código en una contraseña nueva.
-                const resetCode = Math.floor(100000 + Math.random() * 900000).toString();
+                const resetCode = newCode();
                 await this.usersService.setVerificationCode(user.id, resetCode);
                 await this.mailService.sendTeamMemberPasswordReset(dto.email, dto.fullName, resetCode, place.name);
             } else {

@@ -369,7 +369,9 @@ export class AdminService {
     }
 
     async banUser(userId: string) {
-        return this.usersRepository.update(userId, { isBanned: true });
+        const res = await this.usersRepository.update(userId, { isBanned: true });
+        await this.usersService.revokeSessions(userId);
+        return res;
     }
 
     async activateUser(userId: string) {

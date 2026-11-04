@@ -62,6 +62,16 @@ describe('LoyaltyService.getMyCards', () => {
     expect(result[0].longitude).toBe(-77.042);
   });
 
+  describe('redeem: tarjeta y premio del mismo local', () => {
+    it('no canjea una tarjeta de otro local', async () => {
+      // La búsqueda filtra por placeId: una tarjeta de otro local no aparece.
+      cardRepo.findOne.mockImplementation(async ({ where }: any) => (where.placeId === 'B' ? { id: 'c1', placeId: 'B', stamps: 5 } : null));
+      await expect(service.redeem('A', 'c1', 'r1')).rejects.toThrow('Tarjeta no encontrada');
+      expect(cardRepo.findOne).toHaveBeenCalledWith({ where: { id: 'c1', placeId: 'A' } });
+      expect(cardRepo.save).not.toHaveBeenCalled();
+    });
+  });
+
   describe('scan: consentimiento de promociones', () => {
     const program = { placeId: 'p1', type: 'stamps', stampsToReward: 10, minHoursBetweenVisits: 0, pointsPerVisit: 0, isActive: true };
     const prep = () => {

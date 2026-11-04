@@ -49,14 +49,40 @@ describe('PlaceTeamService', () => {
     });
 
     describe('getMembership', () => {
-        it('returns the existing row when one exists', async () => {
-            const existing = { id: 'm1', userId: 'u1', placeId: 'p1', role: 'agente' };
+        it('returns an existing admin row without looking up the place', async () => {
+            const existing = { id: 'm1', userId: 'u1', placeId: 'p1', role: 'admin' };
             memberRepo.findOne.mockResolvedValue(existing);
 
             const result = await service.getMembership('u1', 'p1');
 
             expect(result).toBe(existing);
             expect(placeRepo.findOne).not.toHaveBeenCalled();
+        });
+
+        it('keeps the role of a non-owner member', async () => {
+            const existing = { id: 'm1', userId: 'u1', placeId: 'p1', role: 'agente' };
+            memberRepo.findOne.mockResolvedValue(existing);
+            placeRepo.findOne.mockResolvedValue({ id: 'p1', claimedByUserId: 'owner' });
+
+            const result = await service.getMembership('u1', 'p1');
+
+            expect(result).toBe(existing);
+            expect(memberRepo.save).not.toHaveBeenCalled();
+        });
+
+        it('restores admin for the owner even if another admin demoted them', async () => {
+            memberRepo.findOne.mockResolvedValue({ id: 'm1', userId: 'u1', placeId: 'p1', role: 'cocina', profileId: 'perfil' });
+            placeRepo.findOne.mockResolvedValue({ id: 'p1', claimedByUserId: 'u1' });
+
+            const result = await service.getMembership('u1', 'p1');
+
+            expect(result?.role).toBe('admin');
+            expect(memberRepo.save).toHaveBeenCalledWith(expect.objectContaining({ role: 'admin', profileId: null }));
+        });
+
+        it('returns null without querying when placeId is missing', async () => {
+            await expect(service.getMembership('u1', undefined as any)).resolves.toBeNull();
+            expect(memberRepo.findOne).not.toHaveBeenCalled();
         });
 
         it('lazily creates an admin row when the user is the place owner and has no row yet', async () => {

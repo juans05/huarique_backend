@@ -25,11 +25,19 @@ export class PlaceTeamService {
      * Place (hay varios: onboarding, aprobación de admin, etc).
      */
     async getMembership(userId: string, placeId: string): Promise<PlaceTeamMember | null> {
+        // TypeORM ignora los valores undefined en where: sin esto, un placeId ausente coincidía con cualquier sede.
+        if (!userId || !placeId) return null;
         const existing = await this.memberRepo.findOne({ where: { userId, placeId } });
-        if (existing) return existing;
+        if (existing?.role === 'admin') return existing;
 
         const place = await this.placeRepo.findOne({ where: { id: placeId } });
-        if (place?.claimedByUserId !== userId) return null;
+        if (place?.claimedByUserId !== userId) return existing ?? null;
+        // El dueño siempre es admin: otro admin del equipo no puede degradarlo ni dejarlo fuera de su negocio.
+        if (existing) {
+            existing.role = 'admin';
+            existing.profileId = null;
+            return this.memberRepo.save(existing);
+        }
 
         const created = this.memberRepo.create({ userId, placeId, role: 'admin' });
         return this.memberRepo.save(created);

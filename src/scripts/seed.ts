@@ -404,7 +404,10 @@ const seed = async () => {
         console.log('👤 Creating Users...');
         const existingAdmin = await userRepo.findOne({ where: { email: 'admin@wuarike.com' } });
         if (!existingAdmin) {
-            const password = await bcrypt.hash('123456', 10);
+            // Nunca una clave fija en el repo: la da SEED_ADMIN_PASSWORD o se genera una aleatoria y se muestra una vez.
+            const plain = process.env.SEED_ADMIN_PASSWORD || require('crypto').randomBytes(12).toString('base64url');
+            if (!process.env.SEED_ADMIN_PASSWORD) console.log(`🔑 Clave del admin generada (guárdala): ${plain}`);
+            const password = await bcrypt.hash(plain, 10);
             const admin = userRepo.create({
                 email: 'admin@wuarike.com',
                 passwordHash: password,

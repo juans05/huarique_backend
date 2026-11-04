@@ -340,7 +340,8 @@ export class ContactsService {
         }));
 
         if (format === 'csv') {
-            const csv = Papa.unparse(data);
+            // escapeFormulae: un nombre como =HYPERLINK(...) no se ejecuta al abrir el CSV en Excel/Sheets.
+            const csv = Papa.unparse(data, { escapeFormulae: true });
             return {
                 buffer: Buffer.from(csv, 'utf-8'),
                 contentType: 'text/csv',

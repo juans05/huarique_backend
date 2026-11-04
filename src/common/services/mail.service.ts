@@ -3,6 +3,9 @@ import { ConfigService } from '@nestjs/config';
 import { Resend } from 'resend';
 import type { WeeklyStats } from '../../modules/places/services/weekly-stats';
 
+/** Escapa texto que escribe otra persona (cliente, dueño) antes de meterlo en el HTML del correo. */
+const esc = (s: unknown) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]!));
+
 @Injectable()
 export class MailService {
     private resend: Resend;
@@ -128,9 +131,9 @@ export class MailService {
                 subject: `Te sumaron al equipo de ${placeName} en Wuarike`,
                 html: `
                     <div style="font-family: 'Inter', sans-serif; max-width: 600px; margin: 0 auto; background-color: #ffffff; padding: 40px; border-radius: 20px; border: 1px solid #eee;">
-                        <h1 style="color: #111827; font-size: 22px; font-weight: 900; margin-bottom: 10px;">¡Hola ${fullName}!</h1>
+                        <h1 style="color: #111827; font-size: 22px; font-weight: 900; margin-bottom: 10px;">¡Hola ${esc(fullName)}!</h1>
                         <p style="color: #4b5563; font-size: 15px; margin-bottom: 20px;">
-                            Te agregaron al equipo de <strong>${placeName}</strong> en Wuarike. Ya tenías una cuenta, así que por seguridad
+                            Te agregaron al equipo de <strong>${esc(placeName)}</strong> en Wuarike. Ya tenías una cuenta, así que por seguridad
                             necesitás confirmar una contraseña nueva antes de entrar:
                         </p>
                         <div style="text-align: center; margin-bottom: 20px;">
@@ -228,7 +231,7 @@ export class MailService {
                 subject: `Constancia de tu ${label.toLowerCase()} — Folio ${folio}`,
                 html: `
                     <div style="font-family: 'Inter', sans-serif; max-width: 600px; margin: 0 auto; background-color: #ffffff; padding: 40px; border-radius: 20px; border: 1px solid #eee;">
-                        <h1 style="color: #111827; font-size: 22px; font-weight: 900; margin-bottom: 10px;">Hola ${fullName}</h1>
+                        <h1 style="color: #111827; font-size: 22px; font-weight: 900; margin-bottom: 10px;">Hola ${esc(fullName)}</h1>
                         <p style="color: #4b5563; font-size: 15px; margin-bottom: 20px;">
                             Registramos tu ${label.toLowerCase()} en el Libro de Reclamaciones de Wuarikes SAC. Este correo es tu constancia.
                         </p>
@@ -363,9 +366,9 @@ export class MailService {
                 subject: `Te sumaron al equipo de ${placeName} en Wuarike`,
                 html: `
                     <div style="font-family: 'Inter', sans-serif; max-width: 600px; margin: 0 auto; background-color: #ffffff; padding: 40px; border-radius: 20px; border: 1px solid #eee;">
-                        <h1 style="color: #111827; font-size: 22px; font-weight: 900; margin-bottom: 10px;">¡Hola ${fullName}!</h1>
+                        <h1 style="color: #111827; font-size: 22px; font-weight: 900; margin-bottom: 10px;">¡Hola ${esc(fullName)}!</h1>
                         <p style="color: #4b5563; font-size: 15px; margin-bottom: 20px;">
-                            Te agregaron al equipo de <strong>${placeName}</strong> en Wuarike con el rol de <strong>${role}</strong>.
+                            Te agregaron al equipo de <strong>${esc(placeName)}</strong> en Wuarike con el rol de <strong>${esc(role)}</strong>.
                             Ya podés ingresar al panel con estas credenciales:
                         </p>
                         <div style="background: #f3f4f6; padding: 20px; border-radius: 12px; margin-bottom: 20px;">

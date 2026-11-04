@@ -136,6 +136,8 @@ export class PlacesController {
 
     @Post(':id/tiktok-search')
     @HttpCode(200)
+    // Público (lo usa la web) pero lanza un scraper: tope bajo por IP.
+    @Throttle({ default: { ttl: 60000, limit: 5 } })
     @ApiOperation({ summary: 'Get cached TikTok videos for a place, searching TikTok on first request if none are cached yet' })
     @ApiParam({ name: 'id', description: 'Place UUID' })
     async searchTikTok(@Param('id') id: string) {
