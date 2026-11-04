@@ -61,10 +61,10 @@ describe('OrderSettingsService', () => {
 });
 
 describe('OrderSettingsService: plan y mesas en lote', () => {
-    it('activar pedidos exige Fidelización+; la vista dice qué canales permite el plan', async () => {
+    it('activar pedidos exige Caserito; la vista dice qué canales permite el plan', async () => {
         const noPlan = { assertPlaceTier: jest.fn(async () => { throw new Error('sin plan'); }) } as any;
         const svc = new OrderSettingsService(repo() as any, repo() as any, config, noPlan);
-        await expect(svc.update('p1', { ordersEnabled: true })).rejects.toThrow('Fidelización+');
+        await expect(svc.update('p1', { ordersEnabled: true })).rejects.toThrow('Caserito');
         await expect(svc.getForAdmin('p1')).resolves.toMatchObject({ plan: { table: false, whatsapp: false } });
         const fide = { assertPlaceTier: jest.fn(async (_p: string, tier: string) => { if (tier === 'ia_total') throw new Error('no'); }) } as any;
         const svc2 = new OrderSettingsService(repo() as any, repo() as any, config, fide);

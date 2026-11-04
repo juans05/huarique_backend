@@ -272,6 +272,12 @@ describe('OrdersService', () => {
             await svc.cancelUnpaid('w1', 'El local no confirmó a tiempo', 'POR_CONFIRMAR');
             expect(orders.rows[0]).toMatchObject({ status: 'CANCELADO', cancelReason: 'El local no confirmó a tiempo' });
         });
+
+        it('el seguimiento público muestra el motivo de cancelación', async () => {
+            const { svc, orders } = build();
+            orders.rows.push({ id: 'c1', placeId: 'p1', number: 7, status: 'CANCELADO', channel: 'WEB', publicToken: 'ctok', cancelReason: 'Rechazado por el local', items: [] });
+            await expect(svc.getPublicOrder('ctok')).resolves.toMatchObject({ status: 'CANCELADO', cancelReason: 'Rechazado por el local' });
+        });
     });
 
     it('mesa con cuenta PAGADA: se cierra y el nuevo pedido abre otra cuenta', async () => {

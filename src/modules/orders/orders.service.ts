@@ -515,6 +515,7 @@ export class OrdersService {
         return {
             number: order.number, status: order.status, channel: order.channel, fulfillment: order.fulfillment,
             subtotal: order.subtotal, deliveryFee: order.deliveryFee, total: order.total, createdAt: order.createdAt,
+            cancelReason: order.status === 'CANCELADO' ? order.cancelReason ?? null : null,
             items: (order.items ?? []).map((i) => ({ name: i.dishNameSnapshot, quantity: i.quantity, unitPrice: i.unitPrice, note: i.note })),
         };
     }
