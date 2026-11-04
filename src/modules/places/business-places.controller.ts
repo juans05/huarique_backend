@@ -37,7 +37,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Place } from './entities/place.entity';
 import { Category } from './entities/category.entity';
 import { Amenity } from './entities/amenity.entity';
-import { Repository, ILike, IsNull, In } from 'typeorm';
+import { Repository, ILike, In } from 'typeorm';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { CreateOnboardingPlaceDto } from './dto/create-onboarding-place.dto';
 import { CreateIndependentDto } from './dto/create-independent.dto';
@@ -55,6 +55,23 @@ import {
     getVerticalConfig,
     requireBusinessType,
 } from './business-types';
+
+type ClaimDocuments = { fichaRuc?: string; dni?: string; manifiesto?: string };
+
+/** Ficha RUC, DNI del representante legal y manifiesto, subidos por POST /upload/document (Cloudinary, https). */
+function requireClaimDocuments(docs: ClaimDocuments | undefined): string[] {
+    const urls = [docs?.fichaRuc, docs?.dni, docs?.manifiesto];
+    const ok = urls.every((u) => {
+        try {
+            const url = new URL(String(u));
+            return url.protocol === 'https:' && url.hostname === 'res.cloudinary.com';
+        } catch {
+            return false;
+        }
+    });
+    if (!ok) throw new BadRequestException('Adjunta la ficha RUC, el DNI del representante legal y el manifiesto.');
+    return urls as string[];
+}
 
 @ApiTags('business-places')
 @Controller('business')
@@ -141,45 +158,49 @@ export class BusinessPlacesController {
     }
 
     @Post('onboarding/claim/:id')
-    @ApiOperation({ summary: 'Claim an existing Wuarike place' })
-    async claimPlace(@Param('id') id: string, @CurrentUser() user: any, @Body('businessType') businessType?: string) {
-        // El tipo elegido por el dueño reemplaza al que tuviera el local; sin tipo (cliente anterior al multirrubro) se conserva el existente.
-        const type = businessType == null ? undefined : requireBusinessType(businessType);
-        const place = await this.placesRepo.findOne({ where: { id }, relations: ['category'] });
+    @ApiOperation({ summary: 'Request ownership of an existing place (documents reviewed by Wuarikes)' })
+    async claimPlace(
+        @Param('id') id: string,
+        @CurrentUser() user: any,
+        @Body() body: { businessType?: string; documents?: ClaimDocuments; phone?: string },
+    ) {
+        // Reclamar ya no asigna el local: queda una solicitud con ficha RUC, DNI y manifiesto que Wuarikes valida.
+        const type = body?.businessType == null ? undefined : requireBusinessType(body.businessType);
+        const docs = requireClaimDocuments(body?.documents);
+        const place = await this.placesRepo.findOne({ where: { id } });
         if (!place) throw new NotFoundException('Lugar no encontrado');
         if (place.claimedByUserId) throw new BadRequestException('Este lugar ya ha sido reclamado');
 
-        const result = await this.placesRepo.update(
-            { id, claimedByUserId: IsNull() },
-            {
-                claimedByUserId: user.id,
-                status: 'pending',
-                ...(type
-                    ? {
-                        businessType: type,
-                        // Una categoría de otro rubro ya no corresponde: se quita (no se borra nada más).
-                        ...(categoryMatchesVertical(place.category, type) ? {} : { categoryId: null }),
-                    }
-                    : {}),
-            }
-        );
-        if (result.affected === 0) throw new BadRequestException('Este lugar ya ha sido reclamado');
+        const claim = await this.placesService.claimPlace(user.id, id, {
+            businessName: place.name,
+            businessEmail: user.email,
+            businessPhone: (body?.phone || user.phone || '').toString().slice(0, 30),
+            documentUrls: docs,
+        }, type);
+        this.notifyPendingPlace(place, user);
+        return { message: 'Solicitud enviada. Wuarikes validará tus documentos.', claimId: claim.id, status: 'pending' };
+    }
 
-        return { message: 'Reclamación iniciada con éxito', placeId: id };
+    @Get('onboarding/claims')
+    @ApiOperation({ summary: 'My ownership requests and their status' })
+    myClaims(@CurrentUser() user: any) {
+        return this.placesService.getMyClaims(user.id);
     }
 
     @Post('onboarding/import')
     @ApiOperation({ summary: 'Import a place from Google and claim it' })
     async importPlace(
-        @Body('googlePlaceId') googlePlaceId: string,
-        @Body('businessType') businessType: string | undefined,
+        @Body() body: { googlePlaceId?: string; businessType?: string; documents?: ClaimDocuments; phone?: string },
         @CurrentUser() user: any,
     ) {
+        const { googlePlaceId, businessType } = body ?? {};
+        if (!googlePlaceId) throw new BadRequestException('googlePlaceId es requerido');
         if (businessType != null) requireBusinessType(businessType);
+        requireClaimDocuments(body?.documents);
         // Check if already in Wuarike
         const existing = await this.placesRepo.findOne({ where: { googlePlaceId } });
         if (existing) {
-            return this.claimPlace(existing.id, user, businessType);
+            return this.claimPlace(existing.id, user, body);
         }
 
         // Get details from Google
@@ -190,13 +211,12 @@ export class BusinessPlacesController {
         const newPlace = this.placesRepo.create({
             ...details,
             businessType: businessType ?? DEFAULT_BUSINESS_TYPE,
-            claimedByUserId: user.id,
             status: 'pending'
         });
 
+        // Es un negocio real de Google: se importa sin dueño y se pide la misma validación que al reclamar.
         const saved = await this.placesRepo.save(newPlace);
-        this.notifyPendingPlace(saved, user);
-        return { message: 'Local importado y reclamado', placeId: saved.id };
+        return this.claimPlace(saved.id, user, body);
     }
 
     @Post('onboarding/create')

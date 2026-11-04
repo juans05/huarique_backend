@@ -28,7 +28,7 @@ import { ComplaintBookEntry } from '../complaint-book/entities/complaint-book-en
 import { buildFolio } from '../complaint-book/complaint-book.service';
 import { FavoritePlace } from '../places/entities/favorite-place.entity';
 import { WuarikesHereRequest } from '../places/entities/wuarikes-here-request.entity';
-import { categoryMatchesVertical, requireBusinessType } from '../places/business-types';
+import { categoryMatchesVertical, isBusinessType, requireBusinessType } from '../places/business-types';
 
 // "Lima Cercado" en el scraper corresponde al distrito "Lima" en la tabla ubigeos
 const DISTRICT_ALIASES: Record<string, string> = { 'Lima Cercado': 'Lima' };
@@ -273,7 +273,7 @@ export class AdminService {
     async verifyClaim(claimId: string, adminId: string) {
         const claim = await this.claimsRepository.findOne({
             where: { id: claimId },
-            relations: ['place'],
+            relations: ['place', 'place.category'],
         });
 
         if (!claim || claim.status !== 'pending') {
@@ -286,11 +286,13 @@ export class AdminService {
         claim.verifiedAt = new Date();
         await this.claimsRepository.save(claim);
 
-        // Update place
+        // Update place (y el rubro que eligió el dueño al reclamar, si lo eligió)
+        const type = claim.verificationMethod?.startsWith('documentos:') ? claim.verificationMethod.slice('documentos:'.length) : null;
         await this.placesRepository.update(claim.placeId, {
             isVerified: true,
             verifiedAt: new Date(),
             claimedByUserId: claim.userId,
+            ...(type && isBusinessType(type) ? { businessType: type, ...(categoryMatchesVertical(claim.place?.category, type) ? {} : { categoryId: null }) } : {}),
         });
 
         // Update user role

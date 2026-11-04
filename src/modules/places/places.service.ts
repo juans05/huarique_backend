@@ -340,6 +340,7 @@ export class PlacesService {
         userId: string,
         placeId: string,
         dto: CreatePlaceClaimDto,
+        businessType?: string,
     ): Promise<PlaceClaim> {
         const place = await this.findOne(placeId);
         if (place.isVerified) {
@@ -359,9 +360,21 @@ export class PlacesService {
             userId,
             status: 'pending',
             verificationCode: Math.random().toString(36).substring(2, 8).toUpperCase(),
+            // Sin columna propia: el rubro elegido viaja aquí y se aplica al verificar (admin.service verifyClaim).
+            verificationMethod: businessType ? `documentos:${businessType}` : 'documentos',
         });
 
         return this.claimsRepository.save(claim);
+    }
+
+    async getMyClaims(userId: string) {
+        const claims = await this.claimsRepository.find({
+            where: { userId },
+            relations: ['place'],
+            order: { createdAt: 'DESC' },
+            take: 20,
+        });
+        return claims.map((c) => ({ id: c.id, placeId: c.placeId, placeName: c.place?.name ?? null, status: c.status, createdAt: c.createdAt }));
     }
 
     async getDiscovery(district?: string, category?: string, limit = 10, vertical?: string): Promise<PlaceResponseDto[]> {

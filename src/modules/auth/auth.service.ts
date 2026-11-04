@@ -105,7 +105,6 @@ export class AuthService {
 
         const verificationCode = newCode();
         await this.usersService.setVerificationCode(user.id, verificationCode);
-        this.codeFailures.delete(user.id);
 
         await this.mailService.sendVerificationCode(email, verificationCode);
 
@@ -229,7 +228,6 @@ export class AuthService {
 
         const resetCode = newCode();
         await this.usersService.setVerificationCode(user.id, resetCode);
-        this.codeFailures.delete(user.id);
 
         await this.mailService.sendVerificationCode(user.email, resetCode);
 
@@ -397,13 +395,16 @@ export class AuthService {
      * ponytail: contador en memoria por instancia; pasarlo a Redis si se escala a varias réplicas.
      */
     private async checkCode(user: { id: string; verificationCode: string; verificationCodeExpiresAt: Date }, code: string) {
-        const previous = this.codeFailures.get(user.id) ?? 0;
+        // El contador va atado al código: cualquier código nuevo (de cualquier flujo) arranca de cero.
+        // ponytail: Map en memoria por instancia; pasar a Redis si hay varias réplicas.
+        const key = `${user.id}:${user.verificationCode ?? ''}`;
+        const previous = this.codeFailures.get(key) ?? 0;
         if (previous >= MAX_CODE_FAILURES) throw new UnauthorizedException('Código inválido o expirado');
-        this.codeFailures.set(user.id, previous + 1);
+        this.codeFailures.set(key, previous + 1);
         const valid = !!user.verificationCode && user.verificationCodeExpiresAt >= new Date()
             && typeof code === 'string' && code.length === user.verificationCode.length
             && timingSafeEqual(Buffer.from(code), Buffer.from(user.verificationCode));
-        if (valid) { this.codeFailures.delete(user.id); return; }
+        if (valid) { this.codeFailures.delete(key); return; }
         if (previous + 1 >= MAX_CODE_FAILURES) await this.usersService.setVerificationCode(user.id, null, 0);
         throw new UnauthorizedException('Código inválido o expirado');
     }

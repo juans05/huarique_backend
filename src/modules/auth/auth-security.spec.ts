@@ -55,6 +55,15 @@ describe('AuthService: arreglos de la auditoría', () => {
         expect(users.updatePassword).not.toHaveBeenCalled();
     });
 
+    it('un código nuevo emitido por otro flujo arranca sin intentos fallidos', async () => {
+        for (let i = 0; i < 5; i++) {
+            await service.resetPassword({ email: 'a@b.pe', code: '000000', password: 'NuevaClave1' } as any).catch(() => 'x');
+        }
+        user.verificationCode = '654321';
+        await service.resetPassword({ email: 'a@b.pe', code: '654321', password: 'NuevaClave1' } as any);
+        expect(users.updatePassword).toHaveBeenCalled();
+    });
+
     it('el código correcto cambia la clave', async () => {
         await service.resetPassword({ email: 'a@b.pe', code: '123456', password: 'NuevaClave1' } as any);
         expect(users.updatePassword).toHaveBeenCalled();
