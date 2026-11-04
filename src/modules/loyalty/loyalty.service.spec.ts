@@ -103,6 +103,31 @@ describe('LoyaltyService.getMyCards', () => {
     });
   });
 
+  describe('scan: espera entre visitas con escaneos simultáneos', () => {
+    const program = { placeId: 'p1', type: 'stamps', stampsToReward: 10, minHoursBetweenVisits: 24, pointsPerVisit: 0, isActive: true };
+    const oldCard = () => ({ id: 'c1', placeId: 'p1', customerPhone: '999', stamps: 1, points: 0, totalVisits: 1, marketingConsent: true, lastVisitAt: new Date(Date.now() - 48 * 3600_000) });
+
+    it('si otro escaneo ya reservó la visita, este no suma sello', async () => {
+      programRepo.findOne.mockResolvedValue(program);
+      cardRepo.findOne.mockResolvedValue(oldCard());
+      cardRepo.update.mockResolvedValue({ affected: 0 });
+      const res = await service.scan('p1', '999');
+      expect(res.blocked).toBe(true);
+      expect(res.stampsEarned).toBe(0);
+      expect(cardRepo.save).not.toHaveBeenCalled();
+    });
+
+    it('el escaneo que reserva la visita suma el sello', async () => {
+      programRepo.findOne.mockResolvedValue(program);
+      cardRepo.findOne.mockResolvedValue(oldCard());
+      cardRepo.update.mockResolvedValue({ affected: 1 });
+      cardRepo.save.mockImplementation(async (v: any) => v);
+      const res = await service.scan('p1', '999');
+      expect(res.stampsEarned).toBe(1);
+      expect(res.card.stamps).toBe(2);
+    });
+  });
+
   describe('scan: cliente único', () => {
     const program = { placeId: 'p1', type: 'stamps', stampsToReward: 10, minHoursBetweenVisits: 0, pointsPerVisit: 0, isActive: true };
     const prep = () => {

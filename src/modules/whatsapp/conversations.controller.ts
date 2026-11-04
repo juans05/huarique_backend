@@ -3,6 +3,7 @@ import { FileInterceptor } from '@nestjs/platform-express';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, LessThan } from 'typeorm';
 import { Observable, from, switchMap } from 'rxjs';
+import { whileAllowed } from '../../common/utils/while-allowed';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { Conversation } from './entities/conversation.entity';
 import { Message } from './entities/message.entity';
@@ -365,14 +366,20 @@ export class ConversationsController {
                 this.eventEmitter.off('whatsapp.message.received', handler);
             };
         });
-        return from(this.placeTeamService.getMembership(userId, placeId)).pipe(
-            switchMap(async (member) => {
-                if (!member || !(member.role in ROLE_RANK) || ROLE_RANK[member.role] < ROLE_RANK.agente) {
-                    throw new ForbiddenException('No tienes acceso a esta sede');
-                }
-                return this.placeTeamService.getAccessibleWhatsappNumberIds(member);
+        const accessFor = async (): Promise<string[] | 'all' | null> => {
+            const member = await this.placeTeamService.getMembership(userId, placeId);
+            if (!member || !(member.role in ROLE_RANK) || ROLE_RANK[member.role] < ROLE_RANK.agente) return null;
+            return this.placeTeamService.getAccessibleWhatsappNumberIds(member);
+        };
+        const sameAccess = (a: string[] | 'all' | null, b: string[] | 'all') =>
+            a === b || (Array.isArray(a) && Array.isArray(b) && a.length === b.length && a.every((id) => b.includes(id)));
+        return from(accessFor()).pipe(
+            switchMap(async (accessible) => {
+                if (!accessible) throw new ForbiddenException('No tienes acceso a esta sede');
+                return accessible;
             }),
-            switchMap((accessible) => listen(accessible)),
+            // Si lo quitan del equipo o le cambian los números, se corta; el panel reconecta con el acceso nuevo.
+            switchMap((accessible) => whileAllowed(listen(accessible), async () => sameAccess(await accessFor(), accessible))),
         );
     }
 }

@@ -1,7 +1,7 @@
 import { Injectable, NotFoundException, BadRequestException, Logger, ServiceUnavailableException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Cron, CronExpression } from '@nestjs/schedule';
-import { In, IsNull, MoreThan, Not, Repository } from 'typeorm';
+import { In, IsNull, LessThan, MoreThan, Not, Or, Repository } from 'typeorm';
 import { Queue } from 'bullmq';
 import { InjectQueue } from '@nestjs/bullmq';
 import { LoyaltyProgram } from './entities/loyalty-program.entity';
@@ -104,6 +104,19 @@ export class LoyaltyService {
     if (card?.lastVisitAt && program.minHoursBetweenVisits > 0) {
       const nextEligibleAt = new Date(card.lastVisitAt.getTime() + program.minHoursBetweenVisits * 3600_000);
       if (nextEligibleAt > new Date()) {
+        return { card, program, stampsEarned: 0, pointsEarned: 0, rewardUnlocked: false, isNew: false, blocked: true, nextEligibleAt };
+      }
+    }
+
+    // Reserva la visita en una sola escritura: si llegan varios escaneos a la vez, solo uno pasa la espera.
+    if (card && program.minHoursBetweenVisits > 0) {
+      const cutoff = new Date(Date.now() - program.minHoursBetweenVisits * 3600_000);
+      const claimed = await this.cardRepo.update(
+        { id: card.id, lastVisitAt: Or(IsNull(), LessThan(cutoff)) },
+        { lastVisitAt: new Date() },
+      );
+      if (!claimed?.affected) {
+        const nextEligibleAt = new Date(Date.now() + program.minHoursBetweenVisits * 3600_000);
         return { card, program, stampsEarned: 0, pointsEarned: 0, rewardUnlocked: false, isNew: false, blocked: true, nextEligibleAt };
       }
     }

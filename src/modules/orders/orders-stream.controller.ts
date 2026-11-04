@@ -3,6 +3,7 @@ import { JwtService } from '@nestjs/jwt';
 import { Observable, from, switchMap } from 'rxjs';
 import { PlaceTeamService } from '../team/place-team.service';
 import { OrderEventsService, StreamMessage } from './order-events.service';
+import { whileAllowed } from '../../common/utils/while-allowed';
 
 // EventSource no manda headers: el JWT va por query, igual que el stream de conversaciones.
 @Controller('business/places/:placeId/orders')
@@ -20,7 +21,7 @@ export class OrdersStreamController {
         return from(this.team.getMembership(userId, placeId)).pipe(
             switchMap((member) => {
                 if (!member) throw new ForbiddenException('No tienes acceso a esta sede');
-                return this.events.streamForPlace(placeId);
+                return whileAllowed(this.events.streamForPlace(placeId), async () => !!(await this.team.getMembership(userId, placeId)));
             }),
         );
     }

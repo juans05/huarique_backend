@@ -1,4 +1,5 @@
-import { Controller, Get, Post, Param, Body, Res, Query, NotFoundException, BadRequestException, ParseIntPipe, ParseUUIDPipe } from '@nestjs/common';
+import { Controller, Get, Post, Param, Body, Res, Query, NotFoundException, BadRequestException, ForbiddenException, ParseIntPipe, ParseUUIDPipe } from '@nestjs/common';
+import { Throttle } from '@nestjs/throttler';
 import { ApiTags, ApiOperation } from '@nestjs/swagger';
 import { Response } from 'express';
 import { LoyaltyService } from './loyalty.service';
@@ -7,6 +8,9 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Place } from '../places/entities/place.entity';
 import { logoDataUri, stampsPng, walletHex } from './wallet-images';
+import { cardKey, isValidCardKey } from './card-key';
+
+const NO_KEY = 'Abre tu tarjeta desde el enlace que recibes al escanear en el local.';
 
 /**
  * Lo que ve el cliente en su tarjeta pública: saldo y nivel, sin datos de consentimiento, Wallet ni fechas internas,
@@ -61,6 +65,8 @@ export class LoyaltyPublicController {
     return this.loyaltyService.getProgram(placeId);
   }
 
+  // Cada teléfono ya tiene su espera entre visitas; esto frena que una sola conexión cree tarjetas en masa.
+  @Throttle({ default: { ttl: 60000, limit: 10 } })
   @Post(':placeId/scan')
   @ApiOperation({ summary: 'Customer scans NFC — earn stamp or points (public)' })
   async scan(
@@ -75,7 +81,10 @@ export class LoyaltyPublicController {
       this.pushWalletUpdate(placeId, result.card, result.program);
     }
 
-    return { ...result, card: publicCard(result.card) };
+    // La clave sale solo con una visita que suma: pedirla con un teléfono ajeno deja un sello a la vista del dueño.
+    // Un escaneo bloqueado por la espera no la da; el celular del cliente ya la guardó en su visita anterior.
+    const key = !result.blocked && result.card?.id ? cardKey(result.card.id) : null;
+    return { ...result, card: publicCard(result.card), cardKey: key };
   }
 
   @Post('wallet/google/callback')
@@ -111,15 +120,17 @@ export class LoyaltyPublicController {
 
   @Get('card/:cardId/history')
   @ApiOperation({ summary: 'Get transaction history for a card (public)' })
-  async getHistory(@Param('cardId') cardId: string) {
+  async getHistory(@Param('cardId') cardId: string, @Query('k') key?: string) {
+    if (!isValidCardKey(cardId, key)) throw new ForbiddenException(NO_KEY);
     return this.loyaltyService.getTransactions(cardId);
   }
 
   @Get(':placeId/wallet/google/:phone')
   @ApiOperation({ summary: 'Get Google Wallet save URL for loyalty card' })
-  async googleWallet(@Param('placeId') placeId: string, @Param('phone') phone: string) {
+  async googleWallet(@Param('placeId') placeId: string, @Param('phone') phone: string, @Query('k') key?: string) {
     const { card, program } = await this.loyaltyService.getCardWithProgram(placeId, phone);
     if (!card) throw new NotFoundException('Tarjeta no encontrada');
+    if (!isValidCardKey(card.id, key)) throw new ForbiddenException(NO_KEY);
     const place = await this.placesRepo.findOne({ where: { id: placeId } });
     const saveUrl = this.walletService.getGoogleWalletSaveUrl(place, card, program);
     return { saveUrl };
@@ -131,9 +142,11 @@ export class LoyaltyPublicController {
     @Param('placeId') placeId: string,
     @Param('phone') phone: string,
     @Res() res: Response,
+    @Query('k') key?: string,
   ) {
     const { card, program } = await this.loyaltyService.getCardWithProgram(placeId, phone);
     if (!card) throw new NotFoundException('Tarjeta no encontrada');
+    if (!isValidCardKey(card.id, key)) throw new ForbiddenException(NO_KEY);
     const place = await this.placesRepo.findOne({ where: { id: placeId } });
     const buffer = await this.walletService.getAppleWalletPass(place, card, program);
     res.set({

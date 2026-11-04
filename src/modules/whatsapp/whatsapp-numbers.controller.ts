@@ -128,6 +128,9 @@ export class AdminWhatsAppNumbersController {
     async createWhatsAppNumber(@Body() data: any) {
         const place = await this.placesRepo.findOne({ where: { id: data.placeId } });
         if (!place) throw new NotFoundException('Local no encontrado');
+        if (data.phoneNumberId && await this.whatsappNumberRepo.findOne({ where: { phoneNumberId: data.phoneNumberId } })) {
+            throw new ConflictException('Este número de WhatsApp ya está registrado en otro local.');
+        }
 
         const number = this.whatsappNumberRepo.create({
             placeId: data.placeId,
