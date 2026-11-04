@@ -131,41 +131,33 @@ export class BroadcastService {
 
         if (broadcast.kind === 'reminder') return this.activateReminder(broadcast);
 
-        // FLUJO META: solo si el local activó el canal de Facebook Y el número es de Meta. Cualquier otro caso
-        // sigue exactamente por el flujo anterior (más abajo), sin cambios.
-        const metaFlow = isMetaEnabled(broadcast.place) && broadcast.whatsappNumber?.provider === 'meta';
-
-        let customers: { phone?: string | null; name?: string | null; contactId?: string | null }[];
-        if (metaFlow) {
-            if (!broadcast.whatsappNumber.isActive) throw new Error('El número de WhatsApp de esta campaña no está activo.');
-            // Por la API de Meta solo se puede escribir primero con una plantilla aprobada: sin ella fallaría casi todo.
-            if (!broadcast.templateName) throw new Error('Elige una plantilla aprobada de WhatsApp para enviar esta campaña.');
-            if (broadcast.status === 'SENDING' || broadcast.status === 'COMPLETED') {
-                throw new Error(`La campaña ya está en estado ${broadcast.status}.`);
-            }
-            // Segmento (solo flujo Meta): VIP = tiene tarjeta de fidelización del local; normal = no la tiene.
-            const cards = await this.loyaltyCardRepo.find({ where: { placeId: broadcast.placeId } });
-            const filter = broadcast.segmentFilter ?? {};
-            if (filter.type === 'excel' && !broadcast.csvImportId) throw new Error('Elige la lista de Excel a la que quieres enviar.');
-            customers = dedupeRecipients<{ phone?: string | null; name?: string | null; contactId?: string | null }>(
-                segmentRecipients(filter, await this.getCustomersForBroadcast(broadcast, filter.type === 'excel'), cards),
-            );
-            // Con el número de Wuarikes cada mensaje cuesta 1 crédito: si no alcanza, la campaña no sale.
-            const balance = chargesCredits(broadcast.whatsappNumber) ? await this.creditsService.getBalance(broadcast.placeId) : null;
-            if (balance && balance.balance < customers.length) {
-                throw new Error(`Créditos insuficientes: la campaña llega a ${customers.length} personas y tienes ${balance.balance} créditos.`);
-            }
-            broadcast.status = customers.length === 0 ? 'FAILED' : 'SENDING';
-            broadcast.totalRecipients = customers.length;
-            broadcast.messagesSent = 0;
-            broadcast.messagesFailed = 0;
-            await this.broadcastRepo.save(broadcast);
-        } else {
-            // FLUJO ANTERIOR (PlazBot / sin flag): igual que antes.
-            broadcast.status = 'SENDING';
-            await this.broadcastRepo.save(broadcast);
-            customers = await this.getCustomersForBroadcast(broadcast);
+        // Todo sale por la API de WhatsApp de Facebook: el local debe tener el canal activo y el número conectado.
+        if (!isMetaEnabled(broadcast.place) || broadcast.whatsappNumber?.provider !== 'meta') {
+            throw new Error('Conecta el número de WhatsApp con Facebook para enviar campañas.');
         }
+        if (!broadcast.whatsappNumber.isActive) throw new Error('El número de WhatsApp de esta campaña no está activo.');
+        // Por la API de Meta solo se puede escribir primero con una plantilla aprobada: sin ella fallaría casi todo.
+        if (!broadcast.templateName) throw new Error('Elige una plantilla aprobada de WhatsApp para enviar esta campaña.');
+        if (broadcast.status === 'SENDING' || broadcast.status === 'COMPLETED') {
+            throw new Error(`La campaña ya está en estado ${broadcast.status}.`);
+        }
+        // Segmento: VIP = tiene tarjeta de fidelización del local; normal = no la tiene.
+        const cards = await this.loyaltyCardRepo.find({ where: { placeId: broadcast.placeId } });
+        const filter = broadcast.segmentFilter ?? {};
+        if (filter.type === 'excel' && !broadcast.csvImportId) throw new Error('Elige la lista de Excel a la que quieres enviar.');
+        const customers = dedupeRecipients<{ phone?: string | null; name?: string | null; contactId?: string | null }>(
+            segmentRecipients(filter, await this.getCustomersForBroadcast(broadcast, filter.type === 'excel'), cards),
+        );
+        // Con el número de Wuarikes cada mensaje cuesta 1 crédito: si no alcanza, la campaña no sale.
+        const balance = chargesCredits(broadcast.whatsappNumber) ? await this.creditsService.getBalance(broadcast.placeId) : null;
+        if (balance && balance.balance < customers.length) {
+            throw new Error(`Créditos insuficientes: la campaña llega a ${customers.length} personas y tienes ${balance.balance} créditos.`);
+        }
+        broadcast.status = customers.length === 0 ? 'FAILED' : 'SENDING';
+        broadcast.totalRecipients = customers.length;
+        broadcast.messagesSent = 0;
+        broadcast.messagesFailed = 0;
+        await this.broadcastRepo.save(broadcast);
 
         for (const customer of customers) {
             await this.broadcastQueue.add(

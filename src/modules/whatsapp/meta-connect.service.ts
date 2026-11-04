@@ -26,7 +26,7 @@ export interface CompleteSignupDto {
 /**
  * Conexión directa con Meta (Embedded Signup): el dueño inicia sesión con Facebook, elige o crea su
  * cuenta de WhatsApp Business y su número, y Meta nos devuelve un código. Con él obtenemos el token,
- * suscribimos nuestra app a su cuenta (para recibir sus mensajes) y guardamos el número. Sin PlazBot.
+ * suscribimos nuestra app a su cuenta (para recibir sus mensajes) y guardamos el número.
  */
 @Injectable()
 export class MetaConnectService {
@@ -130,7 +130,7 @@ export class MetaConnectService {
 
     /**
      * Activa o desactiva el canal de Facebook para el local. Los dos canales conviven sin mezclarse: al
-     * desactivar, los números conectados por Facebook quedan inactivos y todo vuelve a PlazBot sin borrar nada;
+     * desactivar, los números conectados por Facebook quedan inactivos sin borrar nada;
      * al reactivar, vuelven a funcionar.
      */
     async setChannel(userId: string, placeId: string, metaEnabled: boolean) {
@@ -143,7 +143,7 @@ export class MetaConnectService {
 
     /**
      * Para el superadmin: conecta un número que ya está registrado en la API de WhatsApp de Meta (por ejemplo el
-     * que antes atendía PlazBot). No hay que verificarlo ni migrarlo: se valida el token contra Meta, se suscribe
+     * que ya estaba en la API). No hay que verificarlo ni migrarlo: se valida el token contra Meta, se suscribe
      * nuestra app a la cuenta para recibir sus mensajes y se guarda como conexión directa.
      */
     async connectExisting(dto: { placeId: string; phoneNumberId: string; wabaId: string; token: string }) {

@@ -48,7 +48,7 @@ export function buildTemplatePayload(to: string, name: string, language: string,
 
 /**
  * Cliente de la API de WhatsApp Cloud (Meta). Habla directo con graph.facebook.com;
- * reemplaza a PlazBot como canal de salida. El token es el del número (Embedded Signup)
+ * es el canal de salida. El token es el del número (Embedded Signup)
  * o, si no tiene, el del sistema (WHATSAPP_API_TOKEN).
  */
 @Injectable()

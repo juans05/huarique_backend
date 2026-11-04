@@ -7,7 +7,6 @@ import { Message } from './entities/message.entity';
 import { WhatsAppNumber } from './entities/whatsapp-number.entity';
 import { Place } from '../places/entities/place.entity';
 import { WhatsappService } from './whatsapp.service';
-import { PlazBotService } from '../plazbot/plazbot.service';
 import { WhatsAppSenderService } from '../messaging/whatsapp-sender.service';
 import { UploadService } from '../upload/upload.service';
 import { PlaceTeamService } from '../team/place-team.service';
@@ -50,7 +49,6 @@ describe('ConversationsController.claim', () => {
                 { provide: getRepositoryToken(WhatsAppNumber), useValue: {} },
                 { provide: getRepositoryToken(Place), useValue: {} },
                 { provide: WhatsappService, useValue: {} },
-                { provide: PlazBotService, useValue: {} },
                 { provide: WhatsAppSenderService, useValue: {} },
                 { provide: UploadService, useValue: {} },
                 { provide: PlaceTeamService, useValue: placeTeamService },

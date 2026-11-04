@@ -17,7 +17,7 @@ export interface MetaTemplate {
     variableCount: number;
 }
 
-/** Plantillas de mensajes directo en la cuenta de WhatsApp Business del local (API de Meta). No toca PlazBot. */
+/** Plantillas de mensajes directo en la cuenta de WhatsApp Business del local (API de Meta). */
 @Injectable()
 export class WhatsAppTemplatesService {
     constructor(

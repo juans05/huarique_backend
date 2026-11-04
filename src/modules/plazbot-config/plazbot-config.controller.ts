@@ -1,29 +1,17 @@
-import { Controller, Post, Get, Put, Delete, Body, Query, Param, UseGuards, HttpCode } from '@nestjs/common';
+import { Controller, Post, Get, Body, Query, UseGuards } from '@nestjs/common';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { PlaceBotConfigService } from './place-bot-config.service';
-import { PlazBotAdvancedService } from '../plazbot/plazbot-advanced.service';
-import { WhatsAppTemplateService } from './whatsapp-template.service';
 import { BotMenuOptionService } from './bot-menu-option.service';
-import { SubscriptionTierGuard } from '../../common/guards/subscription-tier.guard';
-import { RequiresTier } from '../../common/decorators/requires-tier.decorator';
 import { PlaceTeamService } from '../team/place-team.service';
-import { RolesGuard } from '../../common/guards/roles.guard';
-import { Roles } from '../../common/decorators/roles.decorator';
-import { RequirePermission } from '../../common/decorators/require-permission.decorator';
 
-// `config`/`configure` son por sede — el plan se resuelve vía la sede (dueño o
-// equipo), no vía el guard genérico. El resto de las rutas de este controller
-// (templates, campañas, envío) son configuración GLOBAL del workspace de
-// WhatsApp compartido, sin concepto de sede — esas sí siguen gateadas por el
-// plan propio del usuario que llama, con el guard de siempre a nivel método.
+// Configuración del bot de WhatsApp por sede (nombre, personalidad, menú). La ruta conserva el nombre
+// histórico `plazbot-setup` para no romper el panel; ya no tiene relación con PlazBot.
 @UseGuards(JwtAuthGuard)
 @Controller('plazbot-setup')
 export class PlazbotConfigController {
   constructor(
     private botConfigService: PlaceBotConfigService,
-    private plazBotAdvanced: PlazBotAdvancedService,
-    private templateService: WhatsAppTemplateService,
     private menuOptionService: BotMenuOptionService,
     private placeTeamService: PlaceTeamService,
   ) {}
@@ -87,140 +75,4 @@ export class PlazbotConfigController {
     const saved = await this.menuOptionService.replaceAll(dto.placeId, dto.options);
     return { data: saved };
   }
-
-  @UseGuards(SubscriptionTierGuard)
-  @RequiresTier('ia_total')
-  @Get('status')
-  getStatus() {
-    const apiKey = process.env.PLAZBOT_API_KEY;
-    const workspaceId = process.env.PLAZBOT_WORKSPACE_ID;
-    return {
-      connected: !!(apiKey && workspaceId),
-      workspaceId: workspaceId || null,
-    };
-  }
-
-  @UseGuards(SubscriptionTierGuard)
-  @RequiresTier('ia_total')
-  @Get('metrics')
-  async getMetrics() {
-    const { apiKey, workspaceId } = this.getGlobalCreds();
-    return this.plazBotAdvanced.getWorkspaceMetrics(apiKey, workspaceId);
-  }
-
-  // ── Templates (guardados en DB + enviados a PlazBot) ──
-
-  @UseGuards(SubscriptionTierGuard)
-  @RequiresTier('ia_total')
-  @Get('templates')
-  async getTemplates() {
-    return this.templateService.findAll();
-  }
-
-  @UseGuards(RolesGuard)
-  @Roles('admin')
-  @RequirePermission('whatsapp.gestionar')
-  @Post('template')
-  async createTemplate(
-    @Body() dto: {
-      elementName: string;
-      category: string;
-      languageCode: string;
-      headerText?: string;
-      body: string;
-      footer?: string;
-      quickReplies?: { text: string }[];
-      ctaButtons?: { text: string; type: string; value: string }[];
-      variableSamples?: Record<number, { value: string; type: string }>;
-    },
-  ) {
-    return this.templateService.createAndSubmit(dto);
-  }
-
-  @UseGuards(RolesGuard)
-  @Roles('admin')
-  @RequirePermission('whatsapp.gestionar')
-  @Post('templates/:id/resend')
-  async resendTemplate(@Param('id') id: string) {
-    return this.templateService.resend(id);
-  }
-
-  @UseGuards(RolesGuard)
-  @Roles('admin')
-  @RequirePermission('whatsapp.gestionar')
-  @Post('templates/sync')
-  async syncTemplates() {
-    return this.templateService.syncStatuses();
-  }
-
-  @UseGuards(RolesGuard)
-  @Roles('admin')
-  @RequirePermission('whatsapp.gestionar')
-  @Delete('templates/:id')
-  @HttpCode(204)
-  async deleteTemplate(@Param('id') id: string) {
-    await this.templateService.delete(id);
-  }
-
-  @UseGuards(RolesGuard)
-  @Roles('admin')
-  @RequirePermission('whatsapp.gestionar')
-  @Post('templates/:id/toggle')
-  async toggleTemplate(@Param('id') id: string) {
-    return this.templateService.toggle(id);
-  }
-
-  @UseGuards(RolesGuard)
-  @Roles('admin')
-  @RequirePermission('whatsapp.gestionar')
-  @Put('templates/:id')
-  async updateTemplate(
-    @Param('id') id: string,
-    @Body() dto: {
-      elementName: string;
-      category: string;
-      languageCode: string;
-      headerText?: string;
-      body: string;
-      footer?: string;
-      quickReplies?: { text: string }[];
-      ctaButtons?: { text: string; type: string; value: string }[];
-      variableSamples?: Record<number, { value: string; type: string }>;
-    },
-  ) {
-    const { apiKey, workspaceId } = this.getGlobalCreds();
-    return this.plazBotAdvanced.updateTemplate(apiKey, workspaceId, id, dto);
-  }
-
-  // ── Envío de mensajes ── (solo admin: usan la cuenta global de PlazBot de Wuarikes)
-
-  @UseGuards(RolesGuard)
-  @Roles('admin')
-  @RequirePermission('whatsapp.gestionar')
-  @Post('send-template')
-  async sendTemplate(
-    @Body() dto: { template: string; destination: string; variablesBody?: { variable: string; value: string }[] },
-  ) {
-    const { apiKey, workspaceId } = this.getGlobalCreds();
-    return this.plazBotAdvanced.sendTemplateMessage(apiKey, workspaceId, dto);
-  }
-
-  @UseGuards(RolesGuard)
-  @Roles('admin')
-  @RequirePermission('whatsapp.gestionar')
-  @Post('campaign')
-  async createCampaign(
-    @Body() dto: { name: string; templateId: string; contacts: string[] },
-  ) {
-    const { apiKey, workspaceId } = this.getGlobalCreds();
-    return this.plazBotAdvanced.createCampaign(apiKey, workspaceId, dto);
-  }
-
-  private getGlobalCreds() {
-    return {
-      apiKey: process.env.PLAZBOT_API_KEY || '',
-      workspaceId: process.env.PLAZBOT_WORKSPACE_ID || '',
-    };
-  }
-
 }

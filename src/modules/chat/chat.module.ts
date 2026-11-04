@@ -12,7 +12,6 @@ import { OrdersModule } from '../orders/orders.module';
 import { ContactsModule } from '../contacts/contacts.module';
 import { AppointmentsModule } from '../appointments/appointments.module';
 import { ChatProcessorService } from './chat-processor.service';
-import { PlazBotWebhookController } from './plazbot-webhook.controller';
 import { DemoChatController } from './demo-chat.controller';
 
 @Module({
@@ -28,6 +27,6 @@ import { DemoChatController } from './demo-chat.controller';
   ],
   providers: [ChatProcessorService],
   exports: [ChatProcessorService],
-  controllers: [PlazBotWebhookController, DemoChatController],
+  controllers: [DemoChatController],
 })
 export class ChatModule {}

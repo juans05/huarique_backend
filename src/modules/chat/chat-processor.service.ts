@@ -364,7 +364,7 @@ export class ChatProcessorService {
       messageType: 'OUTGOING',
     });
 
-    // 10. Enviar la respuesta por el proveedor del número (Meta o PlazBot)
+    // 10. Enviar la respuesta por WhatsApp (Facebook)
     await this.sender.sendText(conversation.whatsappNumberId, contact.phone, botResponse);
 
     return { success: true };
@@ -466,7 +466,7 @@ export class ChatProcessorService {
     });
   }
 
-  // Simula un menú de botones con texto numerado — PlazBot solo soporta botones
+  // Simula un menú de botones con texto numerado — WhatsApp solo soporta botones
   // reales de WhatsApp vía su flow-builder propio, no vía API, así que esta es
   // la alternativa determinística (sin IA) para restaurantes que la prefieren.
   // Las opciones (texto + acción) las define cada restaurante desde el admin panel.

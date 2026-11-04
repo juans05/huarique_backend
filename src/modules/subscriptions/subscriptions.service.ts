@@ -343,8 +343,7 @@ export class SubscriptionsService {
     }
 
     /**
-     * Solo para PlazBot Setup: templates/campañas del workspace compartido no son
-     * por sede, así que se gatean por "¿el usuario dueño de al menos una sede con
+     * Para rutas que no son por sede: se gatean por "¿el usuario dueño de al menos una sede con
      * el plan pedido?" en vez de por una sede puntual.
      */
     async hasAnyPlaceWithTier(userId: string, requiredTier: SubscriptionTier): Promise<boolean> {

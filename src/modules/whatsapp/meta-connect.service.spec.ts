@@ -94,14 +94,14 @@ describe('MetaConnectService', () => {
         expect(request).not.toHaveBeenCalled();
     });
 
-    it('no conecta nada si el local apagó el checkbox de Facebook (vuelve a PlazBot)', async () => {
+    it('no conecta nada si el local apagó el checkbox de Facebook (no conecta)', async () => {
         const off = build({ place: { id: 'p1', claimedByUserId: 'u1', metadata: { whatsappMetaEnabled: false } } });
         await expect(off.svc.complete('u1', dto)).rejects.toThrow(BadRequestException);
         expect(request).not.toHaveBeenCalled();
         expect(await off.svc.getChannel('u1', 'p1')).toEqual({ metaEnabled: false });
     });
 
-    it('desactivar el checkbox deja inactivos los números de Facebook sin tocar los de PlazBot', async () => {
+    it('desactivar el checkbox deja inactivos los números de Facebook sin tocar los demás', async () => {
         const { svc, numbers, places } = build({ place: { id: 'p1', claimedByUserId: 'u1', metadata: { walletColor: '#fff', whatsappMetaEnabled: true } } });
         await svc.setChannel('u1', 'p1', false);
         expect(numbers.update).toHaveBeenCalledWith({ placeId: 'p1', provider: 'meta' }, { isActive: false });

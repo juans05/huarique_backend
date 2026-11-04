@@ -51,15 +51,12 @@ describe('BroadcastService.triggerBroadcast', () => {
         expect(broadcastRepo.save).toHaveBeenCalledWith(expect.objectContaining({ status: 'SENDING', totalRecipients: 2, messagesSent: 0, messagesFailed: 0 }));
     });
 
-    it('SIN el flag del local usa el flujo anterior: sin plantilla igual envía, no deduplica ni lleva total', async () => {
-        const convs = [{ customer_phone: '51987654321', customer_name: 'Ana' }, { customer_phone: '51987654321', customer_name: 'Ana' }];
-        const { svc, queue, broadcastRepo } = build({ id: 'b1', placeId: 'p1', status: 'DRAFT', templateName: null, templateBody: 'Hola', whatsappNumber: { provider: 'plazbot', isActive: false }, place: { metadata: { whatsappMetaEnabled: false } }, useCsvMerge: false }, convs);
-        const res = await svc.triggerBroadcast('b1');
-        expect(res.totalQueued).toBe(2); // igual que antes: no quita repetidos
-        expect(queue.add).toHaveBeenCalledTimes(2);
-        const saved = broadcastRepo.save.mock.calls[0][0];
-        expect(saved.status).toBe('SENDING');
-        expect(saved.totalRecipients).toBeUndefined();
+    it('sin Facebook (canal apagado o número no conectado) la campaña no sale', async () => {
+        for (const extra of [{ place: { metadata: { whatsappMetaEnabled: false } } }, { whatsappNumber: { provider: 'plazbot', isActive: true } }]) {
+            const { svc, queue } = build({ id: 'b1', placeId: 'p1', status: 'DRAFT', templateName: 'promo', whatsappNumber: meta, place: on, useCsvMerge: false, ...extra }, []);
+            await expect(svc.triggerBroadcast('b1')).rejects.toThrow('Facebook');
+            expect(queue.add).not.toHaveBeenCalled();
+        }
     });
 
     const card = (phone: string, name: string, over: any = {}) => ({ customerPhone: phone, customerName: name, level: 'BRONCE', marketingConsent: true, lastVisitAt: new Date(), createdAt: new Date(), ...over });

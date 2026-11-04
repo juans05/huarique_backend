@@ -24,7 +24,7 @@ export class WhatsappService {
 
     /**
      * Mensajes que llegan directo desde la API de WhatsApp Cloud (Meta). Pasan por el mismo
-     * agente que usaba PlazBot (carta, base de conocimiento, menú de botones, modo humano).
+     * agente del bot (carta, base de conocimiento, menú de botones, modo humano).
      */
     async processWebhookPayload(payload: any) {
         await this.notifyTemplateAlerts(payload);
@@ -40,7 +40,7 @@ export class WhatsappService {
                 this.logger.warn(`Número desconocido (phone_number_id=${msg.phoneNumberId})`);
                 continue;
             }
-            // Un número que todavía entrega PlazBot no debe responderse también por acá (doble respuesta).
+            // Solo responden los números conectados con Facebook (los antiguos de PlazBot quedan fuera).
             if (number.provider !== 'meta') {
                 this.logger.warn(`Número ${number.phoneNumber} llegó por Meta pero su proveedor es "${number.provider}", se ignora`);
                 continue;

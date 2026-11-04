@@ -11,7 +11,6 @@ import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { IsPublic } from '../../common/decorators/is-public.decorator';
 import { WhatsappService } from './whatsapp.service';
-import { PlazBotService } from '../plazbot/plazbot.service';
 import { WhatsAppSenderService } from '../messaging/whatsapp-sender.service';
 import { UploadService } from '../upload/upload.service';
 import { JwtService } from '@nestjs/jwt';
@@ -20,7 +19,7 @@ import { RequiresPlaceRole } from '../../common/decorators/requires-place-role.d
 import { PlaceTeamService } from '../team/place-team.service';
 import { PlaceTeamMember, PlaceTeamRole } from '../team/entities/place-team-member.entity';
 
-// Tipos que PlazBot/WhatsApp aceptan para /api/message/files
+// Tipos de archivo que acepta WhatsApp
 const ALLOWED_ATTACHMENT_MIME = /^(image\/(jpeg|png)|application\/pdf|application\/msword|application\/vnd\.openxmlformats-officedocument.*|video\/(mp4|3gpp)|audio\/(aac|amr|mpeg|mp4|ogg|webm|x-m4a))$/;
 
 @UseGuards(JwtAuthGuard)
@@ -34,7 +33,6 @@ export class ConversationsController {
         @InjectRepository(WhatsAppNumber)
         private whatsappNumberRepo: Repository<WhatsAppNumber>,
         private whatsappService: WhatsappService,
-        private plazbotService: PlazBotService,
         private sender: WhatsAppSenderService,
         private uploadService: UploadService,
         private eventEmitter: EventEmitter2,
@@ -330,56 +328,6 @@ export class ConversationsController {
         conversation.closedAt = new Date();
         await this.conversationRepo.save(conversation);
         return conversation;
-    }
-
-    // Sync existing PlazBot conversations into wuarikes DB
-    @Post('sync-plazbot/:placeId')
-    async syncFromPlazbot(@CurrentUser() user: any, @Param('placeId') placeId: string) {
-        await this.placeTeamService.assertAccess(user.id, placeId, 'ia_total', 'whatsapp');
-        const apiKey = process.env.PLAZBOT_API_KEY || '';
-        const workspaceId = process.env.PLAZBOT_WORKSPACE_ID || '';
-
-        const waNumbers = await this.whatsappNumberRepo.find({ where: { placeId, isActive: true } });
-        const restaurantPhones = new Set(waNumbers.map(n => n.phoneNumber));
-
-        const plazbotConvs = await this.plazbotService.listConversations(apiKey, workspaceId);
-
-        let synced = 0;
-        for (const pc of plazbotConvs) {
-            const customerPhone: string = pc.platformSenderPhone || '';
-            const restaurantPhone: string = pc.internalWhatsappNumber || '';
-            if (!customerPhone || !restaurantPhones.has(restaurantPhone)) continue;
-
-            // Find or create conversation in wuarikes DB
-            let conv = await this.conversationRepo.findOne({ where: { placeId, customerPhone } });
-            if (!conv) {
-                conv = this.conversationRepo.create({
-                    placeId,
-                    customerPhone,
-                    customerName: pc.platformSenderName || customerPhone,
-                    mode: 'bot',
-                });
-                await this.conversationRepo.save(conv);
-            }
-
-            // Import messages
-            const plazbotMessages = await this.plazbotService.getMessages(apiKey, workspaceId, pc.id);
-            for (const pm of plazbotMessages) {
-                const alreadySaved = await this.messageRepo.findOne({ where: { whatsappMessageId: pm.id } });
-                if (alreadySaved) continue;
-
-                await this.messageRepo.save(this.messageRepo.create({
-                    conversationId: conv.id,
-                    messageType: pm.answerAgentId ? 'OUTGOING' : 'INCOMING',
-                    messageBody: pm.content || '',
-                    isFromAi: !!pm.answerAgentId,
-                    whatsappMessageId: pm.id,
-                }));
-            }
-            synced++;
-        }
-
-        return { synced, total: plazbotConvs.length };
     }
 
     // SSE stream for real-time message notifications

@@ -28,7 +28,7 @@ export type ModuleKey =
     | 'clientes'
     | 'email-marketing'
     | 'whatsapp'
-    | 'plazbot'
+    | 'plazbot' // sección "Mi bot" del panel: la clave conserva el nombre antiguo (ya guardada en perfiles)
     | 'chat'
     | 'reportes'
     | 'equipo'

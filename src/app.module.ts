@@ -35,7 +35,6 @@ import { MetaAdsModule } from './modules/meta-ads/meta-ads.module';
 import { DocumentsModule } from './modules/documents/documents.module';
 import { ChatModule } from './modules/chat/chat.module';
 import { PlazbotConfigModule } from './modules/plazbot-config/plazbot-config.module';
-import { PlazBotModule } from './modules/plazbot/plazbot.module';
 import { ContactsModule } from './modules/contacts/contacts.module';
 import { AuditLogModule } from './modules/audit-log/audit-log.module';
 import { CreditsModule } from './modules/credits/credits.module';
@@ -119,7 +118,6 @@ import { OrdersNotificationsModule } from './modules/orders/orders-notifications
         MetaAdsModule,
         DocumentsModule,
         PlazbotConfigModule,
-        PlazBotModule,
         ChatModule,
         ContactsModule,
         AuditLogModule,

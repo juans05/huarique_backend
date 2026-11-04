@@ -28,7 +28,7 @@ export class MetaConnectController {
         return this.metaConnect.getChannel(user.id, placeId);
     }
 
-    /** Checkbox del panel: activa o desactiva Facebook para el local (PlazBot sigue intacto). */
+    /** Checkbox del panel: activa o desactiva el WhatsApp (Facebook) del local. */
     @Patch('channel')
     setChannel(@CurrentUser() user: any, @Body() body: { placeId?: string; metaEnabled?: boolean }) {
         if (!body?.placeId || typeof body.metaEnabled !== 'boolean') throw new BadRequestException('placeId y metaEnabled son requeridos');

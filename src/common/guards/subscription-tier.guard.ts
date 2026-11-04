@@ -12,7 +12,7 @@ const TIER_LABEL: Record<SubscriptionTier, string> = {
 };
 
 // Las suscripciones son por sede — este guard queda solo para rutas sin concepto
-// de sede (ej. PlazBot Setup: templates/campañas del workspace compartido), donde
+// de sede, donde
 // se gatea por "¿el usuario dueño de alguna sede con este plan?" en vez de una
 // sede puntual. Cualquier ruta con :placeId debe usar PlaceTeamService.assertAccess.
 @Injectable()

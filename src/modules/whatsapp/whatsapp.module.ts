@@ -16,7 +16,6 @@ import { KnowledgeBase } from '../ai/entities/knowledge-base.entity';
 import { PlacesModule } from '../places/places.module';
 import { AiModule } from '../ai/ai.module';
 import { AuthModule } from '../auth/auth.module';
-import { PlazBotModule } from '../plazbot/plazbot.module';
 import { MessagingModule } from '../messaging/messaging.module';
 import { ChatModule } from '../chat/chat.module';
 import { SubscriptionsModule } from '../subscriptions/subscriptions.module';
@@ -29,7 +28,6 @@ import { UploadModule } from '../upload/upload.module';
         PlacesModule,
         AiModule,
         AuthModule,
-        PlazBotModule,
         MessagingModule,
         ChatModule, // agente inteligente que procesa los mensajes que llegan por la API de Meta
         SubscriptionsModule,

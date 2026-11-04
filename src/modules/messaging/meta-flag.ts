@@ -1,5 +1,5 @@
 /**
- * Facebook (Meta) es el canal por defecto. Un local solo vuelve a PlazBot (legado) si alguien
- * apagó explícitamente el canal: place.metadata.whatsappMetaEnabled === false.
+ * Canal de WhatsApp (Facebook) del local: activo por defecto; apagado solo si alguien lo desactivó
+ * en el panel (place.metadata.whatsappMetaEnabled === false). Apagado = el local no envía ni responde.
  */
 export const isMetaEnabled = (place?: { metadata?: any } | null): boolean => place?.metadata?.whatsappMetaEnabled !== false;
