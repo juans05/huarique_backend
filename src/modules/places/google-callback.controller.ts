@@ -20,7 +20,6 @@ export class GoogleCallbackController {
       return res.redirect(`${this.googleBusiness.frontendUrl}/reputacion?error=${encodeURIComponent(error)}`);
     }
 
-    const redirectUrl = await this.googleBusiness.handleCallback(code, state);
-    return res.redirect(redirectUrl);
+    return res.redirect(this.googleBusiness.callbackRedirect(code, state));
   }
 }

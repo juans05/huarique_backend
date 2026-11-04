@@ -588,6 +588,14 @@ export class BusinessPlacesController {
         return { url };
     }
 
+    @Post('google/connect')
+    @ApiOperation({ summary: 'Finish Google OAuth with the owner session (code + state from the callback)' })
+    async connectGoogle(@Body('code') code: string, @Body('state') state: string, @CurrentUser() user: any) {
+        const error = await this.googleBusinessService.completeConnection(String(code ?? ''), String(state ?? ''), user.id);
+        if (error) throw new BadRequestException({ code: error, message: 'No se pudo conectar con Google.' });
+        return { connected: true };
+    }
+
     @Get('places/:id/google-locations')
     @ApiOperation({ summary: 'List Google Business locations available after OAuth' })
     @ApiParam({ name: 'id', description: 'Place UUID' })
@@ -611,6 +619,11 @@ export class BusinessPlacesController {
         const place = await this.placesRepo.findOne({ where: { id } });
         if (!place || place.claimedByUserId !== user.id) {
             throw new ForbiddenException('No tienes permiso');
+        }
+        // Solo una ubicación que administra la cuenta de Google conectada: no la de otro negocio.
+        const locations = await this.googleBusinessService.getLocations(id);
+        if (!locationName || !locations.some((l) => l.locationName === locationName)) {
+            throw new BadRequestException('Esa ubicación no pertenece a tu cuenta de Google');
         }
         await this.placesRepo.update(id, { googleLocationName: locationName });
         return { message: 'Ubicación de Google guardada' };

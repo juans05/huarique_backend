@@ -2,7 +2,7 @@ import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
-import { createHmac, timingSafeEqual } from 'crypto';
+import { createHmac, randomBytes, timingSafeEqual } from 'crypto';
 import { Place } from '../entities/place.entity';
 import { GbpReview } from '../review-reply.util';
 
@@ -40,13 +40,28 @@ export class GoogleBusinessService {
   // Antes el state era base64(placeId|userId) sin firma: cualquiera podía
   // fabricarlo y enlazar su cuenta de Google al local de otro dueño.
 
+  // Clave propia: derivada del secreto del servidor pero separada de la que firma los JWT.
   private sign(payload: string): string {
-    return createHmac('sha256', this.config.get<string>('JWT_SECRET')!).update(payload).digest('base64url');
+    const key = this.config.get<string>('GOOGLE_OAUTH_STATE_SECRET')
+      || createHmac('sha256', this.config.get<string>('JWT_SECRET')!).update('google-oauth-state').digest();
+    return createHmac('sha256', key).update(payload).digest('base64url');
   }
 
   private makeState(placeId: string, userId: string): string {
-    const payload = Buffer.from(`${placeId}|${userId}|${Date.now() + STATE_TTL_MS}`).toString('base64url');
+    const payload = Buffer.from(`${placeId}|${userId}|${Date.now() + STATE_TTL_MS}|${randomBytes(9).toString('base64url')}`).toString('base64url');
     return `${payload}.${this.sign(payload)}`;
+  }
+
+  // ponytail: estados usados en memoria por instancia; pasar a Redis si hay varias réplicas.
+  private readonly usedStates = new Map<string, number>();
+
+  /** Un state sirve una sola vez: así un enlace de conexión robado o reenviado no se puede reutilizar. */
+  private consumeState(state: string): boolean {
+    const now = Date.now();
+    for (const [k, exp] of this.usedStates) if (exp < now) this.usedStates.delete(k);
+    if (this.usedStates.has(state)) return false;
+    this.usedStates.set(state, now + STATE_TTL_MS);
+    return true;
   }
 
   /** Devuelve {placeId, userId} si el state es auténtico y no expiró; si no, null. */
@@ -79,13 +94,24 @@ export class GoogleBusinessService {
     return `${this.frontendUrl}/reputacion?error=${encodeURIComponent(code)}`;
   }
 
-  async handleCallback(code: string, state: string): Promise<string> {
-    const verified = this.verifyState(state);
-    if (!verified) return this.errorRedirect('invalid_state');
+  /** Google vuelve aquí sin sesión: solo se reenvía al panel, que confirma con la sesión del dueño. */
+  callbackRedirect(code: string, state: string): string {
+    if (!code || !this.verifyState(state)) return this.errorRedirect('invalid_state');
+    return `${this.frontendUrl}/reputacion?${new URLSearchParams({ google_code: code, google_state: state })}`;
+  }
 
-    // El usuario que inició el flujo debe seguir siendo el dueño del local.
+  /**
+   * Guarda los tokens solo si quien confirma (sesión del panel) es quien inició el flujo y sigue siendo el dueño.
+   * Sin esto, un dueño podía mandar su enlace de conexión a otro y quedarse con el Google de la víctima.
+   * Devuelve null si salió bien, o un código de error.
+   */
+  async completeConnection(code: string, state: string, sessionUserId: string): Promise<string | null> {
+    const verified = this.verifyState(state);
+    if (!code || !verified || verified.userId !== sessionUserId) return 'invalid_state';
+    if (!this.consumeState(state)) return 'invalid_state';
+
     const place = await this.placesRepo.findOne({ where: { id: verified.placeId } });
-    if (!place || place.claimedByUserId !== verified.userId) return this.errorRedirect('forbidden');
+    if (!place || place.claimedByUserId !== verified.userId) return 'forbidden';
 
     const tokenRes = await fetch('https://oauth2.googleapis.com/token', {
       method: 'POST',
@@ -102,7 +128,7 @@ export class GoogleBusinessService {
     const tokens = await tokenRes.json();
     if (!tokens.access_token) {
       this.logger.error(`Token exchange failed: ${JSON.stringify(tokens)}`);
-      return this.errorRedirect('token_failed');
+      return 'token_failed';
     }
 
     await this.placesRepo.update(verified.placeId, {
@@ -111,7 +137,7 @@ export class GoogleBusinessService {
       ...(tokens.refresh_token ? { googleRefreshToken: tokens.refresh_token } : {}),
     });
 
-    return `${this.frontendUrl}/reputacion?connected=true`;
+    return null;
   }
 
   // ── Llamadas autenticadas ────────────────────────────────────────────────
