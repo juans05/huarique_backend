@@ -1,6 +1,9 @@
 import { BadRequestException } from '@nestjs/common';
 import { lookup } from 'dns/promises';
-import { BlockList, isIP } from 'net';
+import * as dns from 'dns';
+import * as http from 'http';
+import * as https from 'https';
+import { BlockList, isIP, LookupFunction } from 'net';
 import axios from 'axios';
 
 // Destinos que nunca se deben pedir desde el servidor: red interna, loopback, metadatos de la nube.
@@ -36,10 +39,23 @@ export async function assertPublicUrl(raw: string): Promise<URL> {
 }
 
 /**
- * GET de una URL dada por un usuario, validando el destino en cada redirección y con tope de tamaño.
- * ponytail: valida la IP antes de conectar, pero no fija la IP resuelta (un DNS rebinding muy rápido
- * podría colarse); si hace falta, pasar un `lookup` propio al agente http.
+ * Resolución DNS que rechaza direcciones internas al momento de conectar: la IP validada es la que se usa,
+ * así un DNS que cambia entre la validación y la conexión (rebinding) no llega a la red interna.
  */
+const safeLookup: LookupFunction = (hostname, options, callback) => {
+    dns.lookup(hostname, { ...options, all: true }, (err, addrs: dns.LookupAddress[]) => {
+        if (err) return callback(err, '', 0);
+        if (!addrs.length || addrs.some((a) => isPrivateAddress(a.address))) {
+            return callback(Object.assign(new Error('Destino no permitido'), { code: 'EBLOCKED' }), '', 0);
+        }
+        if ((options as dns.LookupOptions).all) return (callback as any)(null, addrs);
+        callback(null, addrs[0].address, addrs[0].family);
+    });
+};
+const httpAgent = new http.Agent({ lookup: safeLookup });
+const httpsAgent = new https.Agent({ lookup: safeLookup });
+
+/** GET de una URL dada por un usuario, validando el destino en cada redirección y con tope de tamaño. */
 export async function fetchPublicText(raw: string, opts: { timeout?: number; maxBytes?: number; headers?: Record<string, string> } = {}) {
     let url = await assertPublicUrl(raw);
     for (let hop = 0; hop < 4; hop++) {
@@ -48,6 +64,9 @@ export async function fetchPublicText(raw: string, opts: { timeout?: number; max
             timeout: opts.timeout ?? 15000,
             responseType: 'text',
             maxRedirects: 0,
+            proxy: false,
+            httpAgent,
+            httpsAgent,
             maxContentLength: opts.maxBytes ?? 2 * 1024 * 1024,
             validateStatus: (s) => s >= 200 && s < 400,
         });

@@ -47,6 +47,14 @@ describe('AuthService: arreglos de la auditoría', () => {
         expect(users.updatePassword).not.toHaveBeenCalled();
     });
 
+    it('intentos en paralelo no se saltan el tope', async () => {
+        const wrong = Array.from({ length: 20 }, () => service.resetPassword({ email: 'a@b.pe', code: '000000', password: 'NuevaClave1' } as any).catch(() => 'x'));
+        await Promise.all(wrong);
+        // Aunque el usuario se cargó antes de anular el código, el sexto intento ya no compara.
+        await expect(service.resetPassword({ email: 'a@b.pe', code: '123456', password: 'NuevaClave1' } as any)).rejects.toThrow('Código inválido');
+        expect(users.updatePassword).not.toHaveBeenCalled();
+    });
+
     it('el código correcto cambia la clave', async () => {
         await service.resetPassword({ email: 'a@b.pe', code: '123456', password: 'NuevaClave1' } as any);
         expect(users.updatePassword).toHaveBeenCalled();

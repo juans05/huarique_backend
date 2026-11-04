@@ -392,20 +392,19 @@ export class AuthService {
     /**
      * Compara el código de 6 dígitos con tope de intentos: tras MAX_CODE_FAILURES fallos el código se anula
      * y hay que pedir otro. Sin esto, se podía adivinar a fuerza bruta solo con el límite global por IP.
+     * El intento se cuenta ANTES de comparar y de forma síncrona: peticiones en paralelo no se cuelan.
+     * El contador solo vuelve a 0 con un código nuevo (forgot/resend) o con un acierto.
      * ponytail: contador en memoria por instancia; pasarlo a Redis si se escala a varias réplicas.
      */
     private async checkCode(user: { id: string; verificationCode: string; verificationCodeExpiresAt: Date }, code: string) {
+        const previous = this.codeFailures.get(user.id) ?? 0;
+        if (previous >= MAX_CODE_FAILURES) throw new UnauthorizedException('Código inválido o expirado');
+        this.codeFailures.set(user.id, previous + 1);
         const valid = !!user.verificationCode && user.verificationCodeExpiresAt >= new Date()
             && typeof code === 'string' && code.length === user.verificationCode.length
             && timingSafeEqual(Buffer.from(code), Buffer.from(user.verificationCode));
         if (valid) { this.codeFailures.delete(user.id); return; }
-        const fails = (this.codeFailures.get(user.id) ?? 0) + 1;
-        if (fails >= MAX_CODE_FAILURES) {
-            this.codeFailures.delete(user.id);
-            await this.usersService.setVerificationCode(user.id, null, 0);
-        } else {
-            this.codeFailures.set(user.id, fails);
-        }
+        if (previous + 1 >= MAX_CODE_FAILURES) await this.usersService.setVerificationCode(user.id, null, 0);
         throw new UnauthorizedException('Código inválido o expirado');
     }
 
