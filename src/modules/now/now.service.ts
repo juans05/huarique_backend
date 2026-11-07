@@ -124,10 +124,8 @@ export class NowService {
             throw new BadRequestException(`Archivo no permitido: ${rule.label}`);
         }
 
-        const recent = await this.posts.count({ where: { authorId, createdAt: MoreThan(new Date(Date.now() - 3600_000)) } });
-        if (recent >= POSTS_PER_HOUR) {
-            throw new HttpException(`Máximo ${POSTS_PER_HOUR} publicaciones por hora`, HttpStatus.TOO_MANY_REQUESTS);
-        }
+        // Pre-chequeo barato para no subir el archivo si ya llegó al límite. No es atómico: el definitivo va en la transacción.
+        this.assertUnderHourlyLimit(await this.posts.count(this.lastHour(authorId)));
 
         let mediaUrl: string | null = null;
         if (kind !== 'text') {
@@ -136,21 +134,37 @@ export class NowService {
         }
 
         const createdAt = new Date();
-        const saved = await this.posts.save(
-            this.posts.create({
-                authorId,
-                kind,
-                text,
-                mediaUrl,
-                latitude,
-                longitude,
-                location: { type: 'Point', coordinates: [longitude, latitude] },
-                visibility: dto.visibility ?? 'all',
-                createdAt,
-                expiresAt: computeExpiresAt(createdAt, 0, 0, 0),
-            }),
-        );
+        // El candado asesor serializa las publicaciones del mismo usuario: recontar e insertar es atómico.
+        // Si perdió la carrera, el archivo ya subido queda huérfano en Cloudinary (aceptado: es raro y barato).
+        const saved = await this.posts.manager.transaction(async (m) => {
+            await m.query('SELECT pg_advisory_xact_lock(hashtext($1))', [authorId]);
+            this.assertUnderHourlyLimit(await m.count(NowPost, this.lastHour(authorId)));
+            return m.save(
+                m.create(NowPost, {
+                    authorId,
+                    kind,
+                    text,
+                    mediaUrl,
+                    latitude,
+                    longitude,
+                    location: { type: 'Point', coordinates: [longitude, latitude] },
+                    visibility: dto.visibility ?? 'all',
+                    createdAt,
+                    expiresAt: computeExpiresAt(createdAt, 0, 0, 0),
+                }),
+            );
+        });
         return this.findOne(saved.id, authorId);
+    }
+
+    private lastHour(authorId: string) {
+        return { where: { authorId, createdAt: MoreThan(new Date(Date.now() - 3600_000)) } };
+    }
+
+    private assertUnderHourlyLimit(recent: number): void {
+        if (recent >= POSTS_PER_HOUR) {
+            throw new HttpException(`Máximo ${POSTS_PER_HOUR} publicaciones por hora`, HttpStatus.TOO_MANY_REQUESTS);
+        }
     }
 
     /** 404 si no existe, venció, está oculta o el lector no puede verla. */

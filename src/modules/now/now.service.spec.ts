@@ -23,9 +23,15 @@ const fakeQb = (rows: any[]) => {
 };
 
 const build = () => {
-    const posts = {
-        create: jest.fn((x) => x),
+    // Lo que se escribe va por la transacción (manager); posts solo se usa para leer.
+    const manager = {
+        query: jest.fn().mockResolvedValue([]),
+        count: jest.fn().mockResolvedValue(0),
+        create: jest.fn((_t, x) => x),
         save: jest.fn(async (x) => ({ id: 'p1', ...x })),
+    };
+    const posts = {
+        manager: { transaction: jest.fn((cb) => cb(manager)) },
         findOne: jest.fn().mockResolvedValue(post()),
         count: jest.fn().mockResolvedValue(0),
         createQueryBuilder: jest.fn(),
@@ -39,7 +45,7 @@ const build = () => {
         uploadVideo: jest.fn().mockResolvedValue({ secure_url: 'https://cdn/video.mp4' }),
     };
     const svc = new NowService(posts as any, reactions as any, friends as any, follows as any, promos as any, upload as any);
-    return { svc, posts, reactions, friends, follows, promos, upload };
+    return { svc, posts, manager, reactions, friends, follows, promos, upload };
 };
 
 const file = (mimetype: string, size = 1000) => ({ mimetype, size, buffer: Buffer.from('x'), originalname: 'f' }) as Express.Multer.File;
@@ -77,9 +83,9 @@ describe('NowService.create', () => {
     });
 
     it('fija expiresAt = createdAt + 24 h y guarda el punto como GeoJSON (lng, lat)', async () => {
-        const { svc, posts } = build();
+        const { svc, manager } = build();
         await svc.create('a1', text, undefined);
-        const saved = posts.save.mock.calls[0][0];
+        const saved = manager.save.mock.calls[0][0];
         expect(saved.expiresAt.getTime() - saved.createdAt.getTime()).toBe(24 * HOUR);
         expect(saved.location).toEqual({ type: 'Point', coordinates: [-77.04, -12.05] });
         expect(saved.authorId).toBe('a1');
@@ -87,29 +93,49 @@ describe('NowService.create', () => {
     });
 
     it('un texto no guarda mediaUrl aunque llegue un archivo', async () => {
-        const { svc, posts, upload } = build();
+        const { svc, manager, upload } = build();
         await svc.create('a1', text, file('image/png'));
-        expect(posts.save.mock.calls[0][0].mediaUrl).toBeNull();
+        expect(manager.save.mock.calls[0][0].mediaUrl).toBeNull();
         expect(upload.uploadImage).not.toHaveBeenCalled();
     });
 
     it('sube foto y video a Cloudinary y guarda la URL', async () => {
-        const { svc, posts, upload } = build();
+        const { svc, manager, upload } = build();
         await svc.create('a1', { ...text, kind: 'photo', text: undefined }, file('image/jpeg'));
-        expect(posts.save.mock.calls[0][0]).toMatchObject({ kind: 'photo', mediaUrl: 'https://cdn/foto.jpg', text: null });
+        expect(manager.save.mock.calls[0][0]).toMatchObject({ kind: 'photo', mediaUrl: 'https://cdn/foto.jpg', text: null });
         await svc.create('a1', { ...text, kind: 'video' }, file('video/quicktime'));
-        expect(posts.save.mock.calls[1][0]).toMatchObject({ kind: 'video', mediaUrl: 'https://cdn/video.mp4' });
+        expect(manager.save.mock.calls[1][0]).toMatchObject({ kind: 'video', mediaUrl: 'https://cdn/video.mp4' });
         expect(upload.uploadImage).toHaveBeenCalledTimes(1);
         expect(upload.uploadVideo).toHaveBeenCalledTimes(1);
     });
 
-    it('limita a 5 publicaciones por hora por usuario (429)', async () => {
-        const { svc, posts } = build();
+    it('limita a 5 publicaciones por hora por usuario (429) antes de subir el archivo', async () => {
+        const { svc, posts, manager, upload } = build();
         posts.count.mockResolvedValue(5);
+        const err = await svc.create('a1', { ...text, kind: 'photo' }, file('image/png')).catch((e) => e);
+        expect(err).toBeInstanceOf(HttpException);
+        expect(err.getStatus()).toBe(429);
+        expect(upload.uploadImage).not.toHaveBeenCalled();
+        expect(manager.save).not.toHaveBeenCalled();
+    });
+
+    it('carrera: el recuento dentro de la transacción rechaza con 429 y no inserta', async () => {
+        const { svc, posts, manager } = build();
+        posts.count.mockResolvedValue(4); // el pre-chequeo pasa; otra petición del mismo usuario ya publicó
+        manager.count.mockResolvedValue(5);
         const err = await svc.create('a1', text, undefined).catch((e) => e);
         expect(err).toBeInstanceOf(HttpException);
         expect(err.getStatus()).toBe(429);
-        expect(posts.save).not.toHaveBeenCalled();
+        expect(manager.save).not.toHaveBeenCalled();
+    });
+
+    it('toma el candado asesor del autor antes de recontar e insertar', async () => {
+        const { svc, manager } = build();
+        await svc.create('a1', text, undefined);
+        expect(manager.query).toHaveBeenCalledWith(expect.stringContaining('pg_advisory_xact_lock(hashtext($1))'), ['a1']);
+        const lock = manager.query.mock.invocationCallOrder[0];
+        expect(lock).toBeLessThan(manager.count.mock.invocationCallOrder[0]);
+        expect(manager.count.mock.invocationCallOrder[0]).toBeLessThan(manager.save.mock.invocationCallOrder[0]);
     });
 });
 
