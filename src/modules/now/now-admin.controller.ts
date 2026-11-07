@@ -7,7 +7,7 @@ import { RequirePermission } from '../../common/decorators/require-permission.de
 import { NowService } from './now.service';
 import { RestoreNowPostDto } from './dto/restore-now-post.dto';
 
-/** Moderación de "Ahora" para el panel. Mismas guardas y permisos que AdminController (locales.ver / locales.gestionar). */
+/** Moderación de "Ahora" para el panel. Solo perfiles con locales.gestionar (Moderador y Administrador): es contenido de usuarios, no lo ven Comercial, Finanzas ni Soporte. */
 @ApiTags('admin')
 @ApiBearerAuth()
 @Controller('admin/now')
@@ -17,7 +17,7 @@ export class NowAdminController {
     constructor(private readonly nowService: NowService) {}
 
     @Get('reported')
-    @RequirePermission('locales.ver')
+    @RequirePermission('locales.gestionar')
     @ApiOperation({ summary: 'Publicaciones ocultas por votos o reportes, con el número de reportes y el motivo' })
     reported() {
         return this.nowService.reported();
