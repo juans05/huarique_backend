@@ -55,3 +55,17 @@ CREATE TABLE IF NOT EXISTS wuarike_db.now_reports (
 
 -- limite de reportes por dia
 CREATE INDEX IF NOT EXISTS idx_now_reports_user_created ON wuarike_db.now_reports (user_id, created_at);
+
+
+-- Los contadores nunca pueden quedar negativos (la API los recalcula contando filas).
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint
+    WHERE conname = 'ck_now_posts_counters_nonneg'
+      AND conrelid = 'wuarike_db.now_posts'::regclass
+  ) THEN
+    ALTER TABLE wuarike_db.now_posts
+      ADD CONSTRAINT ck_now_posts_counters_nonneg CHECK (likes >= 0 AND dislikes >= 0 AND checks >= 0);
+  END IF;
+END $$;

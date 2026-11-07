@@ -1,10 +1,12 @@
 import {
     Body,
     Controller,
+    Delete,
     Get,
     Param,
     ParseUUIDPipe,
     Post,
+    Put,
     Query,
     UploadedFile,
     UseGuards,
@@ -19,6 +21,7 @@ import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { NowService } from './now.service';
 import { NowAreaDto } from './dto/now-area.dto';
 import { CreateNowPostDto } from './dto/create-now-post.dto';
+import { ReactNowDto, ReportNowDto } from './dto/react-now.dto';
 
 @ApiTags('now')
 @Controller('now')
@@ -51,5 +54,32 @@ export class NowController {
     @UseInterceptors(FileInterceptor('file', { limits: { fileSize: 20 * 1024 * 1024 } }))
     create(@CurrentUser() user: { id: string }, @Body() dto: CreateNowPostDto, @UploadedFile() file?: Express.Multer.File) {
         return this.nowService.create(user.id, dto, file);
+    }
+
+    @Put('posts/:id/reaction')
+    @UseGuards(JwtAuthGuard)
+    @ApiBearerAuth()
+    @ApiOperation({ summary: 'Dar 👍, 👎 o ✅ (reemplaza la anterior). El ✅ pide el GPS y estar a 300 m o menos' })
+    react(@CurrentUser() user: { id: string }, @Param('id', ParseUUIDPipe) id: string, @Body() dto: ReactNowDto) {
+        return this.nowService.react(user.id, id, dto);
+    }
+
+    @Delete('posts/:id/reaction')
+    @UseGuards(JwtAuthGuard)
+    @ApiBearerAuth()
+    @ApiOperation({ summary: 'Quitar mi reacción' })
+    unreact(@CurrentUser() user: { id: string }, @Param('id', ParseUUIDPipe) id: string) {
+        return this.nowService.unreact(user.id, id);
+    }
+
+    @Post('posts/:id/report')
+    @UseGuards(JwtAuthGuard)
+    @ApiBearerAuth()
+    @ApiOperation({ summary: 'Reportar una publicación (1 por usuario y publicación, 20 por día)' })
+    // Por IP es solo un respaldo: la IP móvil (CGNAT) la comparten muchos usuarios. La regla real, 20 por día
+    // por usuario, está en NowService.report.
+    @Throttle({ default: { ttl: 86_400_000, limit: 200 } })
+    report(@CurrentUser() user: { id: string }, @Param('id', ParseUUIDPipe) id: string, @Body() dto: ReportNowDto) {
+        return this.nowService.report(user.id, id, dto.reason);
     }
 }

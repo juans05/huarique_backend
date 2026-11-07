@@ -1,6 +1,6 @@
-import { BadRequestException, HttpException, HttpStatus, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ForbiddenException, HttpException, HttpStatus, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { In, MoreThan, Repository } from 'typeorm';
+import { EntityManager, In, MoreThan, Repository } from 'typeorm';
 import { UploadService } from '../upload/upload.service';
 import { UserFollow } from '../users/entities/user-follow.entity';
 import { Promotion } from '../places/entities/promotion.entity';
@@ -8,9 +8,22 @@ import { Subscription } from '../subscriptions/entities/subscription.entity';
 import { NowPost, NowPostKind } from './entities/now-post.entity';
 import { NowReaction, NowReactionType } from './entities/now-reaction.entity';
 import { NowFriend } from './entities/now-friend.entity';
+import { NowReport } from './entities/now-report.entity';
 import { CreateNowPostDto } from './dto/create-now-post.dto';
 import { NowAreaDto } from './dto/now-area.dto';
-import { NowVisibility, PROMO_DEFAULT_HOURS, POSTS_PER_HOUR, canSee, computeExpiresAt, promoVisibleUntil } from './now-rules';
+import { ReactNowDto } from './dto/react-now.dto';
+import {
+    NOW_RADIUS_M,
+    NowVisibility,
+    POSTS_PER_HOUR,
+    PROMO_DEFAULT_HOURS,
+    REPORTS_PER_DAY,
+    REPORTS_TO_HIDE,
+    canSee,
+    computeExpiresAt,
+    promoVisibleUntil,
+    shouldHideByVotes,
+} from './now-rules';
 
 const MAX_POSTS = 200;
 const MAX_PROMOS = 100;
@@ -168,16 +181,106 @@ export class NowService {
     }
 
     /** 404 si no existe, venció, está oculta o el lector no puede verla. */
-    async findOne(id: string, viewerId: string | null): Promise<NowPostDto> {
+    private async loadVisible(id: string, viewerId: string | null): Promise<NowPost> {
         const p = await this.posts.findOne({ where: { id }, relations: { author: true } });
         if (!p || p.hidden || p.expiresAt.getTime() <= Date.now()) throw new NotFoundException('Publicación no encontrada');
 
         const follows = p.visibility === 'followers' && viewerId ? await this.isFollower(viewerId, p.authorId) : false;
         const friends = p.visibility === 'friends' && viewerId ? await this.inFriends(p.authorId, viewerId) : false;
         if (!canSee(p.visibility, p.authorId, viewerId, follows, friends)) throw new NotFoundException('Publicación no encontrada');
+        return p;
+    }
 
+    async findOne(id: string, viewerId: string | null): Promise<NowPostDto> {
+        const p = await this.loadVisible(id, viewerId);
         const mine = viewerId ? await this.reactions.findOne({ where: { postId: id, userId: viewerId } }) : null;
         return this.toDto(p, mine?.type ?? null);
+    }
+
+    /** Metros entre la publicación y el punto dado (geography: distancia sobre el elipsoide). */
+    async distanceMeters(postId: string, lat: number, lng: number): Promise<number> {
+        const rows = await this.posts.query(
+            'SELECT ST_Distance(location, ST_SetSRID(ST_MakePoint($2, $3), 4326)::geography) AS d FROM wuarike_db.now_posts WHERE id = $1',
+            [postId, lng, lat],
+        );
+        if (!rows.length) throw new NotFoundException('Publicación no encontrada');
+        return Number(rows[0].d);
+    }
+
+    async react(userId: string, postId: string, dto: ReactNowDto): Promise<NowPostDto> {
+        const { type, latitude, longitude } = dto;
+        if (type === 'check' && !isLatLng(latitude, longitude)) {
+            throw new BadRequestException('Necesitamos tu ubicación (latitud -90..90, longitud -180..180) para dar ✅');
+        }
+        const post = await this.loadVisible(postId, userId);
+        // Después de la visibilidad: un 403 por distancia delataría dónde está una publicación que el usuario no puede ver.
+        if (type === 'check' && (await this.distanceMeters(postId, latitude!, longitude!)) > NOW_RADIUS_M) {
+            throw new ForbiddenException(`Tienes que estar a ${NOW_RADIUS_M} m o menos para dar ✅`);
+        }
+        const patch = await this.recount(postId, (m) => m.upsert(NowReaction, { postId, userId, type }, ['postId', 'userId']));
+        return this.toDto(Object.assign(post, patch), type);
+    }
+
+    async unreact(userId: string, postId: string): Promise<NowPostDto> {
+        const post = await this.loadVisible(postId, userId);
+        const patch = await this.recount(postId, (m) => m.delete(NowReaction, { postId, userId }));
+        return this.toDto(Object.assign(post, patch), null);
+    }
+
+    /**
+     * Escribe la reacción y recalcula likes/dislikes/checks, expiresAt y hidden contando now_reactions, con la fila
+     * de la publicación bloqueada. Sin incrementos: si se borra un usuario en cascada sus reacciones desaparecen
+     * sin tocar los contadores, y así se corrigen solos.
+     */
+    private recount(postId: string, write: (m: EntityManager) => Promise<unknown>) {
+        return this.posts.manager.transaction(async (m) => {
+            const post = await this.lockPost(m, postId);
+            await write(m);
+            const likes = await m.count(NowReaction, { where: { postId, type: 'like' } });
+            const dislikes = await m.count(NowReaction, { where: { postId, type: 'dislike' } });
+            const checks = await m.count(NowReaction, { where: { postId, type: 'check' } });
+
+            // Nunca se toca una oculta por reportes; una oculta por votos se muestra otra vez si se recuperan.
+            const byVotes = shouldHideByVotes(likes, dislikes, checks);
+            let { hidden, hiddenReason } = post;
+            if (byVotes && (hiddenReason == null || hiddenReason === 'votes')) [hidden, hiddenReason] = [true, 'votes'];
+            else if (!byVotes && hiddenReason === 'votes') [hidden, hiddenReason] = [false, null];
+
+            const patch = { likes, dislikes, checks, expiresAt: computeExpiresAt(post.createdAt, likes, dislikes, checks), hidden, hiddenReason };
+            await m.update(NowPost, { id: postId }, patch);
+            return patch;
+        });
+    }
+
+    private async lockPost(m: EntityManager, postId: string): Promise<NowPost> {
+        const post = await m.findOne(NowPost, {
+            where: { id: postId },
+            select: { id: true, createdAt: true, hidden: true, hiddenReason: true },
+            lock: { mode: 'pessimistic_write' },
+        });
+        if (!post) throw new NotFoundException('Publicación no encontrada');
+        return post;
+    }
+
+    async report(userId: string, postId: string, reason: string): Promise<{ ok: true }> {
+        const post = await this.loadVisible(postId, userId);
+        if (post.authorId === userId) throw new BadRequestException('No puedes reportar tu propia publicación');
+
+        await this.posts.manager.transaction(async (m) => {
+            // Candado por quien reporta (con prefijo, para no chocar con el de publicar): contar el día e insertar es atómico.
+            await m.query('SELECT pg_advisory_xact_lock(hashtext($1))', [`report:${userId}`]);
+            if (await m.findOne(NowReport, { where: { postId, userId } })) return; // ya lo reportó: cuenta una sola vez
+            const today = await m.count(NowReport, { where: { userId, createdAt: MoreThan(new Date(Date.now() - 86_400_000)) } });
+            if (today >= REPORTS_PER_DAY) {
+                throw new HttpException(`Máximo ${REPORTS_PER_DAY} reportes por día`, HttpStatus.TOO_MANY_REQUESTS);
+            }
+
+            await this.lockPost(m, postId);
+            await m.insert(NowReport, { postId, userId, reason: reason.trim() || null });
+            const reports = await m.count(NowReport, { where: { postId } });
+            await m.update(NowPost, { id: postId }, reports >= REPORTS_TO_HIDE ? { reports, hidden: true, hiddenReason: 'reports' } : { reports });
+        });
+        return { ok: true };
     }
 
     async listArea(viewerId: string | null, box: NowAreaDto): Promise<{ posts: NowPostDto[]; promos: NowPromoDto[] }> {
