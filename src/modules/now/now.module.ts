@@ -9,10 +9,11 @@ import { NowFriend } from './entities/now-friend.entity';
 import { NowReport } from './entities/now-report.entity';
 import { NowService } from './now.service';
 import { NowController } from './now.controller';
+import { NowAdminController } from './now-admin.controller';
 
 @Module({
     imports: [TypeOrmModule.forFeature([NowPost, NowReaction, NowFriend, NowReport, UserFollow, Promotion]), UploadModule],
-    controllers: [NowController],
+    controllers: [NowController, NowAdminController],
     providers: [NowService],
     exports: [NowService],
 })

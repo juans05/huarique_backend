@@ -1,6 +1,6 @@
 import { BadRequestException, ForbiddenException, HttpException, HttpStatus, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { EntityManager, In, MoreThan, Repository } from 'typeorm';
+import { EntityManager, In, MoreThan, Repository, SelectQueryBuilder } from 'typeorm';
 import { UploadService } from '../upload/upload.service';
 import { UserFollow } from '../users/entities/user-follow.entity';
 import { Promotion } from '../places/entities/promotion.entity';
@@ -12,6 +12,7 @@ import { NowReport } from './entities/now-report.entity';
 import { CreateNowPostDto } from './dto/create-now-post.dto';
 import { NowAreaDto } from './dto/now-area.dto';
 import { ReactNowDto } from './dto/react-now.dto';
+import { NowFeedDto, NowFeedScope } from './dto/now-feed.dto';
 import {
     NOW_RADIUS_M,
     NowVisibility,
@@ -37,6 +38,29 @@ const FILE_RULES = {
 
 // ST_Intersects con geography exige que la caja también lo sea.
 const ENVELOPE = 'ST_MakeEnvelope(:minLng, :minLat, :maxLng, :maxLat, 4326)::geography';
+
+const PAGE_SIZE = 20;
+const NEARBY_FEED_M = 5000;
+
+/**
+ * Espejo en SQL de `canSee` (now-rules) para el lector `:viewerId`: ve lo suyo, lo público, lo 'followers' de quien
+ * sigue y lo 'friends' solo si el AUTOR lo tiene en su lista (owner = autor, friend = lector; no al revés).
+ * Va en el WHERE, no después del LIMIT, para que la página y el total ya vengan filtrados.
+ * Cada condición en una sola línea: TypeORM reemplaza `p.authorId` por la columna solo entre espacios y paréntesis.
+ */
+const VISIBLE_TO_VIEWER =
+    "(p.authorId = :viewerId OR p.visibility = 'all'" +
+    " OR (p.visibility = 'followers' AND EXISTS (SELECT 1 FROM wuarike_db.user_follows vf WHERE vf.follower_id = :viewerId AND vf.following_id = p.authorId))" +
+    " OR (p.visibility = 'friends' AND EXISTS (SELECT 1 FROM wuarike_db.now_friends vn WHERE vn.owner_id = p.authorId AND vn.friend_id = :viewerId)))";
+
+const FEED_SCOPE_SQL: Record<NowFeedScope, string> = {
+    following: 'EXISTS (SELECT 1 FROM wuarike_db.user_follows sf WHERE sf.follower_id = :viewerId AND sf.following_id = p.authorId)',
+    // Amigos en cualquiera de las dos direcciones; cada publicación aun así pasa por VISIBLE_TO_VIEWER.
+    friends:
+        '(EXISTS (SELECT 1 FROM wuarike_db.now_friends fa WHERE fa.owner_id = p.authorId AND fa.friend_id = :viewerId)' +
+        ' OR EXISTS (SELECT 1 FROM wuarike_db.now_friends fb WHERE fb.owner_id = :viewerId AND fb.friend_id = p.authorId))',
+    nearby: 'ST_DWithin(p.location, ST_SetSRID(ST_MakePoint(:lng, :lat), 4326)::geography, :radius)',
+};
 
 export interface NowAuthorDto {
     id: string;
@@ -71,6 +95,13 @@ export interface NowPromoDto {
     visibleUntil: Date;
     place: { id: string; name: string | null; latitude: number; longitude: number; coverImageUrl: string | null };
 }
+
+export interface NowPage {
+    data: NowPostDto[];
+    total: number;
+}
+
+export type NowReportedDto = NowPostDto & { reports: number; hiddenReason: string | null };
 
 /** Solo id, nombre y foto: nunca email, teléfono ni hash. */
 export const toPublicAuthor = (u: { id: string; fullName: string; avatarUrl?: string | null }): NowAuthorDto => ({
@@ -297,10 +328,7 @@ export class NowService {
     }
 
     private async postsInArea(viewerId: string | null, params: Record<string, number>): Promise<NowPostDto[]> {
-        const rows = await this.posts
-            .createQueryBuilder('p')
-            .innerJoin('p.author', 'a')
-            .addSelect(['a.id', 'a.fullName', 'a.avatarUrl'])
+        const rows = await this.authored()
             .where(`ST_Intersects(p.location, ${ENVELOPE})`, params)
             .andWhere('p.expiresAt > :now', { now: new Date() })
             .andWhere('p.hidden = false')
@@ -318,13 +346,99 @@ export class NowService {
             (await this.friends.find({ where: { friendId: viewerId, ownerId: In(authors) } })).forEach((f) => inFriends.add(f.ownerId));
         }
         const visible = rows.filter((r) => canSee(r.visibility, r.authorId, viewerId, following.has(r.authorId), inFriends.has(r.authorId)));
+        return this.toDtos(visible, viewerId);
+    }
 
+    /** Publicaciones con solo los datos públicos del autor (id, nombre, foto): nunca email, teléfono ni hash. */
+    private authored(): SelectQueryBuilder<NowPost> {
+        return this.posts.createQueryBuilder('p').innerJoin('p.author', 'a').addSelect(['a.id', 'a.fullName', 'a.avatarUrl']);
+    }
+
+    private async toDtos(rows: NowPost[], viewerId: string | null): Promise<NowPostDto[]> {
         const mine = new Map<string, NowReactionType>();
-        if (viewerId && visible.length) {
-            const found = await this.reactions.find({ where: { userId: viewerId, postId: In(visible.map((r) => r.id)) } });
+        if (viewerId && rows.length) {
+            const found = await this.reactions.find({ where: { userId: viewerId, postId: In(rows.map((r) => r.id)) } });
             found.forEach((r) => mine.set(r.postId, r.type));
         }
-        return visible.map((r) => this.toDto(r, mine.get(r.id) ?? null));
+        return rows.map((r) => this.toDto(r, mine.get(r.id) ?? null));
+    }
+
+    private async paginate(qb: SelectQueryBuilder<NowPost>, viewerId: string, page = 1): Promise<NowPage> {
+        // El id desempata: dos publicaciones con el mismo createdAt no se repiten ni se saltan entre páginas.
+        const [rows, total] = await qb
+            .orderBy('p.createdAt', 'DESC')
+            .addOrderBy('p.id', 'DESC')
+            .offset((page - 1) * PAGE_SIZE)
+            .limit(PAGE_SIZE)
+            .getManyAndCount();
+        return { data: await this.toDtos(rows, viewerId), total };
+    }
+
+    /** Feed con sesión: vigentes, no ocultas y visibles para el lector, de 20 en 20 y las más nuevas primero. */
+    async feed(viewerId: string, { scope, lat, lng, page }: NowFeedDto): Promise<NowPage> {
+        if (scope === 'nearby' && !isLatLng(lat, lng)) {
+            throw new BadRequestException('Necesitamos tu ubicación (lat -90..90, lng -180..180) para ver lo cercano');
+        }
+        const qb = this.authored()
+            .where('p.hidden = false')
+            .andWhere('p.expiresAt > :now', { now: new Date() })
+            .andWhere(VISIBLE_TO_VIEWER, { viewerId })
+            .andWhere(FEED_SCOPE_SQL[scope], scope === 'nearby' ? { lat, lng, radius: NEARBY_FEED_M } : {});
+        return this.paginate(qb, viewerId, page);
+    }
+
+    /** Mis publicaciones, también las vencidas y las ocultas: el autor ve las suyas. */
+    mine(userId: string, page?: number): Promise<NowPage> {
+        return this.paginate(this.authored().where('p.authorId = :userId', { userId }), userId, page);
+    }
+
+    async listFriends(ownerId: string): Promise<NowAuthorDto[]> {
+        const rows = await this.friends.find({
+            where: { ownerId },
+            relations: { friend: true },
+            select: { id: true, friend: { id: true, fullName: true, avatarUrl: true } },
+            order: { createdAt: 'DESC' },
+        });
+        return rows.map((r) => toPublicAuthor(r.friend));
+    }
+
+    /** Solo se agrega a quien ya me sigue. Si ya estaba en la lista, no pasa nada. */
+    async addFriend(ownerId: string, friendId: string): Promise<{ ok: true }> {
+        if (ownerId === friendId) throw new BadRequestException('No puedes agregarte a ti mismo');
+        if (!(await this.isFollower(friendId, ownerId))) throw new BadRequestException('Solo puedes agregar a quien te sigue');
+        await this.friends.upsert({ ownerId, friendId }, ['ownerId', 'friendId']);
+        return { ok: true };
+    }
+
+    async removeFriend(ownerId: string, friendId: string): Promise<{ ok: true }> {
+        await this.friends.delete({ ownerId, friendId });
+        return { ok: true };
+    }
+
+    /** Moderación: publicaciones ocultas (por votos o reportes), las más nuevas primero. */
+    async reported(): Promise<NowReportedDto[]> {
+        const rows = await this.authored().where('p.hidden = true').orderBy('p.createdAt', 'DESC').limit(MAX_POSTS).getMany();
+        return rows.map((p) => ({ ...this.toDto(p), reports: p.reports, hiddenReason: p.hiddenReason }));
+    }
+
+    /**
+     * Moderación: vuelve a mostrar la publicación y borra sus reportes. hidden y hiddenReason se escriben juntos
+     * (recount depende de eso) y con la fila bloqueada, para no cruzarse con una reacción o un reporte en curso.
+     */
+    async restore(id: string): Promise<{ ok: true }> {
+        await this.posts.manager.transaction(async (m) => {
+            await this.lockPost(m, id);
+            await m.update(NowPost, { id }, { hidden: false, hiddenReason: null, reports: 0 });
+            await m.delete(NowReport, { postId: id });
+        });
+        return { ok: true };
+    }
+
+    /** Moderación: borra la publicación; sus reacciones y reportes se van en cascada. */
+    async remove(id: string): Promise<{ ok: true }> {
+        const { affected } = await this.posts.delete({ id });
+        if (!affected) throw new NotFoundException('Publicación no encontrada');
+        return { ok: true };
     }
 
     /** Promos de locales con suscripción activa. Regla de vigencia propia de "Ahora": no toca PromotionsService. */

@@ -21,6 +21,7 @@ import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { NowService } from './now.service';
 import { NowAreaDto } from './dto/now-area.dto';
 import { CreateNowPostDto } from './dto/create-now-post.dto';
+import { NowFeedDto, NowPageDto } from './dto/now-feed.dto';
 import { ReactNowDto, ReportNowDto } from './dto/react-now.dto';
 
 @ApiTags('now')
@@ -33,6 +34,48 @@ export class NowController {
     @ApiOperation({ summary: 'Publicaciones y promos de locales con plan dentro de la zona del mapa' })
     list(@CurrentUser() user: { id: string } | null, @Query() area: NowAreaDto) {
         return this.nowService.listArea(user?.id ?? null, area);
+    }
+
+    // Las rutas fijas (feed, mine, friends) van antes de las que llevan :id. Sin @Throttle propio: rige solo el
+    // global, porque la IP móvil (CGNAT) la comparten muchos usuarios.
+    @Get('feed')
+    @UseGuards(JwtAuthGuard)
+    @ApiBearerAuth()
+    @ApiOperation({ summary: 'Feed de Ahora: following, nearby (5 km de lat/lng) o friends. Respeta la visibilidad' })
+    feed(@CurrentUser() user: { id: string }, @Query() query: NowFeedDto) {
+        return this.nowService.feed(user.id, query);
+    }
+
+    @Get('mine')
+    @UseGuards(JwtAuthGuard)
+    @ApiBearerAuth()
+    @ApiOperation({ summary: 'Mis publicaciones, vigentes y vencidas, las más nuevas primero' })
+    mine(@CurrentUser() user: { id: string }, @Query() query: NowPageDto) {
+        return this.nowService.mine(user.id, query.page);
+    }
+
+    @Get('friends')
+    @UseGuards(JwtAuthGuard)
+    @ApiBearerAuth()
+    @ApiOperation({ summary: 'Mi lista de amigos de Ahora (id, nombre y foto)' })
+    friends(@CurrentUser() user: { id: string }) {
+        return this.nowService.listFriends(user.id);
+    }
+
+    @Post('friends/:userId')
+    @UseGuards(JwtAuthGuard)
+    @ApiBearerAuth()
+    @ApiOperation({ summary: 'Agregar a mi lista de amigos a alguien que me sigue (400 si no me sigue)' })
+    addFriend(@CurrentUser() user: { id: string }, @Param('userId', ParseUUIDPipe) userId: string) {
+        return this.nowService.addFriend(user.id, userId);
+    }
+
+    @Delete('friends/:userId')
+    @UseGuards(JwtAuthGuard)
+    @ApiBearerAuth()
+    @ApiOperation({ summary: 'Quitar de mi lista de amigos' })
+    removeFriend(@CurrentUser() user: { id: string }, @Param('userId', ParseUUIDPipe) userId: string) {
+        return this.nowService.removeFriend(user.id, userId);
     }
 
     @Get('posts/:id')
