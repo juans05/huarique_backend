@@ -621,7 +621,7 @@ export class PlacesService {
         });
 
         return {
-            data,
+            data: data.map(withPublicUser),
             total,
             page,
             limit,
@@ -660,7 +660,7 @@ export class PlacesService {
         });
 
         return {
-            data,
+            data: data.map(withPublicUser),
             total,
             page,
             limit,
@@ -687,3 +687,9 @@ export class PlacesService {
 
 }
 
+// Listas públicas: del autor solo nombre y foto. Sin esto se filtraban email, teléfono
+// y hash de la clave (no hay ClassSerializerInterceptor global que aplique @Exclude).
+export function withPublicUser<T extends { user?: { id: string; fullName: string; avatarUrl: string } | null }>(item: T) {
+    const { user, ...rest } = item;
+    return { ...rest, user: user ? { id: user.id, fullName: user.fullName, avatarUrl: user.avatarUrl } : null };
+}

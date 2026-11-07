@@ -15,7 +15,6 @@ import {
     FileTypeValidator,
     NotFoundException,
     BadRequestException,
-    ForbiddenException,
     DefaultValuePipe,
     ParseIntPipe,
 } from '@nestjs/common';
@@ -355,8 +354,10 @@ export class PlacesController {
         return this.placesService.findAllVideos(id, page, limit);
     }
 
+    // Cualquier usuario con sesión puede subir; queda registrado quién (userId).
     @Post(':id/videos')
     @UseGuards(JwtAuthGuard)
+    @Throttle({ default: { ttl: 3_600_000, limit: 5 } })
     @ApiBearerAuth()
     @ApiOperation({ summary: 'Upload a video for a place' })
     @ApiParam({ name: 'id', description: 'Place UUID' })
@@ -376,7 +377,6 @@ export class PlacesController {
     ) {
         const place = await this.placesRepo.findOne({ where: { id } });
         if (!place) throw new NotFoundException('Local no encontrado');
-        if (place.claimedByUserId !== user.id) throw new ForbiddenException('No tienes permiso para gestionar este local');
         return this.placesService.addVideo(user.id, id, file);
     }
 
@@ -395,8 +395,10 @@ export class PlacesController {
         return this.placesService.findAllPhotos(id, page, limit);
     }
 
+    // Cualquier usuario con sesión puede subir; queda registrado quién (userId).
     @Post(':id/photos')
     @UseGuards(JwtAuthGuard)
+    @Throttle({ default: { ttl: 3_600_000, limit: 20 } })
     @ApiBearerAuth()
     @ApiOperation({ summary: 'Upload a photo for a place' })
     @ApiParam({ name: 'id', description: 'Place UUID' })
@@ -416,7 +418,6 @@ export class PlacesController {
     ) {
         const place = await this.placesRepo.findOne({ where: { id } });
         if (!place) throw new NotFoundException('Local no encontrado');
-        if (place.claimedByUserId !== user.id) throw new ForbiddenException('No tienes permiso para gestionar este local');
         return this.placesService.addPhoto(user.id, id, file);
     }
 }
