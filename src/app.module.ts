@@ -47,6 +47,7 @@ import { AppointmentsModule } from './modules/appointments/appointments.module';
 import { PushModule } from './modules/push/push.module';
 import { InventoryModule } from './modules/inventory/inventory.module';
 import { OrdersNotificationsModule } from './modules/orders/orders-notifications.module';
+import { NowModule } from './modules/now/now.module';
 
 @Module({
     imports: [
@@ -131,6 +132,7 @@ import { OrdersNotificationsModule } from './modules/orders/orders-notifications
         PushModule,
         InventoryModule,
         OrdersNotificationsModule,
+        NowModule,
     ],
     providers: [
         {
