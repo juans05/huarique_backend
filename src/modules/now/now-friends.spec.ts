@@ -283,7 +283,7 @@ describe('HTTP: rutas, validación y guardas', () => {
             controllers: [NowController, NowAdminController],
             providers: [
                 { provide: NowService, useValue: svc },
-                { provide: PlatformAccessService, useValue: { permissionsOf: jest.fn().mockResolvedValue(['*']) } },
+                { provide: PlatformAccessService, useValue: { permissionsOf: jest.fn(async (u: { role: string }) => (u.role === 'admin' ? ['*'] : [])) } },
             ],
         })
             .overrideGuard(JwtAuthGuard)
