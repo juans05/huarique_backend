@@ -203,8 +203,9 @@ export class NowService {
             'SELECT ST_Distance(location, ST_SetSRID(ST_MakePoint($2, $3), 4326)::geography) AS d FROM wuarike_db.now_posts WHERE id = $1',
             [postId, lng, lat],
         );
-        if (!rows.length) throw new NotFoundException('Publicación no encontrada');
-        return Number(rows[0].d);
+        const d = rows[0]?.d == null ? NaN : Number(rows[0].d); // Number(null) sería 0 m: cerca de todo
+        if (!Number.isFinite(d)) throw new NotFoundException('Publicación no encontrada');
+        return d;
     }
 
     async react(userId: string, postId: string, dto: ReactNowDto): Promise<NowPostDto> {
@@ -213,8 +214,10 @@ export class NowService {
             throw new BadRequestException('Necesitamos tu ubicación (latitud -90..90, longitud -180..180) para dar ✅');
         }
         const post = await this.loadVisible(postId, userId);
+        if (post.authorId === userId) throw new BadRequestException('No puedes reaccionar a tu propia publicación');
         // Después de la visibilidad: un 403 por distancia delataría dónde está una publicación que el usuario no puede ver.
-        if (type === 'check' && (await this.distanceMeters(postId, latitude!, longitude!)) > NOW_RADIUS_M) {
+        // `!(d <= radio)` y no `d > radio`: una distancia NaN no puede dar ✅.
+        if (type === 'check' && !((await this.distanceMeters(postId, latitude!, longitude!)) <= NOW_RADIUS_M)) {
             throw new ForbiddenException(`Tienes que estar a ${NOW_RADIUS_M} m o menos para dar ✅`);
         }
         const patch = await this.recount(postId, (m) => m.upsert(NowReaction, { postId, userId, type }, ['postId', 'userId']));

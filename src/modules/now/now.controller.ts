@@ -60,6 +60,8 @@ export class NowController {
     @UseGuards(JwtAuthGuard)
     @ApiBearerAuth()
     @ApiOperation({ summary: 'Dar 👍, 👎 o ✅ (reemplaza la anterior). El ✅ pide el GPS y estar a 300 m o menos' })
+    // Solo un respaldo por IP: así quienes comparten IP móvil (CGNAT) no chocan con el global de 30/min.
+    @Throttle({ default: { ttl: 60_000, limit: 120 } })
     react(@CurrentUser() user: { id: string }, @Param('id', ParseUUIDPipe) id: string, @Body() dto: ReactNowDto) {
         return this.nowService.react(user.id, id, dto);
     }
@@ -68,6 +70,8 @@ export class NowController {
     @UseGuards(JwtAuthGuard)
     @ApiBearerAuth()
     @ApiOperation({ summary: 'Quitar mi reacción' })
+    // Solo un respaldo por IP: así quienes comparten IP móvil (CGNAT) no chocan con el global de 30/min.
+    @Throttle({ default: { ttl: 60_000, limit: 120 } })
     unreact(@CurrentUser() user: { id: string }, @Param('id', ParseUUIDPipe) id: string) {
         return this.nowService.unreact(user.id, id);
     }

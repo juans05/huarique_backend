@@ -89,6 +89,27 @@ describe('NowService.react', () => {
         expect(distance).toHaveBeenCalledWith('p1', -12.05, -77.04);
     });
 
+    it('el autor no puede reaccionar a su propia publicación (400), ni 👍 ni ✅, sin transacción ni distancia', async () => {
+        const { svc, posts, distance } = build();
+        await expect(svc.react('a1', 'p1', react('like'))).rejects.toBeInstanceOf(BadRequestException);
+        await expect(svc.react('a1', 'p1', react('check', here))).rejects.toBeInstanceOf(BadRequestException);
+        expect(posts.manager.transaction).not.toHaveBeenCalled();
+        expect(distance).not.toHaveBeenCalled();
+    });
+
+    it('el autor sí puede quitar una reacción vieja (unreact queda abierto)', async () => {
+        const { svc, state } = build({}, { reactions: [rx('a1', 'like')] });
+        await expect(svc.unreact('a1', 'p1')).resolves.toMatchObject({ myReaction: null });
+        expect(state.reactions).toHaveLength(0);
+    });
+
+    it('✅ falla cerrado: una distancia NaN no da ✅', async () => {
+        const { svc, state, distance } = build();
+        distance.mockResolvedValue(NaN);
+        await expect(svc.react('u2', 'p1', react('check', here))).rejects.toBeInstanceOf(ForbiddenException);
+        expect(state.reactions).toHaveLength(0);
+    });
+
     it('👍 y 👎 no piden ubicación ni miden distancia', async () => {
         const { svc, distance } = build();
         await svc.react('u2', 'p1', react('like'));
@@ -222,11 +243,13 @@ describe('NowService.distanceMeters', () => {
         expect(params).toEqual(['p1', -77.04, -12.05]);
     });
 
-    it('404 si la publicación ya no existe', async () => {
+    it('404 si la publicación ya no existe o la distancia no es un número finito (nunca 0 m)', async () => {
         const { svc, posts } = build();
         (svc.distanceMeters as jest.Mock).mockRestore();
-        posts.query.mockResolvedValue([]);
-        await expect(svc.distanceMeters('p1', 0, 0)).rejects.toBeInstanceOf(NotFoundException);
+        for (const rows of [[], [{ d: null }], [{}], [{ d: 'abc' }], [{ d: 'Infinity' }]]) {
+            posts.query.mockResolvedValue(rows);
+            await expect(svc.distanceMeters('p1', 0, 0)).rejects.toBeInstanceOf(NotFoundException);
+        }
     });
 });
 
