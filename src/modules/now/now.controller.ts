@@ -12,7 +12,6 @@ import {
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { ApiBearerAuth, ApiConsumes, ApiOperation, ApiTags } from '@nestjs/swagger';
-import { Throttle } from '@nestjs/throttler';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { OptionalJwtAuthGuard } from '../auth/guards/optional-jwt-auth.guard';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
@@ -44,7 +43,6 @@ export class NowController {
     @ApiBearerAuth()
     @ApiConsumes('multipart/form-data')
     @ApiOperation({ summary: 'Publicar en Ahora (foto, video o texto) con la ubicación del GPS' })
-    @Throttle({ default: { ttl: 3_600_000, limit: 5 } })
     // 20 MB: el mayor de los dos tipos; NowService revisa tipo y tamaño según `kind`.
     @UseInterceptors(FileInterceptor('file', { limits: { fileSize: 20 * 1024 * 1024 } }))
     create(@CurrentUser() user: { id: string }, @Body() dto: CreateNowPostDto, @UploadedFile() file?: Express.Multer.File) {
