@@ -20,6 +20,7 @@ describe('LoyaltyService.getMyCards', () => {
   let programRepo: ReturnType<typeof mockRepo>;
   let placesRepo: ReturnType<typeof mockRepo>;
   let contacts: { upsertByPhone: jest.Mock };
+  let walletQueue: { add: jest.Mock };
 
   beforeEach(async () => {
     contacts = { upsertByPhone: jest.fn().mockResolvedValue(null) };
@@ -43,6 +44,7 @@ describe('LoyaltyService.getMyCards', () => {
     cardRepo = module.get(getRepositoryToken(LoyaltyCard));
     programRepo = module.get(getRepositoryToken(LoyaltyProgram));
     placesRepo = module.get(getRepositoryToken(Place));
+    walletQueue = module.get(getQueueToken('wallet-campaign'));
   });
 
   it('includes latitude/longitude from the place in each card', async () => {
@@ -164,6 +166,54 @@ describe('LoyaltyService.getMyCards', () => {
       contacts.upsertByPhone.mockRejectedValue(new Error('db caída'));
       const res = await service.scan('p1', '999999999', 'Ana');
       expect(res.isNew).toBe(true);
+    });
+  });
+
+  describe('sellos completos', () => {
+    const program = { placeId: 'p1', type: 'stamps', stampsToReward: 10, minHoursBetweenVisits: 0, pointsPerVisit: 0, isActive: true, rewardTitle: 'Postre gratis' };
+    const cardWith = (stamps: number, inWallet = true) => ({
+      id: 'c1', placeId: 'p1', customerPhone: '999', stamps, points: 0, totalVisits: stamps, marketingConsent: true, lastVisitAt: null,
+      googleWalletSavedAt: inWallet ? new Date() : null, googleWalletDeletedAt: null,
+    });
+    const myCards = async (stamps: number) => {
+      cardRepo.find.mockResolvedValue([{ placeId: 'p1', stamps, points: 0, level: 'BRONCE' }]);
+      programRepo.find.mockResolvedValue([program]);
+      placesRepo.find.mockResolvedValue([{ id: 'p1', name: 'Don José' }]);
+      return (await service.getMyCards('999'))[0].stampsRemaining;
+    };
+
+    it('faltan 0 sellos al llegar a la meta o pasarla; tras canjear vuelve a contar', async () => {
+      expect(await myCards(10)).toBe(0);
+      expect(await myCards(13)).toBe(0);
+      expect(await myCards(7)).toBe(3);
+      expect(await myCards(0)).toBe(10);
+    });
+
+    const scanWith = async (card: ReturnType<typeof cardWith>) => {
+      programRepo.findOne.mockResolvedValue(program);
+      cardRepo.findOne.mockResolvedValue(card);
+      cardRepo.save.mockImplementation(async (v: any) => v);
+      placesRepo.findOne.mockResolvedValue({ id: 'p1', name: 'Don José' });
+      return service.scan('p1', '999');
+    };
+
+    it('el sello que completa la meta avisa a su tarjeta de Google Wallet', async () => {
+      const res = await scanWith(cardWith(9));
+      expect(res.rewardUnlocked).toBe(true);
+      expect(walletQueue.add).toHaveBeenCalledWith(
+        'send-wallet-message',
+        { cardId: 'c1', header: '¡Completaste tus sellos!', body: 'Ya puedes canjear Postre gratis en Don José.' },
+        expect.anything(),
+      );
+    });
+
+    it('sin completar la meta, o sin tarjeta en Wallet, no avisa; y si el aviso falla, la visita cuenta igual', async () => {
+      await scanWith(cardWith(5));
+      await scanWith(cardWith(9, false));
+      expect(walletQueue.add).not.toHaveBeenCalled();
+
+      walletQueue.add.mockRejectedValue(new Error('redis caído'));
+      await expect(scanWith(cardWith(9))).resolves.toMatchObject({ stampsEarned: 1 });
     });
   });
 });

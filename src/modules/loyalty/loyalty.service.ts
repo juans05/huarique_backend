@@ -176,7 +176,28 @@ export class LoyaltyService {
       description: isNew ? 'Primera visita 🎉' : `Visita #${card.totalVisits}`,
     }));
 
+    if (rewardUnlocked) await this.notifyRewardReady(card, program);
+
     return { card, program, stampsEarned, pointsEarned, rewardUnlocked, isNew };
+  }
+
+  /** Aviso en el celular por Google Wallet (si guardó la tarjeta). No bloquea ni rompe la visita. */
+  private async notifyRewardReady(card: LoyaltyCard, program: LoyaltyProgram): Promise<void> {
+    if (!card.googleWalletSavedAt || card.googleWalletDeletedAt) return;
+    try {
+      const place = await this.placesRepo.findOne({ where: { id: card.placeId }, select: ['id', 'name'] });
+      await this.walletCampaignQueue.add(
+        'send-wallet-message',
+        {
+          cardId: card.id,
+          header: '¡Completaste tus sellos!',
+          body: `Ya puedes canjear ${program.rewardTitle || 'tu premio'} en ${place?.name ?? 'el local'}.`,
+        },
+        { attempts: 3, backoff: { type: 'exponential', delay: 2000 } },
+      );
+    } catch (err) {
+      this.logger.warn(`No se pudo avisar el premio (card ${card.id}): ${err?.message}`);
+    }
   }
 
   async redeem(placeId: string, cardId: string, rewardId: string): Promise<{ card: LoyaltyCard; reward: Reward }> {
@@ -394,7 +415,8 @@ export class LoyaltyService {
         if (!program || !place) return null; // programa desactivado o restaurante eliminado
 
         const stampsRemaining =
-          program.type === 'stamps' ? program.stampsToReward - (card.stamps % program.stampsToReward) : null;
+          // Los sellos se acumulan y el canje los descuenta: con la meta o más, faltan 0 hasta que canjee.
+          program.type === 'stamps' ? Math.max(0, program.stampsToReward - card.stamps) : null;
 
         return {
           placeId: place.id,
