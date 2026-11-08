@@ -21,6 +21,7 @@ describe('LoyaltyService.getMyCards', () => {
   let placesRepo: ReturnType<typeof mockRepo>;
   let contacts: { upsertByPhone: jest.Mock };
   let walletQueue: { add: jest.Mock };
+  let rewardRepo: ReturnType<typeof mockRepo>;
 
   beforeEach(async () => {
     contacts = { upsertByPhone: jest.fn().mockResolvedValue(null) };
@@ -45,6 +46,7 @@ describe('LoyaltyService.getMyCards', () => {
     programRepo = module.get(getRepositoryToken(LoyaltyProgram));
     placesRepo = module.get(getRepositoryToken(Place));
     walletQueue = module.get(getQueueToken('wallet-campaign'));
+    rewardRepo = module.get(getRepositoryToken(Reward));
   });
 
   it('includes latitude/longitude from the place in each card', async () => {
@@ -205,6 +207,24 @@ describe('LoyaltyService.getMyCards', () => {
         { cardId: 'c1', header: '¡Completaste tus sellos!', body: 'Ya puedes canjear Postre gratis en Don José.' },
         expect.anything(),
       );
+    });
+
+    it('la tarjeta llega hasta la meta y no pasa: con 10/10 la visita cuenta, no suma sello y sigue "para canjear"', async () => {
+      const res = await scanWith(cardWith(10));
+      expect(res.card.stamps).toBe(10);
+      expect(res.stampsEarned).toBe(0);
+      expect(res.card.totalVisits).toBe(11);
+      expect(res.rewardUnlocked).toBe(true);
+      expect(walletQueue.add).not.toHaveBeenCalled(); // ya se le avisó al completar
+    });
+
+    it('al canjear el premio de la meta vuelve a 0', async () => {
+      cardRepo.findOne.mockResolvedValue(cardWith(10));
+      programRepo.findOne.mockResolvedValue(program);
+      rewardRepo.findOne.mockResolvedValue({ id: 'r1', placeId: 'p1', stampsCost: 10, pointsCost: 0, isActive: true, title: 'Postre gratis' });
+      cardRepo.save.mockImplementation(async (v: any) => v);
+      const { card } = await service.redeem('p1', 'c1', 'r1');
+      expect(card.stamps).toBe(0);
     });
 
     it('sin completar la meta, o sin tarjeta en Wallet, no avisa; y si el aviso falla, la visita cuenta igual', async () => {

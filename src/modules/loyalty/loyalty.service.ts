@@ -143,7 +143,8 @@ export class LoyaltyService {
       card.marketingConsentAt = new Date();
     }
 
-    const stampsEarned = program.type === 'stamps' ? 1 : 0;
+    // La tarjeta va de 0 a la meta y ahí se queda hasta canjear: la visita cuenta, pero no suma más sellos.
+    const stampsEarned = program.type === 'stamps' && card.stamps < program.stampsToReward ? 1 : 0;
     const pointsEarned = program.type === 'points' ? program.pointsPerVisit : 0;
 
     card.stamps += stampsEarned;
@@ -152,10 +153,8 @@ export class LoyaltyService {
     card.lastVisitAt = new Date();
     card.level = this.calculateLevel(card.totalVisits);
 
-    const rewardUnlocked =
-      program.type === 'stamps' &&
-      card.stamps > 0 &&
-      card.stamps % program.stampsToReward === 0;
+    // Con la tarjeta llena, cada visita le recuerda que tiene para canjear.
+    const rewardUnlocked = program.type === 'stamps' && card.stamps >= program.stampsToReward;
 
     await this.cardRepo.save(card);
 
@@ -176,7 +175,7 @@ export class LoyaltyService {
       description: isNew ? 'Primera visita 🎉' : `Visita #${card.totalVisits}`,
     }));
 
-    if (rewardUnlocked) await this.notifyRewardReady(card, program);
+    if (rewardUnlocked && stampsEarned > 0) await this.notifyRewardReady(card, program); // solo al completarla
 
     return { card, program, stampsEarned, pointsEarned, rewardUnlocked, isNew };
   }
