@@ -5,6 +5,7 @@ import { plainToInstance } from 'class-transformer';
 import { User } from './entities/user.entity';
 import { RefreshToken } from '../auth/entities/refresh-token.entity';
 import { UserFollow } from './entities/user-follow.entity';
+import { NowFriend } from '../now/entities/now-friend.entity';
 import { Place } from '../places/entities/place.entity';
 import { PlaceResponseDto } from '../places/dto/place-response.dto';
 import * as bcrypt from 'bcryptjs';
@@ -39,7 +40,11 @@ export class UsersService {
     async unfollow(followerId: string, followingId: string): Promise<void> {
         const existing = await this.followsRepository.findOne({ where: { followerId, followingId } });
         if (!existing) throw new NotFoundException('No sigues a este usuario');
-        await this.followsRepository.remove(existing);
+        await this.followsRepository.manager.transaction(async (m) => {
+            await m.remove(existing);
+            // Amigos de "Ahora" se eligen entre seguidores: quien deja de seguir sale de la lista y no ve más lo de "solo Amigos".
+            await m.delete(NowFriend, { ownerId: followingId, friendId: followerId });
+        });
     }
 
     async isFollowing(followerId: string, followingId: string): Promise<boolean> {
