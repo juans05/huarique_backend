@@ -30,15 +30,17 @@ export class NowController {
     constructor(private readonly nowService: NowService) {}
 
     @Get()
+    // Solo respaldo por IP: el mapa recarga al moverse y muchos usuarios comparten IP móvil (CGNAT).
+    @Throttle({ default: { ttl: 60_000, limit: 120 } })
     @UseGuards(OptionalJwtAuthGuard)
     @ApiOperation({ summary: 'Publicaciones y promos de locales con plan dentro de la zona del mapa' })
     list(@CurrentUser() user: { id: string } | null, @Query() area: NowAreaDto) {
         return this.nowService.listArea(user?.id ?? null, area);
     }
 
-    // Las rutas fijas (feed, mine, friends) van antes de las que llevan :id. Sin @Throttle propio: rige solo el
-    // global, porque la IP móvil (CGNAT) la comparten muchos usuarios.
+    // Las rutas fijas (feed, mine, friends) van antes de las que llevan :id. Respaldo por IP amplio (CGNAT).
     @Get('feed')
+    @Throttle({ default: { ttl: 60_000, limit: 120 } })
     @UseGuards(JwtAuthGuard)
     @ApiBearerAuth()
     @ApiOperation({ summary: 'Feed de Ahora: following, nearby (5 km de lat/lng) o friends. Respeta la visibilidad' })

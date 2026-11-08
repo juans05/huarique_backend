@@ -200,6 +200,7 @@ describe('NowService.mine', () => {
 
         expect(page.data.map((d) => d.id)).toEqual(['vigente', 'viejo', 'oculto']);
         expect(page.data[1].expiresAt.getTime()).toBeLessThan(Date.now());
+        expect(page.data.map((d) => d.hidden)).toEqual([false, false, true]); // la app la marca "Oculta"
         expect(wheres(qb)).toEqual([['p.authorId = :userId', { userId: ME }]]); // sin filtro de vigencia ni de oculta
         expect(qb.orderBy).toHaveBeenCalledWith('p.createdAt', 'DESC');
         expect(qb.offset).toHaveBeenCalledWith(20);

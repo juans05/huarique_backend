@@ -24,6 +24,7 @@
     "migration:revert": "npm run typeorm -- migration:revert -d src/config/typeorm-cli.data-source.ts",
     "migrate": "ts-node src/scripts/migrate.ts",
     "migrate:broadcast-templates": "node migrations/run-broadcast-templates-migration.js",
+    "migrate:now": "node migrations/run-now-migration.js",
     "migrate:loyalty-consent": "node migrations/run-loyalty-consent-migration.js",
     "migrate:wa-provider": "node migrations/run-whatsapp-provider-migration.js",
     "migrate:dish-images": "node migrations/run-dish-images-migration.js",

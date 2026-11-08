@@ -83,6 +83,8 @@ export interface NowPostDto {
     createdAt: Date;
     author: NowAuthorDto;
     myReaction: NowReactionType | null;
+    /** Solo en /now/mine: al resto no se le dice si una publicación fue ocultada. */
+    hidden?: boolean;
 }
 
 export interface NowPromoDto {
@@ -363,7 +365,7 @@ export class NowService {
         return rows.map((r) => this.toDto(r, mine.get(r.id) ?? null));
     }
 
-    private async paginate(qb: SelectQueryBuilder<NowPost>, viewerId: string, page = 1): Promise<NowPage> {
+    private async paginate(qb: SelectQueryBuilder<NowPost>, viewerId: string, page = 1, withHidden = false): Promise<NowPage> {
         // El id desempata: dos publicaciones con el mismo createdAt no se repiten ni se saltan entre páginas.
         const [rows, total] = await qb
             .orderBy('p.createdAt', 'DESC')
@@ -371,7 +373,8 @@ export class NowService {
             .offset((page - 1) * PAGE_SIZE)
             .limit(PAGE_SIZE)
             .getManyAndCount();
-        return { data: await this.toDtos(rows, viewerId), total };
+        const data = await this.toDtos(rows, viewerId);
+        return { data: withHidden ? data.map((d, i) => ({ ...d, hidden: rows[i].hidden })) : data, total };
     }
 
     /** Feed con sesión: vigentes, no ocultas y visibles para el lector, de 20 en 20 y las más nuevas primero. */
@@ -389,7 +392,7 @@ export class NowService {
 
     /** Mis publicaciones, también las vencidas y las ocultas: el autor ve las suyas. */
     mine(userId: string, page?: number): Promise<NowPage> {
-        return this.paginate(this.authored().where('p.authorId = :userId', { userId }), userId, page);
+        return this.paginate(this.authored().where('p.authorId = :userId', { userId }), userId, page, true);
     }
 
     async listFriends(ownerId: string): Promise<NowAuthorDto[]> {
