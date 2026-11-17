@@ -1,8 +1,12 @@
+import { plainToInstance } from 'class-transformer';
+import { validate } from 'class-validator';
 import { CheckinsService } from './checkins.service';
+import { CreateCheckinDto } from './dto/create-checkin.dto';
+import { MAX_PUBLIC_PHOTOS } from './checkin-photos';
 import { PlacePhoto } from '../places/entities/place-photo.entity';
 import { Place } from '../places/entities/place.entity';
 
-const OWN = 'https://res.cloudinary.com/wuarikes/image/upload/v1/wuarike/places/a.jpg';
+const OWN = 'https://res.cloudinary.com/wuarikes/image/upload/v1789841985/wuarike/places/a.jpg';
 
 function build(place: { coverImageUrl: string | null }, suspicious = false) {
     const calls = { insert: [] as any[], update: [] as any[] };
@@ -60,6 +64,25 @@ describe('check-in con foto → galería y portada del local', () => {
         expect(calls.insert).toEqual([]);
         expect(calls.update).toEqual([]);
         expect(addPoints).toHaveBeenCalledWith('u1', 15);
+    });
+
+    it('un check-in con muchas fotos publica solo hasta el tope', async () => {
+        const { svc, calls } = build({ coverImageUrl: null });
+        const many = Array.from({ length: 5 }, (_, i) => OWN.replace('a.jpg', `id${i}.jpg`));
+        await svc.create('u1', { ...dto(), photos: many });
+        expect(calls.insert[0][1]).toHaveLength(MAX_PUBLIC_PHOTOS);
+    });
+
+    it('el DTO rechaza más de 5 fotos', async () => {
+        const make = (n: number) =>
+            plainToInstance(CreateCheckinDto, {
+                placeId: '11111111-1111-4111-8111-111111111111',
+                latitude: -12,
+                longitude: -77,
+                photos: Array.from({ length: n }, (_, i) => `u${i}`),
+            });
+        expect(await validate(make(5))).toHaveLength(0);
+        expect((await validate(make(6))).map((e) => e.property)).toEqual(['photos']);
     });
 
     it('check-in sospechoso: no publica nada ni da puntos', async () => {

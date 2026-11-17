@@ -1,4 +1,4 @@
-import { IsString, IsOptional, MaxLength, IsUrl, IsUUID, IsLatitude, IsLongitude, IsNumber, IsBoolean, Min } from 'class-validator';
+import { IsString, IsOptional, MaxLength, IsUrl, IsUUID, IsLatitude, IsLongitude, IsNumber, IsBoolean, Min, ArrayMaxSize } from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 
 export class CreateCheckinDto {
@@ -19,6 +19,7 @@ export class CreateCheckinDto {
 
     @ApiPropertyOptional({ type: [String], description: 'URLs of additional photos' })
     @IsOptional()
+    @ArrayMaxSize(5)
     @IsString({ each: true })
     photos?: string[];
 
