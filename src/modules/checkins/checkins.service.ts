@@ -5,7 +5,7 @@ import {
     ForbiddenException,
 } from '@nestjs/common';
 import { InjectDataSource, InjectRepository } from '@nestjs/typeorm';
-import { DataSource, Repository, In } from 'typeorm';
+import { DataSource, Repository, In, IsNull } from 'typeorm';
 import { Checkin } from './entities/checkin.entity';
 import { CheckinLike } from './entities/checkin-like.entity';
 import { CheckinPhoto } from './entities/checkin-photo.entity';
@@ -15,6 +15,8 @@ import { SubmitInfoSuggestionDto } from './dto/submit-info-suggestion.dto';
 import { UsersService } from '../users/users.service';
 import { PlacesService } from '../places/places.service';
 import { Place } from '../places/entities/place.entity';
+import { PlacePhoto } from '../places/entities/place-photo.entity';
+import { ownPhotoUrls } from './checkin-photos';
 import { Category } from '../places/entities/category.entity';
 import { Amenity } from '../places/entities/amenity.entity';
 import { AuditLogService } from '../audit-log/audit-log.service';
@@ -25,6 +27,9 @@ import { GamificationService } from '../gamification/gamification.service';
 // Cantidad de votantes distintos que deben coincidir en el mismo valor
 // sugerido antes de aplicar el cambio al local.
 const INFO_SUGGESTION_CONSENSUS_THRESHOLD = 3;
+
+// Foto de un local que aún no tiene ninguna: vale el doble que una foto normal (+5).
+const FIRST_PHOTO_POINTS = 10;
 
 const VALID_DAY_KEYS = new Set(['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun']);
 const TIME_RE = /^([01]\d|2[0-3]):[0-5]\d$/;
@@ -150,6 +155,11 @@ export class CheckinsService {
 
         const { photos, latitude, longitude, isMocked, accuracyMeters, ...checkinData } = dto;
 
+        // La foto de un check-in válido también alimenta la galería del local, y la
+        // primera se vuelve su portada. Un check-in marcado no publica nada.
+        const publicUrls = isSuspicious ? [] : ownPhotoUrls([dto.photoUrl, ...(dto.photos ?? [])]);
+        const isFirstPhoto = publicUrls.length > 0 && !place.coverImageUrl;
+
         // The check-in and its photos must land together: run them in a single
         // DB transaction so a failed photo insert can't leave an orphaned
         // check-in with missing photos.
@@ -168,6 +178,12 @@ export class CheckinsService {
                     url,
                 }));
                 await manager.save(photoEntities);
+            }
+
+            if (publicUrls.length > 0) {
+                await manager.insert(PlacePhoto, publicUrls.map((url) => ({ url, placeId: place.id, userId })));
+                // Condicional en SQL: si otro check-in puso portada un instante antes, no la pisa.
+                await manager.update(Place, { id: place.id, coverImageUrl: IsNull() }, { coverImageUrl: publicUrls[0] });
             }
 
             return saved;
@@ -192,7 +208,7 @@ export class CheckinsService {
         // Award points
         let points = 10;
         if (dto.photoUrl || (dto.photos && dto.photos.length > 0)) {
-            points += 5;
+            points += isFirstPhoto ? FIRST_PHOTO_POINTS : 5;
         }
         await this.usersService.addPoints(userId, points);
         await this.gamificationService.updateStreak(userId);
